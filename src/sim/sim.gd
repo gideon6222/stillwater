@@ -171,9 +171,23 @@ func tap() -> void:
 			taps += 1
 			tension = clampf(tension + Tuning.TAP_KICK, 0.0, Tuning.TENSION_MAX)
 			tapped.emit()
-		WAITING, NIBBLING:
-			# Tapping at nothing puts them off. That is what makes the hook
-			# minigame a decision rather than something to mash through.
+		WAITING:
+			# **A tap on a dead cast winds the line in.** It used to spook, which
+			# left a player waiting for a bite that never came with NO way back to
+			# the boat: `hold_cast` is refused while a line is out, and tapping
+			# only reset a timer. It shipped, and the report was "I cant recast or
+			# anything".
+			#
+			# `reel_in` existed the whole time and nothing in the renderer called
+			# it. The suite checked the way out of every state the SIM has, and
+			# never that the game offered one - **a way out only the simulation
+			# knows about is not a way out.**
+			_enter(IDLE)
+			_clear_fish()
+		NIBBLING:
+			# Striking at a fish that is only interested puts it off. This is the
+			# one place a mistimed tap should cost anything, because there is
+			# something on the line to lose.
 			spook_timer = Tuning.SPOOK_TIME
 			_enter(WAITING)
 		_:

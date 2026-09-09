@@ -23,17 +23,20 @@ up and chose not to sell — and there is a finite number of them. So a player w
 story caps out at 40 m with a full wallet. That is the "what happens if they ignore this?" test
 passing: the answer is not "they score less", it is "they cannot continue".
 
-## What is proven, as of 2026-09-09 (v0.4.0, M1)
+## What is proven, as of 2026-09-09 (v0.4.1, M1)
 
 - The fresh template copy passed its own gate before a line of game code — 28 tests, 4,410
   assertions — so nothing that fails from here is inherited.
 - Cast → hook → reel → land, end to end, through the real scene and the real input seam.
-- 60 tests, 5,227 assertions, about a second, no display. Plus 45 smoke assertions that boot
+- 62 tests, 5,235 assertions, about a second, no display. Plus 57 smoke assertions that boot
   the actual scene and catch a whole fish through it.
 - A whole-run golden over seven scripted sessions, which has earned its place twice: the first
   recording exposed stale fish state leaking through a cast made straight out of a loss, and a
   later one showed a bot that was never tapping at all.
-- Screenshot at the phone's real aspect (460x996), not the project base.
+- Screenshot at the phone's real aspect (460x996), not the project base - and `shot.gd` takes a
+  STATE to stop at, because the moments worth photographing are the short ones. Three HUD bugs
+  shipped at once partly because the single screenshot taken of them landed mid-fight, the one
+  state in which none of them show.
 
 ## The fight, and why it is built this way
 
@@ -168,6 +171,16 @@ hard.**
 - **The gauges live in the top third and the tap target is everything.** `run_smoke.gd` asserts
   the separation, because it is the settlement of two separate playtest notes and neither should
   come back.
+- **Never set `visible` inside a `draw` callback.** A hidden Control never receives `draw` again,
+  so it is a latch that can only fail closed - it shipped a build where NEITHER gauge was ever
+  seen. Visibility belongs in `_sync_bars`, which runs every frame regardless. `run_smoke.gd`
+  now asserts each gauge is visible in its own state AND comes back after being hidden.
+- **Every state needs a way out THROUGH THE RENDERER, not just through Sim.** `reel_in()` existed,
+  was tested, and passed - and nothing in `main.gd` called it, so a cast with no bite had no way
+  back to the boat. Test the call the touch handler makes.
+- **Rod rotation is down-positive.** A positive X rotation points the tip DOWN, so lifting back to
+  cast is NEGATIVE and a fish bending it forward is POSITIVE. Both were inverted once and the
+  report was "it pushes down and flings up when you let go".
 - **No caption may say what to do about a run.** No "STOP TAPPING!". The needle climbing on its
   own with the thumb still is the instruction, and a caption that says it too means the player
   reads the caption forever and never learns the gauge.

@@ -74,6 +74,44 @@ func test_the_lure_sinks_to_the_bed_and_stops(t: TestHarness) -> void:
 	t.ok(s.state != Sim.SINKING, "and stops sinking")
 
 
+## THE WAY OUT OF A DEAD CAST, through the seam a thumb actually uses.
+##
+## This shipped broken and the report was "I cant recast or anything". The
+## simulation had `reel_in()` the whole time, the suite tested it, and it passed
+## - but nothing in the renderer ever called it, and a tap while waiting only
+## spooked. So the player had a line in the water, no bite, and no route back to
+## the boat at all.
+##
+## **A way out that only the simulation knows about is not a way out.** The test
+## that matters drives the call the touch handler drives, which is `tap`.
+func test_tapping_a_dead_cast_winds_it_back_in(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	s.hold_cast()
+	s.release_cast()
+	t.ok(_drive_to(s, Sim.WAITING, 20.0), "the lure reaches fishing depth")
+
+	s.tap()
+	t.eq(s.state, Sim.IDLE, "a tap on a dead cast leaves the line in the water")
+	t.approx(s.lure_depth, 0.0, 1e-6, "the lure did not come back up")
+
+	# And casting again has to work immediately afterwards.
+	s.hold_cast()
+	t.eq(s.state, Sim.CHARGING, "the player still cannot start another cast")
+	_step(s, 0.4)
+	s.release_cast()
+	t.eq(s.state, Sim.FLYING, "the second cast never leaves the rod")
+
+
+## But a tap at a fish that IS interested still costs something, or the hook
+## minigame is not a decision.
+func test_tapping_at_a_nibble_still_spooks(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	t.ok(_drive_to(s, Sim.NIBBLING, 40.0), "a fish gets interested")
+	s.tap()
+	t.eq(s.state, Sim.WAITING, "striking early did not put the fish off")
+	t.gt(s.spook_timer, 0.0, "and there is no cost to doing it")
+
+
 func test_a_cast_cannot_be_started_during_a_fight(t: TestHarness) -> void:
 	var s := Sim.new(1)
 	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")

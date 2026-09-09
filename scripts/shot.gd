@@ -27,14 +27,27 @@
 ## **Play it, do not watch it.** A passive run is a picture of the game not
 ## being played, and the drawing paths that only fire on an impact never run.
 
+## A second argument names a STATE to stop at, which matters more than it sounds.
+##
+##   godot --path . --resolution 460x996 --script res://scripts/shot.gd -- 60 hooking
+##
+## Capturing "at 24.5 seconds" means guessing which moment of the game that is,
+## and the moments worth photographing are the short ones - the hook bar is up
+## for about three seconds a cast. Both HUD gauges shipped invisible partly
+## because the one screenshot taken of them happened to land mid-fight, which is
+## the single state in which that bug does not show.
 var _main
 var _frames := 0
 var _seconds := 12.0
+var _until := ""
 
 
 func _initialize() -> void:
-	for a in OS.get_cmdline_user_args():
-		_seconds = float(a)
+	var args := OS.get_cmdline_user_args()
+	if args.size() > 0:
+		_seconds = float(args[0])
+	if args.size() > 1:
+		_until = String(args[1])
 
 	var scene: PackedScene = load("res://src/game/main.tscn")
 	_main = scene.instantiate()
@@ -47,8 +60,12 @@ func _initialize() -> void:
 	var step := 1.0 / 60.0
 	var mem := {}
 	for i in int(round(_seconds / step)):
+		if _until != "" and _main.sim.state == _until:
+			break
 		Policies.act(Policies.HUMAN, _main.sim, step, mem)
 		_main.advance(step, step)
+	if _until != "" and _main.sim.state != _until:
+		printerr("never reached state '%s' in %.1fs" % [_until, _seconds])
 
 
 func _process(_delta: float) -> bool:

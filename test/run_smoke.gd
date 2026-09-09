@@ -120,6 +120,29 @@ func _check_the_gauges_are_clear_of_the_thumb(main) -> void:
 	var hook_bar: Control = main._hook_bar
 	var gauge: Control = main._tension_bar
 
+	# **THE GAUGE IS ACTUALLY ON SCREEN.**
+	#
+	# The assertion that was missing, and its absence shipped a build in which
+	# NEITHER gauge was ever visible. `visible` was being set inside the draw
+	# callback, which is a latch - a hidden Control never receives `draw` again,
+	# so the first frame in any other state switched it off for good. Every
+	# property below still passed, because anchors and offsets are correct on a
+	# control nobody can see.
+	#
+	# So: check it is showing when it should be, AND that it comes back after
+	# being hidden, which is the half a single snapshot cannot catch.
+	_t.ok(gauge.visible, "the tension gauge is not visible during a fight")
+	_t.ok(not hook_bar.visible, "the hook bar is still up during a fight")
+
+	main.freeze(1)
+	main.advance(0.1)
+	_t.ok(not gauge.visible, "the tension gauge is up before anything is hooked")
+	_t.ok(_drive_until(main, Sim.HOOKING, 180.0), "the hook bar can be reached")
+	_t.ok(hook_bar.visible, "the hook bar never comes back once it has been hidden")
+
+	_t.ok(_drive_until(main, Sim.FIGHTING, 180.0), "a fish can be hooked again")
+	_t.ok(gauge.visible, "the tension gauge never comes back once it has been hidden")
+
 	# Both live in the TOP third. A readout the thumb can rest on is the whole of
 	# the first note.
 	#
@@ -178,11 +201,29 @@ func _check_the_cast_is_a_swing_not_a_bend(main) -> void:
 	var bend: float = main.rod_bend_degrees()
 	_t.lt(bend, 1.0, "the rod BENDS while being charged - a cast is a swing, not a load")
 
-	# And the butt has actually moved, so it is swinging rather than doing
-	# nothing at all.
+	# And it lifts UP AND BACK, not down.
+	#
+	# The direction is the whole of the note this test exists for: "the rod
+	# should be straight initially lift the rod up and back... but it pushes down
+	# and flings up when you let go". A positive X rotation points the tip DOWN
+	# in Godot, so lifting back has to make the angle MORE NEGATIVE than rest.
 	var butt: Node3D = main._rod
-	_t.gt(butt.rotation_degrees.x, -14.0 + 5.0,
-		"the rod does not lift back when the cast is charged")
+	_t.lt(butt.rotation_degrees.x, -14.0 - 5.0,
+		"the rod goes DOWN when the cast is charged - the sign is inverted")
+
+	# Then the release throws it forward, past the rest angle.
+	main.sim.release_cast()
+	main.advance(0.12)
+	_t.eq(main.sim.state, Sim.FLYING, "the cast did not go")
+	_t.gt(butt.rotation_degrees.x, -14.0,
+		"the rod does not swing FORWARD through the rest angle on release")
+
+	# And a fish bends it the other way from the lift - down and forward.
+	_t.ok(_drive_until(main, Sim.FIGHTING, 180.0), "a fish can be hooked")
+	_t.gt(main.rod_bend_degrees(), 0.0, "a hooked fish does not bend the rod")
+	var tip_seg: Node3D = main._rod_chain[main.ROD_SEGMENTS - 1]
+	_t.gt(tip_seg.rotation_degrees.x, 0.0,
+		"the rod bends UP under load - a fish pulls the tip down and forward")
 
 
 ## The controls must be ANCHORED to the viewport, never placed at a literal

@@ -12,13 +12,13 @@ extends RefCounted
 ## refactored; one line each; newest first. Add this from day one. On an
 ## earlier game it arrived far too late to be as useful as it should have been.
 
-const VERSION := "0.4.0"
+const VERSION := "0.4.1"
 
 const RELEASES := [
 	{
-		"version": "0.4.0",
+		"version": "0.4.1",
 		"date": "2026-09-09",
-		"title": "Two minigames, and gauges you can see",
+		"title": "The gauges actually appear now",
 		"notes": [
 			"HOOK IT: a marker sweeps a bar. Tap while it is in the green.",
 			"Dead centre starts the fight already up to pressure.",
@@ -28,7 +28,9 @@ const RELEASES := [
 			"When the fish RUNS the needle climbs on its own. Stop tapping.",
 			"The bar flashes just before a run. Watch for it.",
 			"Gauges are at the top now, so your thumb never covers them.",
-			"The rod lifts back to cast and only bends when a fish is on.",
+			"The rod lifts UP AND BACK to cast, then swings forward. Only a fish bends it.",
+			"Fixed: neither gauge was ever visible. They are now.",
+			"Fixed: tap to wind a dead cast back in. You could get stuck with a line out.",
 		],
 	},
 ]

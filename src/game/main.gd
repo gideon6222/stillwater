@@ -663,11 +663,25 @@ func _build_hud() -> void:
 	_ui.add_child(_stamp)
 
 
-## Redraw the bars. Their SIZE is anchors, so nothing here has to compute it -
-## see the note where they are built.
+## Show, hide and redraw the bars. Their SIZE is anchors, so nothing here has to
+## compute it - see the note where they are built.
+##
+## **Visibility is set HERE, never inside the draw callback.**
+##
+## It was, and it shipped. `_draw_hook_bar` began with
+## `_hook_bar.visible = (state == HOOKING)`, which is a LATCH: a hidden Control
+## never receives `draw` again, so the first frame in any other state switched it
+## off permanently and NEITHER GAUGE WAS EVER SEEN on the phone. It survived my
+## screenshot because that capture happened to freeze mid-fight - the one state
+## in which the bug cannot appear.
+##
+## The general form, worth carrying: **a callback must not decide whether it is
+## called.** Anything that gates its own invocation can only ever fail closed.
 func _sync_bars() -> void:
 	if _hook_bar == null or _tension_bar == null:
 		return
+	_hook_bar.visible = sim.state == Sim.HOOKING
+	_tension_bar.visible = sim.state == Sim.FIGHTING
 	_hook_bar.queue_redraw()
 	_tension_bar.queue_redraw()
 
@@ -679,9 +693,7 @@ func _sync_bars() -> void:
 ## same numbers the rules use, so what the player aims at and what is scored
 ## cannot drift apart.
 func _draw_hook_bar() -> void:
-	var showing := sim.state == Sim.HOOKING
-	_hook_bar.visible = showing
-	if not showing:
+	if sim.state != Sim.HOOKING:
 		return
 	var w := _hook_bar.size.x
 	var h := _hook_bar.size.y
@@ -711,9 +723,7 @@ func _draw_hook_bar() -> void:
 ## needle climbs with the player's thumb completely still, and they work out on
 ## their own that the answer is to stop tapping.
 func _draw_tension_bar() -> void:
-	var showing := sim.state == Sim.FIGHTING
-	_tension_bar.visible = showing
-	if not showing:
+	if sim.state != Sim.FIGHTING:
 		return
 	var w := _tension_bar.size.x
 	var h := _tension_bar.size.y
@@ -884,43 +894,55 @@ func _sync_rod() -> void:
 	if _rod == null:
 		return
 
-	var swing := 0.0   ## positive is back, over the shoulder
-	var bend := 0.0    ## positive is forward, under load
+	# SIGN CONVENTION, because getting it wrong shipped once.
+	#
+	# The rod points along its own +Z. A POSITIVE rotation about X maps
+	# (0,0,1) -> (0,-sin,cos), which points the tip DOWN. So:
+	#
+	#   negative X  =  tip up and back   (loading a cast)
+	#   positive X  =  tip down and forward   (the throw, and a fish pulling)
+	#
+	# The first version had both inverted, and the report was exactly that:
+	# "it pushes down and flings up when you let go".
+	#
+	# `back` and `bend` below are both written as POSITIVE quantities meaning
+	# what they say, and the sign is applied once, at the bottom.
+	var back := 0.0    ## degrees lifted up and behind the shoulder
+	var bend := 0.0    ## degrees the tip is pulled down and forward
 
 	match sim.state:
 		Sim.CHARGING:
-			swing = sim.charge * CAST_BACK
+			back = sim.charge * CAST_BACK
 		Sim.FLYING:
-			# The forward swing, then a settle. Starts from wherever the charge
-			# had it, throws through the rest angle, and eases back.
+			# The throw: from wherever the charge had it, forward THROUGH the
+			# rest angle. `back` goes negative here, which is the same axis
+			# continuing past zero rather than a second motion.
 			var k := clampf(sim.state_time / CAST_SWING_TIME, 0.0, 1.0)
-			var from := sim.charge * CAST_BACK
-			swing = lerpf(from, -CAST_THROW, k)
-		Sim.SINKING, Sim.WAITING, Sim.NIBBLING, Sim.HOOKING:
-			# Ease the throw out over the next moment rather than snapping back,
-			# so the cast reads as one continuous motion.
+			back = lerpf(sim.charge * CAST_BACK, -CAST_THROW, k)
+		Sim.SINKING:
+			# Ease out of the throw rather than snapping back, so the whole cast
+			# reads as one continuous motion.
 			var settle := clampf(sim.state_time / 0.45, 0.0, 1.0)
-			swing = lerpf(-CAST_THROW, 0.0, settle) if sim.state == Sim.SINKING else 0.0
+			back = lerpf(-CAST_THROW, 0.0, settle)
 		Sim.FIGHTING:
-			bend = clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0)
+			bend = clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0) * ROD_BEND
 		_:
 			pass
 
 	# A rod near breaking shivers. Cosmetic, so `randf` would be legal - but it
 	# is keyed on the sim's own clock so two screenshots of the same second are
 	# identical, which is what makes them comparable at all.
-	var shiver := 0.0
 	if sim.state == Sim.FIGHTING and sim.danger() > 0.3:
-		shiver = sin(sim.time * 47.0) * (sim.danger() - 0.3) * 3.0
+		bend += sin(sim.time * 47.0) * (sim.danger() - 0.3) * 3.0
 
-	var total_bend := bend * ROD_BEND + shiver
 	for i in _rod_chain.size():
-		var share: float = ROD_CURVE[i] * total_bend
+		var share: float = ROD_CURVE[i] * bend
 		if i == 0:
-			# The butt carries the whole swing plus its share of the bend.
-			_rod_chain[i].rotation_degrees = Vector3(-14.0 + swing - share, 0.0, 9.0)
+			# The butt carries the whole swing plus its share of the bend. Both
+			# are down-positive, and `back` is a lift, so it subtracts.
+			_rod_chain[i].rotation_degrees = Vector3(-14.0 - back + share, 0.0, 9.0)
 		else:
-			_rod_chain[i].rotation_degrees = Vector3(-share, 0.0, 0.0)
+			_rod_chain[i].rotation_degrees = Vector3(share, 0.0, 0.0)
 	_update_rod_tip()
 
 
