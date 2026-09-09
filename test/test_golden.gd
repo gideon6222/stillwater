@@ -1,4 +1,4 @@
-extends RefCounted
+﻿extends RefCounted
 
 ## The whole-run golden.
 ##
@@ -31,22 +31,23 @@ const GOLDEN := [
 		"seed": 1,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 4,
+			"casts": 5,
 			"caught": 3,
-			"draws": 514,
-			"fish_distance": 10.586000,
-			"fish_id": "bluegill",
-			"fish_stamina": 0.638000,
+			"draws": 45,
+			"fighting": 25.033000,
+			"fish_distance": 12.609000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
 			"lost": 0,
-			"lure_depth": 4.000000,
+			"lure_depth": 2.089000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "fighting",
+			"state": "sinking",
 			"strain": 0.000000,
 			"taking": false,
-			"taps": 2,
-			"tension": 0.618000,
-			"total_weight": 2.861000,
+			"taps": 0,
+			"tension": 0.000000,
+			"total_weight": 11.135000,
 			"tug": 0.000000,
 		},
 	},
@@ -56,22 +57,23 @@ const GOLDEN := [
 		"seed": 1,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 4,
+			"casts": 5,
 			"caught": 3,
-			"draws": 514,
-			"fish_distance": 11.388000,
-			"fish_id": "bluegill",
-			"fish_stamina": 0.781000,
+			"draws": 45,
+			"fighting": 25.217000,
+			"fish_distance": 12.609000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
 			"lost": 0,
-			"lure_depth": 4.000000,
+			"lure_depth": 1.514000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "fighting",
+			"state": "sinking",
 			"strain": 0.000000,
 			"taking": false,
-			"taps": 1,
-			"tension": 0.614000,
-			"total_weight": 2.861000,
+			"taps": 0,
+			"tension": 0.000000,
+			"total_weight": 11.135000,
 			"tug": 0.000000,
 		},
 	},
@@ -82,21 +84,22 @@ const GOLDEN := [
 		"expect": {
 			"cast_distance": 12.609000,
 			"casts": 4,
-			"caught": 3,
-			"draws": 433,
-			"fish_distance": 7.943000,
-			"fish_id": "perch",
-			"fish_stamina": 0.181000,
+			"caught": 4,
+			"draws": 54,
+			"fighting": 30.300000,
+			"fish_distance": 0.000000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
 			"lost": 0,
-			"lure_depth": 4.000000,
+			"lure_depth": 0.000000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "fighting",
+			"state": "charging",
 			"strain": 0.000000,
 			"taking": false,
-			"taps": 6,
-			"tension": 0.577000,
-			"total_weight": 0.931000,
+			"taps": 0,
+			"tension": 0.000000,
+			"total_weight": 4.652000,
 			"tug": 0.000000,
 		},
 	},
@@ -106,22 +109,23 @@ const GOLDEN := [
 		"seed": 1,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 4,
+			"casts": 5,
 			"caught": 3,
-			"draws": 514,
-			"fish_distance": 10.586000,
-			"fish_id": "bluegill",
-			"fish_stamina": 0.638000,
+			"draws": 45,
+			"fighting": 25.683000,
+			"fish_distance": 12.609000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
 			"lost": 0,
-			"lure_depth": 4.000000,
+			"lure_depth": 1.342000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "fighting",
+			"state": "sinking",
 			"strain": 0.000000,
 			"taking": false,
-			"taps": 2,
-			"tension": 0.618000,
-			"total_weight": 2.861000,
+			"taps": 0,
+			"tension": 0.000000,
+			"total_weight": 11.135000,
 			"tug": 0.000000,
 		},
 	},
@@ -131,14 +135,15 @@ const GOLDEN := [
 		"seed": 1,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 9,
+			"casts": 10,
 			"caught": 0,
-			"draws": 843,
+			"draws": 51,
+			"fighting": 0.000000,
 			"fish_distance": 12.609000,
 			"fish_id": "",
 			"fish_stamina": 1.000000,
 			"lost": 8,
-			"lure_depth": 1.610000,
+			"lure_depth": 0.728000,
 			"running": false,
 			"seconds": 60.000000,
 			"state": "sinking",
@@ -156,23 +161,24 @@ const GOLDEN := [
 		"seed": 1,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 6,
+			"casts": 8,
 			"caught": 0,
-			"draws": 728,
+			"draws": 56,
+			"fighting": 0.000000,
 			"fish_distance": 12.609000,
-			"fish_id": "bluegill",
+			"fish_id": "shiner",
 			"fish_stamina": 1.000000,
-			"lost": 5,
-			"lure_depth": 4.000000,
+			"lost": 6,
+			"lure_depth": 2.330000,
 			"running": false,
 			"seconds": 60.000000,
 			"state": "nibbling",
 			"strain": 0.000000,
-			"taking": false,
+			"taking": true,
 			"taps": 0,
 			"tension": 0.000000,
 			"total_weight": 0.000000,
-			"tug": 0.000000,
+			"tug": 0.524000,
 		},
 	},
 	{
@@ -181,21 +187,22 @@ const GOLDEN := [
 		"seed": 1,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 2,
+			"casts": 4,
 			"caught": 0,
-			"draws": 230,
-			"fish_distance": 16.988000,
-			"fish_id": "bluegill",
-			"fish_stamina": 0.000000,
-			"lost": 1,
-			"lure_depth": 4.000000,
+			"draws": 40,
+			"fighting": 33.450000,
+			"fish_distance": 12.609000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
+			"lost": 2,
+			"lure_depth": 1.725000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "fighting",
+			"state": "sinking",
 			"strain": 0.000000,
 			"taking": false,
-			"taps": 14,
-			"tension": 0.270000,
+			"taps": 0,
+			"tension": 0.000000,
 			"total_weight": 0.000000,
 			"tug": 0.000000,
 		},
@@ -242,15 +249,46 @@ func test_nobody_who_ignores_the_gauges_catches_anything(t: TestHarness) -> void
 ## identically at 100%. **A bot that reads the gauge sixty times a second is not
 ## a model of anyone**, and the mechanic looked free until the bots tapped on a
 ## rhythm like a person does.
+## It had to be earned a third time, too. Measured in the STARTING REEDS both
+## bots lost nothing, and the test read that as the warning being decoration. It
+## was not - the reeds are deliberately gentle enough that a missed tell costs a
+## beginner nothing, which is the whole point of a tutorial. The claim was being
+## made in the one band where it is not supposed to hold.
+##
+## So it is measured on the Drowned Road, which is the first water that can take
+## a fish off you, and the reeds get their own weaker claim underneath.
 func test_watching_the_water_is_worth_something(t: TestHarness) -> void:
 	var watched := 0
 	var blind := 0
 	for seed_value in [1, 2, 3, 4, 5, 6]:
-		watched += int(Policies.play(Policies.ANGLER, 90.0, seed_value)["lost"])
-		blind += int(Policies.play(Policies.BLIND, 90.0, seed_value)["lost"])
+		watched += int(Policies.play(Policies.ANGLER, 90.0, seed_value, "road", 2)["lost"])
+		blind += int(Policies.play(Policies.BLIND, 90.0, seed_value, "road", 2)["lost"])
 	t.lt(float(watched), float(blind),
 		"ignoring the run warning costs nothing, so the warning is decoration")
-	t.eq(watched, 0, "reading the warning is not enough to avoid every run")
+	t.gt(float(blind), 0.0, "the blind player loses nothing, so nothing was measured")
+
+
+## AND THE TUTORIAL MAY NOT TEACH THE PLAYER TO IGNORE IT.
+##
+## The reeds must not take fish off a beginner for missing a tell - but if
+## missing it is entirely free, the player spends the first hour learning that
+## the warning means nothing, and the Channel then punishes a habit this game
+## taught them. So in the reeds the tell buys TIME rather than fish: the watchful
+## player lands more in the same ninety seconds, and loses none either way.
+func test_the_reeds_charge_for_a_missed_tell_in_time_not_fish(t: TestHarness) -> void:
+	var watched := 0.0
+	var blind := 0.0
+	var blind_lost := 0
+	for seed_value in [1, 2, 3, 4, 5, 6]:
+		watched += float(Policies.play(Policies.ANGLER, 90.0, seed_value)["fighting"])
+		var b := Policies.play(Policies.BLIND, 90.0, seed_value)
+		blind += float(b["fighting"])
+		blind_lost += int(b["lost"])
+	t.lt(watched, blind,
+		"a beginner who ignores the tell spends no longer on the fish (%.1fs vs %.1fs), so the tell is invisible" % [
+			watched, blind])
+	t.eq(blind_lost, 0,
+		"the reeds take %d fish off a beginner for missing a tell they are still learning" % blind_lost)
 
 
 ## THE test that answers Gideon's note about the first fight.
@@ -275,23 +313,46 @@ func test_a_plausible_player_loses_real_fish(t: TestHarness) -> void:
 	t.gt(float(caught), 0.0, "a plausible player cannot land anything at all")
 
 
-## The species table has to be an ordered ladder, in the order it is written.
+## THE BANDS FORM A LADDER, and that is the claim worth asserting.
 ##
-## This caught a real inversion once, in the previous fight: raising the
-## bluegill's run chance while leaving another field high made the TUTORIAL fish
-## harder than the one after it. Difficulty is the product of several fields and
-## no single one places a species.
-func test_the_species_form_a_difficulty_ladder(t: TestHarness) -> void:
-	var rates: Array[float] = []
-	for row in Species.TABLE:
-		rates.append(_win_rate(row["id"]))
-	for i in rates.size() - 1:
-		t.gt(rates[i], rates[i + 1] - 0.001,
-			"%s is harder than %s, so the table is not in difficulty order" % [
-				Species.TABLE[i]["name"], Species.TABLE[i + 1]["name"],
-			])
-	t.gt(rates[0], 0.80, "the first fish a player ever meets is not a reliable win")
-	t.lt(rates[rates.size() - 1], 0.80, "the prize fish is not a gamble")
+## The first version compared all twenty-six species in a straight line, which
+## was never the right shape: the table is grouped by DEPTH BAND and the order
+## inside a band is content, not difficulty - a band needs an easy filler fish as
+## much as it needs a prize.
+##
+## What has to hold is that **going deeper is going somewhere harder**, band by
+## band, because that is the promise the whole progression makes. Depth is time
+## and time is the story, so a band that is easier than the one above it would
+## make reaching further back a reward with no cost.
+func test_the_bands_form_a_difficulty_ladder(t: TestHarness) -> void:
+	var means: Array[float] = []
+	var names: Array[String] = []
+	for band in World.BANDS:
+		var total := 0.0
+		var n := 0
+		for row in Species.TABLE:
+			if row["band"] != band["id"]:
+				continue
+			total += _win_rate(row["id"])
+			n += 1
+		if n == 0:
+			continue
+		means.append(total / float(n))
+		names.append(band["name"])
+
+	t.gt(float(means.size()), 2.0, "there are not enough bands to be a ladder")
+
+	# A real STEP, not merely non-decreasing. The measurement is a sample - fixed
+	# seeds, so it is deterministic rather than flaky, but a one-point gap would
+	# still be a ladder only by accident, and the next content change would flip
+	# it without meaning to.
+	for i in means.size() - 1:
+		t.gt(means[i] - means[i + 1], 0.03,
+			"%s (%.0f%% landed) is not meaningfully easier than %s (%.0f%%)" % [
+				names[i], means[i] * 100.0, names[i + 1], means[i + 1] * 100.0])
+
+	t.gt(means[0], 0.80, "the first water a player ever fishes is not a reliable win")
+	t.lt(means[means.size() - 1], 0.75, "the deepest water is not a gamble")
 
 
 ## Land rate for one species with the human, from a worst-case full-length cast.

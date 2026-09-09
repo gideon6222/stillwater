@@ -31,6 +31,7 @@ signal hooked(species_id: String, perfect: bool)
 signal tapped()
 signal run_started()
 signal landed(species_id: String, weight: float)
+signal object_found(object_id: String)
 signal lost(reason: String)
 
 ## The states a line can be in. Named rather than numbered because they appear in
@@ -57,11 +58,35 @@ var state: String = IDLE
 var time: float = 0.0             ## seconds since the session started
 var state_time: float = 0.0       ## seconds in the current state
 
+# --- where and when -------------------------------------------------------
+## The spine of the whole game. `spot` is where the boat is; the depth the lure
+## reaches there is the shallower of the lake bed and what the LINE will stand -
+## and depth is time, so the line IS the story progression. See `world.gd`.
+var spot: String = "reed_bay"
+var hour: String = "dawn"
+var weather: String = "clear"
+var day: int = 1
+
+var econ := Econ.new()
+
+## Species landed at least once, and objects found at least once. The logbook is
+## the collection, and a collection is the one reward whose value does not decay
+## the way money does: every amount of money you earn makes the last amount
+## irrelevant, and a filled page never stops being filled.
+var logged: Dictionary = {}
+var found: Dictionary = {}
+var last_object: String = ""      ## what came up on the last cast, "" for a fish
+
 # --- the cast -------------------------------------------------------------
 var charge: float = 0.0           ## [0, 1] while CHARGING
+var cast_charge: float = 0.0      ## the charge the CURRENT cast was made at.
+                                  ## Kept separate because `charge` is cleared,
+                                  ## and this is what decided the depth - and
+                                  ## therefore the year - of this cast.
 var cast_distance: float = 0.0    ## metres out, once cast
 var lure_depth: float = 0.0       ## metres down
 var spook_timer: float = 0.0      ## fish put off by a wrong tap
+var bite_in: float = 0.0          ## seconds until the next bite, drawn once
 
 # --- the fish -------------------------------------------------------------
 var fish_id: String = ""
@@ -123,10 +148,19 @@ func restart(seed_value: int = 1) -> void:
 	cast_distance = 0.0
 	lure_depth = 0.0
 	spook_timer = 0.0
+	bite_in = 0.0
 	caught = 0
 	lost_count = 0
 	total_weight = 0.0
 	casts = 0
+	spot = "reed_bay"
+	hour = "dawn"
+	weather = "clear"
+	day = 1
+	econ.reset()
+	logged = {}
+	found = {}
+	last_object = ""
 	_rng = SimRng.new(seed_value)
 	_clear_fish()
 
@@ -154,6 +188,7 @@ func release_cast() -> void:
 	if state != CHARGING:
 		return
 	casts += 1
+	cast_charge = charge
 	cast_distance = Tuning.cast_distance(charge)
 	fish_distance = cast_distance
 	lure_depth = 0.0
@@ -219,8 +254,12 @@ func advance(dt: float) -> void:
 				_enter(SINKING)
 				cast_landed.emit(cast_distance)
 		SINKING:
-			lure_depth = minf(lure_depth + Tuning.SINK_RATE * dt, Tuning.BED_DEPTH)
-			if lure_depth >= Tuning.BED_DEPTH:
+			# Sinks to the depth the LINE reaches at this spot, not to the bed. Those
+			# are the same number in the reeds and nowhere else, and the difference
+			# is the whole progression: better line, deeper lure, older water.
+			var target := fishing_depth()
+			lure_depth = minf(lure_depth + Tuning.SINK_RATE * Tuning.sink_speed(target) * dt, target)
+			if lure_depth >= target - 0.001:
 				_enter(WAITING)
 		WAITING:
 			_wait(dt)
@@ -310,30 +349,70 @@ func _clear_fish() -> void:
 	tell = 0.0
 	taps = 0
 	charge = 0.0
+	cast_charge = 0.0
 	lure_depth = 0.0
+	bite_in = 0.0
 
 
-## Fishing. A per-second chance converted to a per-step one, so the bite rate is
-## the same at 60 fps and at 120 - the thing a raw `chance * dt` gets wrong at
-## large dt and the reason this is not written the obvious way.
+## Waiting for a bite.
+##
+## **The interval is DRAWN ONCE, not rolled every frame.**
+##
+## Rolling a per-step coin is the obvious way and it is subtly wrong: the number
+## of draws then depends on the frame rate, so the whole rng stream diverges
+## between 60 fps and 120 - the physics stayed identical and every downstream
+## decision drifted. The phone runs at 120 and the tests at 60, so this was a
+## real difference and `test_the_simulation_is_frame_rate_independent` caught it
+## the moment the content grew enough to make it visible.
+##
+## Drawing the WAIT and counting it down consumes exactly one draw per bite at
+## any step rate, which makes the stream a property of the game rather than of
+## the machine.
 func _wait(dt: float) -> void:
 	if spook_timer > 0.0:
 		return
-	var p := 1.0 - exp(-Tuning.BITE_CHANCE_PER_SEC * dt)
-	if _rng.next() >= p:
+
+	if bite_in <= 0.0:
+		_arm_bite()
 		return
-	var s := Species.pick(lure_depth, _rng.next())
+
+	bite_in -= dt
+	if bite_in > 0.0:
+		return
+
+	# An OBJECT rather than a fish, sometimes - and the deeper you are the more
+	# often, because the deep is where the town is. This is how the story is
+	# told: not in cutscenes, in what comes up on the hook.
+	if _rng.next() < Objects.chance_at(lure_depth):
+		_hook_object()
+		return
+
+	var s := Species.pick(lure_depth, _rng.next(), hour, econ.bait)
 	if s.is_empty():
+		_arm_bite()
 		return
 	fish_id = s["id"]
 	fish_weight = lerpf(s["weight_lo"], s["weight_hi"], _rng.next())
 	fish_stamina = 1.0
 	fight_time = 0.0
+	last_object = ""
 	_start_nibble()
 
 
-## MINIGAME 1 opens. The zone's position is drawn now, so the bar is different
-## every time and cannot be played from memory.
+## How long until something is interested.
+##
+## An exponential draw off the mean, so the wait has the shape a Poisson process
+## has - mostly short, occasionally long - rather than the flat feel of a uniform
+## roll. Weather and bait both move the mean: rain is the best fishing in the
+## game and a storm is the worst, which is a reason to look at the sky.
+func _arm_bite() -> void:
+	var rate := Tuning.BITE_CHANCE_PER_SEC * World.weather_bite(weather)
+	rate *= float(Gear.bait_by_id(econ.bait)["bite"])
+	rate = maxf(0.02, rate)
+	var u := clampf(_rng.next(), 0.0001, 0.9999)
+	bite_in = -log(u) / rate
+
+
 ## MINIGAME 1 begins. The fish is on the bait but has not committed.
 ##
 ## The number of teases is drawn per bite rather than fixed, because a fixed
@@ -450,8 +529,19 @@ func _fight(dt: float) -> void:
 	# which is the entire instruction for what to do about it: the player sees
 	# it rising while their thumb is still and works out to leave it alone.
 	if running:
-		tension = clampf(tension + Tuning.RUN_PULL * dt, 0.0, Tuning.TENSION_MAX)
-		fish_distance += Tuning.RUN_GAIN * dt
+		# **How hard a run pulls is the species, not a constant.** It used to be
+		# global, which meant every run in the game was equally dangerous and the
+		# only way to make a fish harder was to make it run MORE OFTEN. That is
+		# how the tutorial ended up with fish that never ran at all: the reeds
+		# were tuned easy, easy meant rare, and a player could finish the first
+		# hour without ever meeting the mechanic the whole fight is built on.
+		#
+		# Split in two, the two ends do different jobs. A bluegill bolts every
+		# few seconds and barely moves the needle, which TEACHES. A sturgeon
+		# bolts once and the needle goes most of the way to the top on its own.
+		var power: float = s["run_power"]
+		tension = clampf(tension + Tuning.RUN_PULL * power * dt, 0.0, Tuning.TENSION_MAX)
+		fish_distance += Tuning.RUN_GAIN * power * dt
 
 	tension = maxf(0.0, tension - Tuning.TAP_DECAY * tension * dt)
 
@@ -484,10 +574,7 @@ func _fight(dt: float) -> void:
 		return
 
 	if fish_distance <= Tuning.LAND_DISTANCE:
-		caught += 1
-		total_weight += fish_weight
-		_enter(HOLDING)
-		landed.emit(fish_id, fish_weight)
+		_land_fish()
 
 
 ## Calm and run alternate, with a generous warning before each run.
@@ -501,7 +588,18 @@ func _advance_phase(s: Dictionary, dt: float) -> void:
 		tell -= dt
 		if tell <= 0.0:
 			running = true
-			tension = clampf(tension + Tuning.RUN_JOLT, 0.0, Tuning.TENSION_MAX)
+			# The jolt is deliberately COMPRESSED against run_power while the
+			# sustained pull is not. Scaling both fully made run_power a cliff:
+			# every fish below 0.85 was landed every time and every fish above it
+			# was a coin flip, because the spike alone decided the fight in one
+			# frame and nothing after it mattered.
+			#
+			# Compressed, the difference between a bluegill and the Old Fish is
+			# pressure you have to hold off for the whole run rather than one
+			# moment you either survived or did not. Strong fish should mean
+			# "fight this the whole way", never "one instant decided it".
+			var jolt: float = Tuning.RUN_JOLT * Tuning.jolt_scale(float(s["run_power"]))
+			tension = clampf(tension + jolt, 0.0, Tuning.TENSION_MAX)
 			phase_time = Species.run_seconds(_rng.next(), fish_stamina)
 			run_started.emit()
 		return
@@ -519,3 +617,102 @@ func _advance_phase(s: Dictionary, dt: float) -> void:
 		tell = Tuning.TELL_TIME
 	else:
 		phase_time = Species.calm_seconds(_rng.next())
+
+
+## A fish is on the boat.
+##
+## Three things happen and they are deliberately separate: it is COUNTED, it is
+## LOGGED, and it is KEPT - and the last one can fail. A fish too heavy for the
+## livewell is landed, admired, written in the book, and then goes back in the
+## water, which is a legible wall rather than a bug: the answer is a bigger box
+## and the shed says so.
+func _land_fish() -> void:
+	caught += 1
+	total_weight += fish_weight
+	var row := Species.by_id(fish_id)
+	var wrong: bool = row.get("wrong", false)
+	logged[fish_id] = maxf(float(logged.get(fish_id, 0.0)), fish_weight)
+	econ.keep(fish_id, fish_weight, wrong)
+	econ.spend_bait()
+	_enter(HOLDING)
+	landed.emit(fish_id, fish_weight)
+
+
+## Something that is not a fish. It comes straight up - there is no fight in a
+## boot - and it goes in the book if it is worth remembering.
+func _hook_object() -> void:
+	var o := Objects.pick(lure_depth, _rng.next())
+	if o.is_empty():
+		return
+	last_object = o["id"]
+	fish_id = ""
+	fish_weight = 0.0
+	found[o["id"]] = true
+	if o["kind"] == Objects.JUNK:
+		econ.money += int(o["value"])
+	econ.spend_bait()
+	_enter(HOLDING)
+	object_found.emit(o["id"])
+
+
+# --- the day, and where the boat is ---------------------------------------
+
+## Travel. Refused rather than silently ignored when the spot is out of reach, so
+## the map can say WHY - "you need the motor" and "your line will not reach" are
+## different answers and a player who cannot tell them apart cannot act on either.
+func travel_to(id: String) -> bool:
+	if state != IDLE:
+		return false
+	var s := World.spot_by_id(id)
+	if s["needs_motor"] and not econ.has_motor:
+		return false
+	spot = id
+	_clear_fish()
+	return true
+
+
+## Why a spot cannot be fished usefully yet, in the words the map shows. Empty
+## means it is fine.
+func spot_blocked(id: String) -> String:
+	var s := World.spot_by_id(id)
+	if s["needs_motor"] and not econ.has_motor:
+		return "you would have to row"
+	var reach := World.reachable_depth(id, econ.line)
+	if reach < float(s["bed"]) - 0.01:
+		return "your line will not reach the bottom"
+	return ""
+
+
+## How deep the lure actually fishes here. The shallower of the lake bed and what
+## the line will stand - the one line of arithmetic the whole progression is.
+## How deep the lure fishes on THIS cast. The charge chose it - see world.gd.
+func fishing_depth() -> float:
+	return World.depth_for_cast(spot, econ.line, cast_charge)
+
+
+## The deepest this spot goes with the line you own. What the map shows.
+func deepest_here() -> float:
+	return World.reachable_depth(spot, econ.line)
+
+
+## The year at the depth being fished. Never shown as a caption; the sounder
+## shows metres and the objects carry dates, and the player joins them up.
+func year_here() -> int:
+	return World.depth_to_year(fishing_depth())
+
+
+## Sleep. Advances the hour, rolls the weather, and on a new dawn advances the
+## day. There is no fatigue meter: the clock exists to change what bites and what
+## the lake looks like, not to ration play.
+func sleep() -> void:
+	if state != IDLE:
+		return
+	hour = World.next_hour(hour)
+	if hour == "dawn":
+		day += 1
+	weather = World.pick_weather(_rng.next())
+
+
+## Sell the livewell. Returns what it paid so the shed can say it out loud.
+func sell() -> int:
+	return econ.sell_all()

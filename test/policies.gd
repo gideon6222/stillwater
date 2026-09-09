@@ -229,14 +229,30 @@ static func _rhythm(s: Sim, dt: float, mem: Dictionary, watches: bool, delay: fl
 
 ## Fish one session with one policy and hand back the final state, plus the
 ## readings a balance pass wants that the golden does not.
-static func play(name: String, seconds: float = 60.0, seed_value: int = 1) -> Dictionary:
+## `spot` and `line` decide WHERE the session is fished, and they matter more than
+## they look. Every claim in the suite used to be measured in the starting reeds
+## because that was the only water `play` could reach, so a claim about the fight
+## was really a claim about five tutorial fish - which is how "ignoring the run
+## warning costs you" came to be asserted in the one band where it does not.
+static func play(name: String, seconds: float = 60.0, seed_value: int = 1,
+		spot: String = "reed_bay", line: int = 0) -> Dictionary:
 	var s := Sim.new(seed_value)
+	s.econ.line = line
+	s.econ.has_motor = true
+	s.spot = spot
 	var mem := {}
 	var step := 1.0 / 60.0
 	var n := int(round(seconds / step))
+	var fighting := 0.0
 	for i in n:
 		act(name, s, step, mem)
 		s.advance(step)
+		if s.state == Sim.FIGHTING:
+			fighting += step
 	var out := s.state_snapshot()
 	out["seconds"] = snappedf(s.time, 0.001)
+	# How long the rod was bent. A run that costs no fish still costs THIS, which
+	# is the only thing a missed tell takes off a player in the tutorial - and a
+	# cost you cannot measure is a cost you cannot assert.
+	out["fighting"] = snappedf(fighting, 0.001)
 	return out

@@ -20,3 +20,8 @@ build/
 # several hundred files of engine code that would drown every diff.
 android/
 
+
+# Redirected run logs. Every hang investigation leaves a few behind.
+*.log
+timing.txt
+probe.txt

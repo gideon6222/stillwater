@@ -115,6 +115,13 @@ const STRAIN_RECOVER := 0.40      ## strain bleeding off once you stop
 const RUN_JOLT := 0.24            ## tension added the moment a run begins
 const RUN_PULL := 0.09            ## tension per second it adds while it lasts
 const RUN_GAIN := 1.05            ## m/s it takes back during one
+## How much of a species' `run_power` reaches the opening jolt. The sustained
+## pull takes all of it; the spike takes a little over half, which is what turns
+## run_power from a pass/fail switch into a dial. See the note in `sim.gd`.
+static func jolt_scale(power: float) -> float:
+	return 0.55 + 0.45 * power
+
+
 const RUN_MIN := 1.2
 const RUN_MAX := 2.4
 const TELL_TIME := 0.55           ## warning before a run - just over a reaction time
@@ -163,3 +170,14 @@ static func in_band(tension: float) -> bool:
 ## screenshot or a bot would ever reveal.
 static func taps_per_second_for(tension: float) -> float:
 	return (TAP_DECAY * tension) / TAP_KICK
+
+
+## How fast the lure sinks, scaled so a deep drop does not become a wait.
+##
+## At 140 m a constant 1.15 m/s is two minutes of watching a line go down, which
+## is not atmosphere, it is a loading screen. The rate rises with the target so
+## the descent is always a handful of seconds - and it stays SLOWEST in the reeds,
+## where the player is learning and the sink is the only beat between casting and
+## fishing.
+static func sink_speed(target_depth: float) -> float:
+	return 1.0 + maxf(0.0, target_depth - 4.0) * 0.42

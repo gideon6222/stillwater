@@ -61,17 +61,30 @@ func test_charge_saturates_rather_than_running_away(t: TestHarness) -> void:
 	t.approx(s.cast_distance, Tuning.CAST_MAX, 1e-3, "and casts the maximum, not further")
 
 
-func test_the_lure_sinks_to_the_bed_and_stops(t: TestHarness) -> void:
-	# Read the depth the moment sinking finishes, not after an arbitrary wait.
-	# A fish can take the lure a second later and the whole cast can be over,
-	# which resets the depth - so a test that waits twenty seconds is asserting
-	# about a different cast than the one it set up.
-	var s := Sim.new(1)
-	s.hold_cast()
-	s.release_cast()
-	t.ok(_drive_to(s, Sim.WAITING, 20.0), "the lure reaches fishing depth")
-	t.approx(s.lure_depth, Tuning.BED_DEPTH, 1e-3, "it settles on the bottom")
-	t.ok(s.state != Sim.SINKING, "and stops sinking")
+## The cast decides the DEPTH, and the depth is the year - so this is the test
+## that the progression's one line of arithmetic works.
+func test_the_cast_charge_chooses_the_depth(t: TestHarness) -> void:
+	# A tapped cast lands in the near shallows.
+	var shallow := Sim.new(1)
+	shallow.hold_cast()
+	shallow.release_cast()
+	t.ok(_drive_to(shallow, Sim.WAITING, 20.0), "a short cast reaches fishing depth")
+	t.approx(shallow.lure_depth, shallow.fishing_depth(), 1e-3, "it settles where the cast put it")
+	t.ok(shallow.state != Sim.SINKING, "and stops sinking")
+
+	# A full one reaches the bottom of the spot.
+	var deep := Sim.new(1)
+	deep.hold_cast()
+	_step(deep, Tuning.CAST_CHARGE_TIME + 0.2)
+	deep.release_cast()
+	t.ok(_drive_to(deep, Sim.WAITING, 25.0), "a full cast reaches fishing depth")
+	t.gt(deep.lure_depth, shallow.lure_depth + 0.5,
+		"a full cast fishes no deeper than a tapped one - the charge decides nothing")
+	t.approx(deep.lure_depth, deep.deepest_here(), 1e-3, "a full cast reaches the bed")
+
+	# And deeper is EARLIER, which is the whole game.
+	t.lt(float(deep.year_here()), float(shallow.year_here()),
+		"fishing deeper does not reach further back")
 
 
 ## THE WAY OUT OF A DEAD CAST, through the seam a thumb actually uses.

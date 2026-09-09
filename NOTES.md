@@ -118,18 +118,54 @@ Six seeds, ninety-second sessions, from `test/run_probe.gd`:
 | `idle_hands` | 0.00 | 8.67 | both minigames are mechanics |
 | `masher` | 0.00 | 11.83 | striking at the first twitch is almost always a tease |
 | `slowpoke` | 0.00 | 2.83 | the band has a bottom; the fish takes line back |
-| `blind` | 4.67 | 0.17 | ignoring the run warning costs fish |
+| `blind` | 4.67 | 0.17 | ignoring the run warning costs fish — **in deep water** |
 | `angler` | 4.83 | 0.00 | perfect play wins - see the warning below |
 | `human` | **4.83** | **0.83** | a plausible player loses about one in seven |
 
-Per species, landed by `human` from a worst-case full-length cast — the reel
-only, since these start already hooked:
+Per BAND, landed by `human` from a worst-case full-length cast — the reel only,
+since these start already hooked. Regenerate with
+`godot --headless --path . --script res://scripts/balance.gd`, which prints every
+species:
 
-| species | landed | seconds | taps |
-|---|---|---|---|
-| Bluegill | 92% | 10.8 | 28 |
-| Yellow Perch | 67% | 14.1 | 34 |
-| Largemouth Bass | 54% | 19.0 | 45 |
+| band | landed by `human` | what the band is for |
+|---|---|---|
+| The Reeds | **91%** | the tutorial. A beginner keeps almost everything |
+| The Channel | 72% | the first water that can beat you |
+| The Drowned Road | 58% | the floor has come up; there is no filler fish left |
+| Old Town | 50% | a coin flip on the prizes |
+| The Quarry | 43% | most of what you hook, you lose |
+| The Spring | 25% | one fish, and it is a gamble |
+
+### Frequency teaches, power punishes, and they must not be one number
+
+This is the balance lesson of M2 and it cost a full rebalance to find. There was
+originally one difficulty knob per species, `run_chance`, and it swamped the
+other two — the whole table fitted `win ≈ 1.06 − 1.15 × run_chance`, with
+`stamina` and `haul` only setting how LONG a fight ran. So "harder" and "runs
+more often" were the same statement, and tuning the reeds to be winnable tuned
+the runs out of them. A player could finish the entire tutorial without once
+seeing the mechanic the fight is built on.
+
+`run_power` splits it. The reeds now run *constantly* at a third of the strength
+and the quarry runs less often for very much more: **depth raises the stakes,
+never the tempo.**
+
+Two things had to be true for that to work:
+
+- **The opening jolt is compressed against `run_power`; the sustained pull is
+  not** (`Tuning.jolt_scale`). Scaling both fully made `run_power` a cliff —
+  everything below 0.85 was landed every time, everything above it was a coin
+  flip — because the spike alone decided the fight in one frame. Compressed, a
+  strong fish means *hold this off for the whole run*, not *one instant decided
+  it*. That is also simply the better mechanic.
+- **`run_power` has a hard ceiling of `SAFE_HI × TAP_DECAY / RUN_PULL ≈ 1.99`,**
+  where a run parks the needle above the safe band on its own and no play
+  survives it. `test_tuning.gd` asserts every row stays clear of it. The table
+  tops out at 1.48.
+
+Difficulty response is still steep in places — a 0.04 change to four reed fish
+moved that band from 84% to 100% — so tune against `balance.gd` and do not chase
+precision finer than about five points. It is a 24-sample measurement.
 
 **Read `human`, never `angler`.** `angler` is a zero-latency, perfect-information
 controller and it beats any mechanic that is fair — its score says nothing about
@@ -147,6 +183,17 @@ something and the numbers above appeared.
 
 **Tune the game until `human` struggles. Never tune `human` until the game looks
 hard.**
+
+**And measure a claim in the water the claim is about.** `Policies.play` could
+only ever fish the starting reeds, so every assertion in the suite was secretly
+an assertion about five tutorial fish. "Ignoring the run warning costs you" was
+therefore being tested in the one band deliberately built so that it does not —
+and when the reeds got gentler the test failed, correctly, and looked like a
+regression in the game. It was a regression in the *measurement*. `play` now
+takes a spot and a line, the warning claim is made on the Drowned Road, and the
+reeds get their own weaker claim: a missed tell there costs TIME, not fish, so
+the tutorial can be forgiving without teaching the player that the tell is
+decoration.
 
 ## Open, in rough priority order
 

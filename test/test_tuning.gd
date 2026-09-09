@@ -181,41 +181,69 @@ func test_every_species_is_reachable_and_sane(t: TestHarness) -> void:
 	for s in Species.TABLE:
 		t.gt(s["weight_hi"], s["weight_lo"], "%s has a real weight range" % s["name"])
 		t.gt(s["max_depth"], s["min_depth"], "%s has a real depth range" % s["name"])
-		t.ok(s["min_depth"] <= Tuning.BED_DEPTH,
-			"%s can be reached in water this deep" % s["name"])
 		t.gt(s["stamina"], 0.0, "%s has stamina" % s["name"])
-		t.gt(s["haul"], 0.0, "%s can be pumped in" % s["name"])
+		t.gt(s["haul"], 0.0, "%s can be reeled in" % s["name"])
 		t.gt(s["take_window"], 0.0, "%s never actually takes the bait" % s["name"])
 		t.gt(s["teases"], 0.0, "%s never teases at all" % s["name"])
 		t.gt(s["weight"], 0.0, "%s can actually be picked" % s["name"])
+		t.gt(s["value"], -1.0, "%s has no price" % s["name"])
 		# A fish that spends most of the fight running can never be reeled in, so
 		# it is unlandable however well it is played.
 		var busy: float = float(s["run_chance"])
 		t.lt(busy, 0.75, "%s runs so often it can never be reeled in" % s["name"])
 
 
-## Every species must be catchable somewhere.
+## EVERY SPECIES MUST BE CATCHABLE SOMEWHERE.
 ##
-## The lure sinks to the bed and fishes there, so a row whose depth range sits
-## entirely ABOVE the bed is unreachable - it is in the table, it is in the
-## logbook as a blank page, and no amount of play will ever fill it in. The
-## bluegill shipped exactly that way: `max_depth` 2.4 in 4 m of water, the
-## commonest fish in the game, uncatchable, and nothing reported anything wrong
-## because every subsystem was working perfectly.
-func test_every_species_is_reachable_at_a_real_fishing_depth(t: TestHarness) -> void:
+## The lure fishes at ONE depth - the shallower of the lake bed where you are and
+## what your line will stand - so a row whose range never contains a reachable
+## depth is unreachable everywhere. It is in the table, it is a blank page in the
+## logbook, and no amount of play will ever fill it in.
+##
+## This has already caught a real one: the bluegill shipped with `max_depth` 2.4
+## in 4 m of water - the commonest fish in the game, uncatchable, with nothing
+## reporting a fault because every subsystem was working perfectly. The check now
+## walks every spot at every line level, which is the real set of depths the game
+## can produce.
+func test_every_species_is_reachable_somewhere(t: TestHarness) -> void:
+	var depths := World.all_reachable_depths()
+
 	for s in Species.TABLE:
 		var min_d: float = s["min_depth"]
 		var max_d: float = s["max_depth"]
-		t.ok(min_d <= Tuning.BED_DEPTH and max_d >= Tuning.BED_DEPTH,
-			"%s cannot be caught at the bed, which is the only depth the lure fishes" % s["name"])
+		var reachable := false
+		for d in depths:
+			if d >= min_d and d <= max_d:
+				reachable = true
+				break
+		t.ok(reachable,
+			"%s (%.0f-%.0fm) sits between the depths the game can actually fish" % [
+				s["name"], min_d, max_d])
 
 
-func test_something_lives_at_the_bottom(t: TestHarness) -> void:
-	# The lure sinks to BED_DEPTH and fishes there. If nothing overlaps that
-	# depth the game silently never produces a bite, which is the worst kind of
-	# content bug: everything works and nothing happens.
-	var rows := Species.at_depth(Tuning.BED_DEPTH)
-	t.gt(float(rows.size()), 0.0, "at least one species lives at the bed")
+## And every OBJECT too, for the same reason - an object that can never be found
+## is a story beat that never fires.
+func test_every_object_is_reachable_somewhere(t: TestHarness) -> void:
+	var depths := World.all_reachable_depths()
+
+	for o in Objects.TABLE:
+		var min_d: float = o["min"]
+		var max_d: float = o["max"]
+		var reachable := false
+		for d in depths:
+			if d >= min_d and d <= max_d:
+				reachable = true
+				break
+		t.ok(reachable, "%s can never be found at any reachable depth" % o["name"])
+
+
+## Every SPOT must have something in it, or a place on the map is an empty room.
+func test_every_spot_holds_something_at_every_line(t: TestHarness) -> void:
+	for spot in World.SPOTS:
+		var reach := World.reachable_depth(spot["id"], Gear.LINE.size() - 1)
+		var rows := Species.at_depth(reach)
+		t.gt(float(rows.size()), 0.0,
+			"%s has nothing living at %.0fm" % [spot["name"], reach])
 
 
 func test_pick_is_stable_and_covers_the_table(t: TestHarness) -> void:
@@ -241,3 +269,96 @@ func test_pick_is_weighted_toward_the_common_fish(t: TestHarness) -> void:
 		"the common fish is more common than the prize")
 
 
+## Bait is the targeting system, so it has to actually move the odds - and it
+## must never reduce a species to zero, because a bait that hard-gates is a
+## lockout wearing a choice's clothes.
+func test_bait_shifts_the_odds_without_locking_anything_out(t: TestHarness) -> void:
+	var worms := 0
+	var minnows := 0
+	for i in 600:
+		var u := float(i) / 600.0
+		if Species.pick(3.0, u, "", "worm")["id"] == "bass":
+			worms += 1
+		if Species.pick(3.0, u, "", "minnow")["id"] == "bass":
+			minnows += 1
+	t.gt(float(minnows), float(worms), "minnows do not bring up more bass than worms")
+	t.gt(float(worms), 0.0, "worms lock the bass out entirely")
+
+
+## Time of day has to gate something, or the clock is decoration.
+func test_some_fish_only_bite_at_certain_hours(t: TestHarness) -> void:
+	var gated := 0
+	for s in Species.TABLE:
+		if s.has("hour"):
+			gated += 1
+			var hours: Array = s["hour"]
+			t.gt(float(hours.size()), 0.0, "%s has an empty hour list" % s["name"])
+	t.gt(float(gated), 0.0, "nothing in the lake cares what time it is")
+
+	# And the gate has to bite: a night fish must be absent by day.
+	var day_rows := Species.at_depth(12.0, "morning")
+	var night_rows := Species.at_depth(12.0, "night")
+	t.gt(float(night_rows.size()), float(day_rows.size()),
+		"the same fish are available at midnight as at noon")
+
+
+## No fish may make a run that playing well cannot survive.
+##
+## This is arithmetic, not taste. Tension left alone settles at
+## `RUN_PULL * run_power / TAP_DECAY`. Once that settle point reaches SAFE_HI the
+## needle parks above the safe band on its own, and the fish is lost no matter
+## what the player does - the run stops being a thing you handle and becomes a
+## coin the game flips. The ceiling is where the settle point still leaves usable
+## room below SAFE_HI.
+func test_no_run_is_unsurvivable(t: TestHarness) -> void:
+	var ceiling := Tuning.SAFE_HI * Tuning.TAP_DECAY / Tuning.RUN_PULL
+	for row in Species.TABLE:
+		var power: float = row["run_power"]
+		t.lt(power, ceiling,
+			"%s runs at %.2f, and anything at or past %.2f parks the needle above the safe band by itself" % [
+				row["name"], power, ceiling])
+		var settle := Tuning.RUN_PULL * power / Tuning.TAP_DECAY
+		t.lt(settle, Tuning.SAFE_HI - 0.06,
+			"%s settles at %.2f, which leaves no room under the break point" % [row["name"], settle])
+
+
+## THE TUTORIAL HAS TO TEACH THE RUN.
+##
+## The reeds are where a player learns what the needle means, and they can only
+## learn it from a fish that runs. This shipped broken once in the other
+## direction: run frequency and run strength were the same number, so making the
+## first water winnable made its fish stop running, and a player could finish the
+## whole tutorial without ever seeing the mechanic the fight is built on.
+##
+## The pair of assertions is the point - OFTEN and GENTLY, not one or the other.
+func test_the_first_water_teaches_the_run(t: TestHarness) -> void:
+	for row in Species.TABLE:
+		if row["band"] != "reeds":
+			continue
+		t.gt(float(row["run_chance"]), 0.30,
+			"%s hardly ever runs, so the tutorial does not teach the run" % row["name"])
+		t.lt(float(row["run_power"]), 0.80,
+			"%s runs hard enough to punish a player still learning what a run is" % row["name"])
+
+
+## Every band's runs are stronger than the one above it. The frequency is free to
+## go up or down - what has to climb with depth is the STAKES.
+func test_runs_get_stronger_with_depth(t: TestHarness) -> void:
+	var last := 0.0
+	var last_name := ""
+	for band in World.BANDS:
+		var total := 0.0
+		var n := 0
+		for row in Species.TABLE:
+			if row["band"] == band["id"]:
+				total += float(row["run_power"])
+				n += 1
+		if n == 0:
+			continue
+		var mean := total / float(n)
+		if last_name != "":
+			t.gt(mean, last,
+				"runs in %s (%.2f) are no stronger than in %s (%.2f)" % [
+					band["name"], mean, last_name, last])
+		last = mean
+		last_name = band["name"]
