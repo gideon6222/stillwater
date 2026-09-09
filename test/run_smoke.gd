@@ -54,6 +54,13 @@ func _initialize() -> void:
 	_check_the_music_goes_wrong_as_the_water_gets_older(main)
 	_check_the_game_actually_writes_and_reads_its_save(main)
 
+	# --- how the game FEELS, as things a machine can fail on -----------------
+	_check_every_state_offers_a_visible_action(main)
+	_check_no_state_leaves_the_player_with_nothing_to_do(main)
+	_check_every_action_answers_within_two_frames(main)
+	_check_the_boat_is_never_still(main)
+	_check_looking_around_never_casts_by_accident(main)
+
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
 	# tree never tears down. Harmless in itself, and still worth removing: a gate
@@ -295,7 +302,7 @@ func _check_the_lure_is_where_the_line_ends(main) -> void:
 	if not _drive_until(main, Sim.FIGHTING, 180.0):
 		_t.ok(false, "no fish was hooked to check the line against")
 		return
-	var lure: Vector3 = main._lure_position()
+	var lure: Vector3 = main.lure_world_position()
 	_t.approx(main._float.position.distance_to(lure), 0.0, 1e-4,
 		"the float is not at the lure position the line was drawn to")
 	_t.ok(main._float.visible, "the float is not visible during a fight")
@@ -590,3 +597,169 @@ func _check_the_game_actually_writes_and_reads_its_save(main) -> void:
 	_t.gt(main._save_due, 0.0, "landing a fish does not ask for a save")
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+# ===========================================================================
+#  FEEL
+# ===========================================================================
+#
+# "It feels clunky" is the most valuable thing a playtester can say and the
+# least actionable, because nothing in it can be failed. These turn the parts of
+# feel that ARE objective into assertions, so a regression in them is caught the
+# way a broken save is.
+#
+# What they cover comes straight out of Swink's three layers - control,
+# predictable space, polish - and the survey's "support" domain:
+#
+#   affordance     every state names a thing the player can do
+#   dead time      no state leaves them with nothing to do at all
+#   latency        every input is answered in the same frame or the next
+#   liveness       the world is never perfectly still
+#   discrimination one gesture never fires another gesture's verb
+#
+# What they cannot cover is taste: whether the tap rhythm is satisfying, whether
+# the rod looks right. That still needs a person, and Gideon is that person.
+
+
+## EVERY STATE OFFERS A VISIBLE ACTION.
+##
+## The bug this exists for shipped: `reel_in` was reachable by tapping during a
+## wait, and nothing on screen ever said so, so the report was "there is not
+## option to pull the line back in". An action with no affordance is an action
+## that does not exist.
+func _check_every_state_offers_a_visible_action(main) -> void:
+	_t.begin("smoke > every state offers a visible action")
+	main.freeze(1)
+	for state in [Sim.IDLE, Sim.CHARGING, Sim.FLYING, Sim.SINKING, Sim.WAITING,
+			Sim.NIBBLING, Sim.FIGHTING, Sim.HOLDING, Sim.LOST]:
+		main.sim.state = state
+		main._sync_bars()
+		var label: String = main._action_for_state()
+		_t.ok(label != "", "state '%s' names no action at all" % state)
+		_t.ok(main._action.visible, "state '%s' hides the action button" % state)
+		_t.ok(main._action.text == label,
+			"the action button says '%s' in state '%s' but would do '%s'" % [
+				main._action.text, state, label])
+
+
+## NO STATE LEAVES THE PLAYER WITH NOTHING TO DO.
+##
+## Driven through the real button rather than the simulation, and asserting the
+## thing that actually matters: from any state, pressing the one visible control
+## eventually gets you back to a rod you can cast. A game that can strand a
+## player reads as a crash, whatever the state machine thinks.
+func _check_no_state_leaves_the_player_with_nothing_to_do(main) -> void:
+	_t.begin("smoke > the action button always leads back to a cast")
+	for state in [Sim.FLYING, Sim.SINKING, Sim.WAITING, Sim.NIBBLING, Sim.FIGHTING,
+			Sim.HOLDING, Sim.LOST]:
+		main.freeze(1)
+		main.sim.state = state
+		main.sim.state_time = 0.0
+		var got_home := false
+		for i in 20:
+			main._on_action()
+			for j in 90:
+				main.advance(1.0 / 60.0)
+			if main.sim.state == Sim.IDLE or main.sim.state == Sim.CHARGING \
+					or main.sim.state == Sim.FLYING:
+				got_home = true
+				break
+		_t.ok(got_home, "the player cannot get back to fishing from '%s'" % state)
+
+
+## EVERY ACTION IS ANSWERED WITHIN TWO FRAMES.
+##
+## Responsiveness is the part of feel with a number on it: the research puts the
+## perceptible floor around 15 ms for experts and consistent performance up to
+## about 50 ms, which at 60 fps is three frames. Anything here that takes longer
+## than two is a mechanic that will be described as mushy.
+##
+## Measured as "did the observable state change", not as wall-clock, because the
+## thing being tested is the game's response and not this machine's speed.
+func _check_every_action_answers_within_two_frames(main) -> void:
+	_t.begin("smoke > every input is answered within two frames")
+	var step := 1.0 / 60.0
+
+	# A cast begins to charge the moment the finger lands.
+	main.freeze(1)
+	main.sim.hold_cast()
+	main.advance(step)
+	_t.gt(main.sim.charge, 0.0, "holding to cast does nothing on the first frame")
+
+	# A tap during a fight moves the needle on the same frame.
+	main.freeze(1)
+	if _drive_until(main, Sim.FIGHTING, 180.0):
+		var before: float = main.sim.tension
+		main.sim.tap()
+		_t.gt(main.sim.tension, before,
+			"a tap during a fight does not move the tension until later")
+
+	# And the gauge the player is reading redraws with it, rather than a frame
+	# behind - a needle that lags its own input is the classic mushy control.
+	main._sync()
+	_t.ok(main._tension_bar.visible, "the tension gauge is not up during a fight")
+
+
+## THE WORLD IS NEVER PERFECTLY STILL.
+##
+## A static scene reads as a screenshot however good it looks, and this game is
+## a boat on water. Two samples a second apart must not be identical.
+func _check_the_boat_is_never_still(main) -> void:
+	_t.begin("smoke > the boat moves on the water")
+	main.freeze(1)
+	main.sim.state = Sim.WAITING
+	var poses := []
+	for i in 5:
+		for j in 12:
+			main.advance(1.0 / 60.0)
+		poses.append(main._boat_pose)
+	var moved := 0.0
+	for i in poses.size() - 1:
+		var a: Transform3D = poses[i]
+		var b: Transform3D = poses[i + 1]
+		moved += a.origin.distance_to(b.origin)
+		moved += (a.basis.get_euler() - b.basis.get_euler()).length()
+	_t.gt(moved, 0.004, "the boat does not move at all - the lake is a photograph")
+	_t.lt(moved, 3.0, "the boat is being thrown around; this is a lake, not a gale")
+
+
+## LOOKING AROUND NEVER CASTS BY ACCIDENT.
+##
+## One finger carries three verbs here - drag looks, still-hold casts, tap taps -
+## and the whole scheme rests on a drag never being mistaken for a cast. If it
+## can be, the player cannot look at their own boat without throwing a line into
+## it, which is exactly the sort of thing reported as "clunky".
+func _check_looking_around_never_casts_by_accident(main) -> void:
+	_t.begin("smoke > a look never becomes a cast")
+	main.freeze(1)
+	main.sim.state = Sim.IDLE
+
+	var press := InputEventScreenTouch.new()
+	press.pressed = true
+	press.position = Vector2(300, 900)
+	main._on_cast_input(press)
+
+	var drag := InputEventScreenDrag.new()
+	drag.relative = Vector2(-40, 0)
+	for i in 6:
+		main._on_cast_input(drag)
+
+	var release := InputEventScreenTouch.new()
+	release.pressed = false
+	release.position = Vector2(60, 900)
+	main._on_cast_input(release)
+	for i in 30:
+		main.advance(1.0 / 60.0)
+
+	_t.eq(main.sim.state, Sim.IDLE, "dragging to look threw a cast")
+	_t.ok(absf(main._look_yaw) > 0.01, "dragging did not turn the view at all")
+
+	# And a still hold still casts.
+	main.freeze(1)
+	main._look_yaw = 0.0
+	main._on_cast_input(press)
+	for i in 30:
+		main.advance(1.0 / 60.0)
+	_t.eq(main.sim.state, Sim.CHARGING, "a still hold does not load a cast")
+	main._on_cast_input(release)
+	_t.ok(main.sim.state != Sim.CHARGING, "letting go does not release the cast")

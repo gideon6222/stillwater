@@ -1,4 +1,4 @@
-﻿extends RefCounted
+extends RefCounted
 
 ## The whole-run golden.
 ##
@@ -161,24 +161,24 @@ const GOLDEN := [
 		"seed": 1,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 8,
+			"casts": 6,
 			"caught": 0,
-			"draws": 56,
+			"draws": 45,
 			"fighting": 0.000000,
 			"fish_distance": 12.609000,
-			"fish_id": "shiner",
+			"fish_id": "",
 			"fish_stamina": 1.000000,
-			"lost": 6,
+			"lost": 4,
 			"lure_depth": 2.330000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "nibbling",
+			"state": "waiting",
 			"strain": 0.000000,
-			"taking": true,
+			"taking": false,
 			"taps": 0,
 			"tension": 0.000000,
 			"total_weight": 0.000000,
-			"tug": 0.524000,
+			"tug": 0.000000,
 		},
 	},
 	{

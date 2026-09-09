@@ -53,12 +53,33 @@ var _sky_dark := 0.0
 var _sky_tint := Color(1, 1, 1)
 var _sky_cloud := 0.0
 var _fish_shown := ""
+
+# --- the boat's pose on the water, and where the player is looking ----------
+var _look_yaw := 0.0          ## radians, player's view offset
+var _look_pitch := 0.0
+var _cast_yaw := 0.0          ## the heading the current cast was made on
+var _boat_pose := Transform3D.IDENTITY
+var _drag_from := Vector2.ZERO
+var _drag_moved := 0.0
+var _touching := false
+var _boat_heave := 0.0
+var _boat_pitch := 0.0
+var _boat_roll := 0.0
+var _boat_time := 0.0
+var _boat_dt := 1.0 / 60.0
 var _grade: ColorRect
 var _rain: GPUParticles3D
 var _mist: GPUParticles3D
 var _reeds: Node3D
 var _save_due := 0.0
 var _sounder: Control
+var _action: Button
+var _splash: GPUParticles3D
+var _ring: MeshInstance3D
+var _shake := 0.0
+var _shake_seed := 0.0
+var _freeze_left := 0.0
+var _hint: Label
 
 var _charging := false
 
@@ -250,6 +271,7 @@ func _build_world() -> void:
 	_fish = _build_fish()
 	add_child(_fish)
 
+	_build_impact()
 	_build_weather()
 	_build_grade()
 	_build_hud()
@@ -279,7 +301,14 @@ func _build_water() -> void:
 	_water.name = "Water"
 
 	var sh := Shader.new()
-	sh.code = WATER_SHADER
+	# Generated, not typed twice - see the note on WAVES.
+	sh.code = (WATER_SHADER
+		.replace("__WAVE_VERT__", _wave_glsl("xz"))
+		.replace("__WAVE_TAPS__",
+			_wave_glsl_sum("a", "xz + vec2(e,0.0)")
+			+ _wave_glsl_sum("b", "xz - vec2(e,0.0)")
+			+ _wave_glsl_sum("c", "xz + vec2(0.0,e)")
+			+ _wave_glsl_sum("d", "xz - vec2(0.0,e)")))
 	var m := ShaderMaterial.new()
 	m.shader = sh
 	m.set_shader_parameter("shallow", Color(0.33, 0.46, 0.40))
@@ -292,6 +321,57 @@ func _build_water() -> void:
 	_water.material_override = m
 	_water_mat = m
 	add_child(_water)
+
+
+## THE SWELL, ONCE, and both the water and the boat read it.
+##
+## `[dir_x, dir_z, steepness, wavelength, speed]` per wave. The GLSL in the water
+## shader is GENERATED from this array and `_wave_offset` below evaluates the
+## same sum on the CPU, so the hull rides the surface it is actually floating on.
+##
+## Two copies of these numbers would be the worst kind of bug: a boat rocking
+## slightly out of time with its own water reads as broken in a way nobody can
+## name, and it would drift the first time either was tuned.
+const WAVES := [
+	[1.0, 0.35, 0.14, 5.10, 1.00],
+	[-0.7, 0.90, 0.10, 2.90, 1.25],
+]
+
+
+## The Gerstner sum at a world point. Mirrors the shader function exactly.
+func _wave_offset(x: float, z: float, t: float) -> Vector3:
+	var o := Vector3.ZERO
+	for w in WAVES:
+		var dx: float = w[0]
+		var dz: float = w[1]
+		var steep: float = w[2]
+		var wlen: float = w[3]
+		var speed: float = w[4]
+		var k := TAU / wlen
+		var c := sqrt(9.8 / k)
+		var d := Vector2(dx, dz).normalized()
+		var f := k * (d.x * x + d.y * z - c * speed * t)
+		var a := steep / k
+		o += Vector3(d.x * a * cos(f), a * sin(f), d.y * a * cos(f))
+	return o
+
+
+## The wave sum as GLSL, so the shader and `_wave_offset` cannot disagree.
+static func _wave_glsl(coord: String) -> String:
+	var out := ""
+	for w in WAVES:
+		out += "\to += gerstner(vec2(%.4f, %.4f), %.4f, %.4f, %.4f, %s, t);\n" % [
+			w[0], w[1], w[2], w[3], w[4], coord]
+	return out
+
+
+## The same sum, as an expression that adds into `dst`, for the normal taps.
+static func _wave_glsl_sum(dst: String, coord: String) -> String:
+	var parts: Array[String] = []
+	for w in WAVES:
+		parts.append("gerstner(vec2(%.4f, %.4f), %.4f, %.4f, %.4f, %s, t)" % [
+			w[0], w[1], w[2], w[3], w[4], coord])
+	return "\tvec3 %s = %s;\n" % [dst, " + ".join(parts)]
 
 
 const WATER_SHADER := """
@@ -386,8 +466,7 @@ void vertex() {
 	// is exactly what the near water came out as once it had enough specular to
 	// show them. Displace what the mesh can carry; the short chop is the
 	// fragment ripple's job, which is where it belongs anyway.
-	o += gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz, t);
-	o += gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz, t);
+__WAVE_VERT__
 	VERTEX += (inverse(MODEL_MATRIX) * vec4(o, 0.0)).xyz;
 	world_pos = p + o;
 }
@@ -401,14 +480,7 @@ void fragment() {
 	// The SAME two waves the vertex shader displaced, so the normal always agrees
 	// with the surface actually built. Four here against two there would light a
 	// surface that does not exist.
-	vec3 a = gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz + vec2(e,0.0), t)
-	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz + vec2(e,0.0), t);
-	vec3 b = gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz - vec2(e,0.0), t)
-	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz - vec2(e,0.0), t);
-	vec3 c = gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz + vec2(0.0,e), t)
-	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz + vec2(0.0,e), t);
-	vec3 d = gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz - vec2(0.0,e), t)
-	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz - vec2(0.0,e), t);
+__WAVE_TAPS__
 	vec3 tx = vec3(2.0 * e + a.x - b.x, a.y - b.y, a.z - b.z);
 	vec3 tz = vec3(c.x - d.x, c.y - d.y, 2.0 * e + c.z - d.z);
 	vec3 n = normalize(cross(tz, tx));
@@ -1176,6 +1248,59 @@ func _build_hud() -> void:
 	_world_line.name = "WorldLine"
 	_ui.add_child(_world_line)
 
+	# THE ACTION BUTTON, and the reason it exists at all.
+	#
+	# Gideon: "there is not option to pull the line back in or recast". There
+	# was - tapping during a wait called `reel_in` - but nothing on screen ever
+	# said so, and that same tap sets the hook during a nibble. **An action with
+	# no affordance, overloaded onto the gesture used for something else, is an
+	# action that does not exist.**
+	#
+	# So the verb the player currently has is now written on a button, in words,
+	# at all times. It is deliberately NOT the main input: tapping the water is
+	# still how you fish, and this is the way out and the way back.
+	_action = Button.new()
+	_action.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_action.offset_left = -330
+	_action.offset_right = -40
+	_action.offset_top = -330
+	_action.offset_bottom = -212
+	_action.focus_mode = Control.FOCUS_NONE
+	_action.add_theme_font_size_override("font_size", 34)
+	var abox := StyleBoxFlat.new()
+	abox.bg_color = Color(0.05, 0.09, 0.10, 0.86)
+	abox.border_color = Color(0.93, 0.90, 0.82, 0.30)
+	abox.set_border_width_all(2)
+	abox.set_corner_radius_all(10)
+	_action.add_theme_stylebox_override("normal", abox)
+	_action.add_theme_stylebox_override("hover", abox)
+	var apress := abox.duplicate() as StyleBoxFlat
+	apress.bg_color = Color(0.16, 0.24, 0.25, 0.94)
+	_action.add_theme_stylebox_override("pressed", apress)
+	_action.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82))
+	_action.add_theme_color_override("font_hover_color", Color(0.93, 0.90, 0.82))
+	_action.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	_action.name = "Action"
+	_action.pressed.connect(_on_action)
+	_ui.add_child(_action)
+
+	# A single line of what to do, under the action. Fades out once the player
+	# has done the thing a few times - a prompt that never leaves is a prompt
+	# the player reads instead of the water.
+	_hint = Label.new()
+	_hint.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_hint.offset_left = 40
+	_hint.offset_right = -40
+	_hint.offset_top = -196
+	_hint.offset_bottom = -150
+	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint.add_theme_font_size_override("font_size", 26)
+	_hint.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82, 0.62))
+	_hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	_hint.add_theme_constant_override("outline_size", 6)
+	_hint.name = "Hint"
+	_ui.add_child(_hint)
+
 	# THE DOCK, and it only exists when the line is in.
 	#
 	# It sits along the bottom, which is also where a thumb lands to reel - so if
@@ -1199,6 +1324,29 @@ func _build_hud() -> void:
 		_dock.add_child(b)
 
 	_load_game()
+
+	# The impact, the shake, the buzz and the sound are ONE event with four
+	# channels, so they are wired together and fired together. The survey's point
+	# about layering: screen shake plus particles plus audio plus haptics work
+	# synergistically, and any of them alone reads as thin.
+	sim.cast_landed.connect(func(_d: float) -> void:
+		_impact_at(lure_world_position(), 0.7)
+		_buzz(18, 0.30))
+	sim.hooked.connect(func(_id: String, perfect: bool) -> void:
+		_impact_at(lure_world_position(), 1.0)
+		_kick(0.55 if perfect else 0.34)
+		_hit_stop(0.09 if perfect else 0.05)
+		_buzz(45, 0.85 if perfect else 0.55))
+	sim.run_started.connect(func() -> void:
+		_kick(0.30)
+		_buzz(70, 0.60))
+	sim.landed.connect(func(_id: String, w: float) -> void:
+		_impact_at(lure_world_position(), 1.0)
+		_kick(0.22)
+		_buzz(30, 0.45))
+	sim.lost.connect(func(reason: String) -> void:
+		_kick(0.75 if reason == Sim.BROKE else 0.30)
+		_buzz(110 if reason == Sim.BROKE else 40, 0.9 if reason == Sim.BROKE else 0.4))
 
 	_audio = Audio.new()
 	_audio.name = "Audio"
@@ -1277,6 +1425,13 @@ func _sync_bars() -> void:
 		_readout.visible = not in_room
 	if _prompt != null:
 		_prompt.visible = not in_room
+	if _action != null:
+		var label := _action_for_state()
+		_action.visible = label != "" and not in_room
+		_action.text = label
+	if _hint != null:
+		_hint.visible = not in_room
+		_hint.text = _hint_for_state()
 	if _sounder != null:
 		# Visibility HERE, never inside the draw callback - see the note above.
 		_sounder.visible = sim.econ.has_sounder and not in_room
@@ -1365,28 +1520,86 @@ func _draw_tension_bar() -> void:
 ## fight is one gesture is the point - the previous version had three different
 ## responses to three situations, and the note on it was that it was not
 ## intuitive to tell what you were supposed to do.
+## DRAG LOOKS, STILL-HOLD CASTS, TAP TAPS.
+##
+## One finger has to carry three verbs, and the discriminator is MOVEMENT rather
+## than time - which is the only one that works here, because charging a cast is
+## itself a long press. A held finger that has not moved is loading a cast; the
+## moment it travels past `LOOK_SLOP` it becomes a look and the charge is
+## abandoned. Quick taps never travel, so the fight is untouched.
+##
+## Getting this wrong in the other direction - time-based - would mean the player
+## cannot look around without accidentally casting, which is exactly the kind of
+## thing that reads as "clunky" without being nameable.
+const LOOK_SLOP := 14.0        ## pixels before a press becomes a look
+const LOOK_SPEED := 0.0042     ## radians per pixel
+const LOOK_YAW_LIMIT := 1.05   ## how far round you can turn in the seat
+const LOOK_PITCH_LIMIT := 0.42
+
 func _on_cast_input(event: InputEvent) -> void:
+	if event is InputEventScreenDrag:
+		_apply_look((event as InputEventScreenDrag).relative)
+		_cast_area.accept_event()
+		return
+	if event is InputEventMouseMotion:
+		if _touching:
+			_apply_look((event as InputEventMouseMotion).relative)
+			_cast_area.accept_event()
+		return
+
 	var pressed := false
+	var at := Vector2.ZERO
 	if event is InputEventScreenTouch:
-		pressed = event.pressed
+		pressed = (event as InputEventScreenTouch).pressed
+		at = (event as InputEventScreenTouch).position
 	elif event is InputEventMouseButton:
-		pressed = event.pressed
+		pressed = (event as InputEventMouseButton).pressed
+		at = (event as InputEventMouseButton).position
 	else:
 		return
 
 	if pressed:
+		_touching = true
+		_drag_from = at
+		_drag_moved = 0.0
 		match sim.state:
 			Sim.IDLE, Sim.HOLDING, Sim.LOST:
 				sim.hold_cast()
 				_charging = true
 			_:
 				sim.tap()
-	elif _charging:
-		_charging = false
-		if _audio != null and sim.state == Sim.CHARGING:
-			_audio.play("cast", -5.0)
-		sim.release_cast()
+	else:
+		_touching = false
+		if _charging:
+			_charging = false
+			if _drag_moved > LOOK_SLOP:
+				# It turned out to be a look. Put the rod down rather than firing
+				# a cast the player never asked for.
+				sim.cancel_cast()
+			else:
+				if _audio != null and sim.state == Sim.CHARGING:
+					_audio.play("cast", -5.0)
+				# The cast goes WHERE YOU ARE LOOKING. Aim is the whole reason
+				# the look control earns its place - without it, turning the
+				# head is scenery.
+				_cast_yaw = _look_yaw
+				sim.release_cast()
 	_cast_area.accept_event()
+
+
+func _apply_look(rel: Vector2) -> void:
+	_drag_moved += rel.length()
+	if _charging and _drag_moved > LOOK_SLOP:
+		_charging = false
+		# Abandon the charge the instant this becomes a look, so the rod does not
+		# sit loaded behind a camera move.
+		sim.cancel_cast()
+	if not _touching:
+		return
+	if _drag_moved <= LOOK_SLOP:
+		return
+	_look_yaw = clampf(_look_yaw - rel.x * LOOK_SPEED, -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
+	_look_pitch = clampf(_look_pitch - rel.y * LOOK_SPEED, -LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
 
 
 func _mat(c: Color, rough: float = 0.6) -> StandardMaterial3D:
@@ -1405,6 +1618,15 @@ func _process(delta: float) -> void:
 
 
 func _tick(dt: float) -> void:
+	# HIT STOP freezes the PICTURE, never the rules. The simulation keeps its own
+	# time either way, so the golden test and the phone see the same game.
+	if _freeze_left > 0.0:
+		_freeze_left -= dt
+		dt *= 0.12
+	_shake = maxf(0.0, _shake - dt * 3.4)
+	_sync_ring(dt)
+	_boat_dt = dt
+	_boat_time += dt
 	_sync_mood(dt)
 	if _save_due > 0.0:
 		_save_due -= dt
@@ -1459,8 +1681,14 @@ func play(name: String, seconds: float, step: float = 1.0 / 60.0) -> void:
 # --- drawing --------------------------------------------------------------
 
 func _sync() -> void:
+	# FIRST, because everything below positions against it - the lure, the line,
+	# the fish, the wake and the camera all live on the boat. Establishing the
+	# pose halfway down meant `out` was computed against last frame's boat and
+	# the camera against this one, and the float drifted a few millimetres off
+	# the end of its own line every frame.
+	_sync_boat_pose()
 	_sync_rod()
-	var out := _lure_position()
+	var out := lure_world_position()
 
 	# Transform3D.looking_at rather than Node3D.look_at. The node method
 	# requires the node to be inside the tree and errors if it is not - which is
@@ -1471,13 +1699,32 @@ func _sync() -> void:
 	# a foreground edge rather than a third of the picture, and aimed so the
 	# horizon sits in the upper third - the water is the subject, and in portrait
 	# there is not room for both a lot of sky and a lot of hull.
-	# THE WATER IS THE SUBJECT, and a real hull takes up far more of a portrait
-	# frame than two rails did. Sitting further back and looking a little higher
-	# puts the boat across the bottom third instead of the bottom half, which is
-	# what it was framed for before the boat had a floor.
-	var eye := Vector3(0.0, 1.30, -1.90)
-	var focus := Vector3(0.0, 0.72, maxf(9.0, out.z * 0.62))
-	_cam.transform = Transform3D(Basis.IDENTITY, eye).looking_at(focus, Vector3.UP)
+	# THE CAMERA RIDES THE BOAT, and the boat rides the water.
+	#
+	# This is the single largest thing that was missing. Swink's definition of
+	# game feel starts with "real-time control of virtual objects in a simulated
+	# space" - and until now the space did not move and the player controlled
+	# nothing continuously at all. A lake that heaves under you turns a picture
+	# into a place, and it costs two wave samples a frame.
+	var seat := Vector3(0.0, 1.30, -1.90)
+	var eye := _boat_pose * seat
+	# Yaw and pitch are the PLAYER's, applied on top of the boat's own motion, so
+	# looking around never fights the swell and the swell never steals the aim.
+	# A Godot camera looks down its own -Z, and the boat's bow is at +Z, so the
+	# rig has to be turned about. The old code used `looking_at`, which hid this
+	# entirely; building the basis by hand to carry the boat's motion exposed it,
+	# and the first frame of it was a beautifully lit view out over the stern.
+	var basis := _boat_pose.basis * Basis(Vector3.UP, PI + _look_yaw) 		* Basis(Vector3.RIGHT, _look_pitch)
+	# Sat down, looking a little above the horizon.
+	basis = basis * Basis(Vector3.RIGHT, deg_to_rad(-5.5))
+	if _shake > 0.001:
+		# Decaying, and on rotation only - see `_kick`.
+		var a := _shake * _shake * 0.030
+		var t2 := _boat_time * 46.0 + _shake_seed
+		basis = basis * Basis(Vector3.RIGHT, sin(t2 * 1.7) * a) \
+			* Basis(Vector3.UP, sin(t2 * 2.3) * a) \
+			* Basis(Vector3.FORWARD, sin(t2 * 1.1) * a * 0.7)
+	_cam.transform = Transform3D(basis, eye)
 
 	_float.position = out
 	_float.visible = sim.state != Sim.IDLE and sim.state != Sim.CHARGING and sim.state != Sim.HOLDING
@@ -2635,4 +2882,254 @@ func _build_float() -> Node3D:
 	f.add_child(ant)
 
 	return f
+
+
+## Float the boat on the swell.
+##
+## Sampled at four points - bow, stern and both beams - and the plane through
+## them gives heave, pitch and roll together. That is much better than driving
+## the three from one sample each: a hull sits ON the surface, so a long boat in
+## a short swell should pitch LESS than a short one, and reading real points is
+## what makes that happen for free.
+##
+## Damped, because raw Gerstner at the boat's scale is livelier than a two-metre
+## rowing boat would be, and a camera that matches the water exactly is a camera
+## that makes people put the phone down.
+func _sync_boat_pose() -> void:
+	var t := _boat_time
+	var bow := _wave_offset(0.0, 1.9, t)
+	var stern := _wave_offset(0.0, -0.8, t)
+	var port := _wave_offset(-0.6, 0.5, t)
+	var starboard := _wave_offset(0.6, 0.5, t)
+
+	var heave := (bow.y + stern.y + port.y + starboard.y) * 0.25
+	var pitch := atan2(bow.y - stern.y, 2.7)
+	var roll := atan2(starboard.y - port.y, 1.2)
+
+	# The damping IS the boat. A dinghy answers a swell late and rolls further
+	# than it pitches, which is most of what tells you how big the boat is.
+	var k := 1.0 - exp(-3.2 * _boat_dt)
+	_boat_heave = lerpf(_boat_heave, heave * 0.75, k)
+	_boat_pitch = lerpf(_boat_pitch, pitch * 0.62, k)
+	_boat_roll = lerpf(_boat_roll, roll * 0.85, k)
+
+	var basis := Basis(Vector3.RIGHT, _boat_pitch) * Basis(Vector3.FORWARD, _boat_roll)
+	_boat_pose = Transform3D(basis, Vector3(0.0, _boat_heave, 0.0))
+	if _boat != null:
+		_boat.transform = _boat_pose
+	if _reeds != null:
+		# The bank does NOT ride the boat - it is the one thing on screen that
+		# stays still, which is what makes the boat read as the thing moving.
+		_reeds.transform = Transform3D.IDENTITY
+
+
+## Where the lure actually IS, in the world.
+##
+## `_lure_position` describes the shape of the cast in CAST SPACE - straight out
+## in front of the rod - and this rotates that onto the heading the cast was made
+## on and lifts it onto the moving boat. Split in two so the shape of a cast is
+## one idea and where the boat happens to be pointing is another.
+##
+## Public because the smoke test has to ask the same question the renderer does.
+## It previously read `_lure_position` directly and compared it against the
+## float, which silently became a comparison between two different coordinate
+## spaces the moment casting gained a heading - the assertion still passed for a
+## while, for the wrong reason.
+func lure_world_position() -> Vector3:
+	return _boat_pose * (Basis(Vector3.UP, _cast_yaw) * _lure_position())
+
+
+# --- the one button ---------------------------------------------------------
+
+## What the action button DOES right now, as one word the player can read.
+##
+## Derived from the state rather than stored, so the label and the behaviour are
+## the same decision made once. A button whose caption and effect are computed in
+## two places is a button that lies the first time a state is added.
+func _action_for_state() -> String:
+	match sim.state:
+		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+			return "Cast"
+		Sim.CHARGING:
+			return "Cast"
+		Sim.FLYING, Sim.SINKING:
+			return "Reel in"
+		Sim.WAITING:
+			return "Reel in"
+		Sim.NIBBLING:
+			return "Strike"
+		Sim.FIGHTING:
+			return "Reel in"
+	return ""
+
+
+func _on_action() -> void:
+	match sim.state:
+		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+			# A tap of the button casts at a fixed, comfortable distance. Holding
+			# the WATER is still how you choose the range - this is the "just get
+			# me fishing again" control, which is what a player wants after
+			# losing one.
+			sim.hold_cast()
+			for i in 18:
+				sim.advance(1.0 / 60.0)
+			_cast_yaw = _look_yaw
+			if _audio != null:
+				_audio.play("cast", -5.0)
+			sim.release_cast()
+		Sim.NIBBLING:
+			sim.tap()
+		_:
+			# Everything else winds in. This is the way out that existed in the
+			# simulation and nowhere on the screen.
+			sim.reel_in()
+			if _audio != null:
+				_audio.play("reel", -8.0)
+
+
+## The hint. Says the thing that is true now, and stops saying it once the
+## player has plainly learnt it.
+func _hint_for_state() -> String:
+	if sim.caught >= 3:
+		return ""
+	match sim.state:
+		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+			return "hold the water to aim and cast   -   drag to look around"
+		Sim.CHARGING:
+			return "let go to cast"
+		Sim.SINKING, Sim.WAITING:
+			return "watch the float"
+		Sim.NIBBLING:
+			return "tap when it goes under"
+		Sim.FIGHTING:
+			return "tap to reel   -   stop when it runs"
+	return ""
+
+
+# --- impact -----------------------------------------------------------------
+
+## A SPLASH AND A RING where the lure lands.
+##
+## The survey's "event signification" - particles, decals, persistence - and the
+## cheapest of all of them. Before this a cast simply ended: the lure arrived and
+## the water did not acknowledge it, so the most frequent action in the game had
+## no consequence anyone could see. **An action with no reaction reads as not
+## having happened**, however correct the simulation underneath is.
+##
+## The expanding ring matters more than the droplets. Droplets are over in a
+## third of a second; the ring persists for two, which is what makes the water
+## feel like it remembers being hit.
+func _build_impact() -> void:
+	_splash = GPUParticles3D.new()
+	_splash.name = "Splash"
+	_splash.amount = 26
+	_splash.lifetime = 0.75
+	_splash.one_shot = true
+	_splash.explosiveness = 0.95
+	_splash.emitting = false
+	_splash.local_coords = false
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	pm.emission_sphere_radius = 0.07
+	pm.direction = Vector3(0, 1, 0)
+	pm.spread = 42.0
+	pm.initial_velocity_min = 1.4
+	pm.initial_velocity_max = 3.1
+	pm.gravity = Vector3(0, -9.8, 0)
+	pm.scale_min = 0.5
+	pm.scale_max = 1.2
+	_splash.process_material = pm
+	var q := QuadMesh.new()
+	q.size = Vector2(0.035, 0.035)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.albedo_color = Color(0.92, 0.95, 0.96, 0.80)
+	_splash.draw_pass_1 = q
+	_splash.material_override = m
+	add_child(_splash)
+
+	_ring = MeshInstance3D.new()
+	_ring.name = "Ring"
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.30
+	tm.outer_radius = 0.36
+	tm.rings = 4
+	tm.ring_segments = 24
+	_ring.mesh = tm
+	var rm := StandardMaterial3D.new()
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rm.albedo_color = Color(0.94, 0.96, 0.97, 0.0)
+	rm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_ring.material_override = rm
+	_ring.visible = false
+	add_child(_ring)
+
+
+var _ring_age := 9.0
+
+## Fire everything an impact produces, in one call, because they are one event.
+func _impact_at(where: Vector3, force: float) -> void:
+	if _splash != null:
+		# `position`, not `global_position`: both of these are direct children of
+		# the scene root, which sits at the origin, so they are the same value -
+		# and `global_position` needs a live tree, which a headless harness does
+		# not have. Same trap as starting audio playback too early.
+		_splash.position = where
+		_splash.amount_ratio = clampf(force, 0.25, 1.0)
+		_splash.restart()
+		_splash.emitting = true
+	if _ring != null:
+		_ring.position = Vector3(where.x, 0.02, where.z)
+		_ring_age = 0.0
+		_ring.visible = true
+
+
+## The ring grows and fades. Kept here rather than in a shader because it is four
+## lines and a shader would be a file.
+func _sync_ring(dt: float) -> void:
+	if _ring == null or not _ring.visible:
+		return
+	_ring_age += dt
+	var k := _ring_age / 2.1
+	if k >= 1.0:
+		_ring.visible = false
+		return
+	var scale := 0.35 + k * 2.6
+	_ring.scale = Vector3(scale, 1.0, scale)
+	var m := _ring.material_override as StandardMaterial3D
+	if m != null:
+		# Fades on a curve rather than linearly, so it is bright the instant it
+		# appears and lingers faintly - which is how a real ring reads.
+		m.albedo_color.a = 0.55 * pow(1.0 - k, 2.2)
+
+
+## SCREEN SHAKE, and the note that stops it being a toy.
+##
+## The survey is explicit that juice needs adequacy - Kao's study found medium
+## juiciness beat both extremes. So this is small: a couple of degrees at the
+## most violent event in the game, decaying in about a third of a second. It is
+## on the CAMERA's rotation rather than its position, because a boat's camera is
+## already translating with the swell and adding more would read as nausea.
+func _kick(amount: float) -> void:
+	_shake = minf(1.0, _shake + amount)
+	_shake_seed = randf() * 100.0
+
+
+## HIT STOP. A few frames of frozen time on the one event worth it: the strike.
+##
+## Not applied to the simulation - the rules must not care that the picture
+## paused - only to the presentation clock. That distinction is the reason this
+## is safe to add to a game with a whole-run golden test.
+func _hit_stop(seconds: float) -> void:
+	_freeze_left = maxf(_freeze_left, seconds)
+
+
+## The phone buzzing. The third feedback channel, and on a touch device it is the
+## only one that reaches the hand doing the work.
+func _buzz(ms: int, amplitude: float) -> void:
+	if OS.has_feature("mobile"):
+		Input.vibrate_handheld(ms, clampf(amplitude, 0.0, 1.0))
 

@@ -14,6 +14,9 @@ extends RefCounted
 ##
 ##   take_window   seconds the real take lasts - the whole of how hard a fish is
 ##                 to HOOK. A bluegill sits on the bait; a bass is gone again
+##   takes         how many times it will come back after a missed strike.
+##                 Absent means 2. The prize fish of each band have 1, and that
+##                 is the only place in this game where one mistake ends it
 ##   teases        how many false tugs it gives before the take, on average
 ##   run_chance    how often it bolts instead of coming in quietly
 ##   run_power     how hard that bolt pulls, as a multiple of the run constants.
@@ -125,6 +128,7 @@ const TABLE := [
 		"teases": 2.7,
 		"run_chance": 0.55,
 		"run_power": 0.74,
+		"takes": 1,
 		"stamina": 1.70,
 		"haul": 0.78,
 		"weight": 1.5,
@@ -213,6 +217,7 @@ const TABLE := [
 		"teases": 2.8,
 		"run_chance": 0.58,
 		"run_power": 0.86,
+		"takes": 1,
 		"stamina": 2.10,
 		"haul": 0.70,
 		"weight": 1.6,
@@ -336,6 +341,7 @@ const TABLE := [
 		"teases": 2.2,
 		"run_chance": 0.40,
 		"run_power": 1.00,
+		"takes": 1,
 		"stamina": 4.20,
 		"haul": 0.44,
 		"weight": 0.7,
@@ -411,6 +417,7 @@ const TABLE := [
 		"teases": 3.0,
 		"run_chance": 0.60,
 		"run_power": 1.34,
+		"takes": 1,
 		"stamina": 2.40,
 		"haul": 0.62,
 		"weight": 1.3,
@@ -506,6 +513,7 @@ const TABLE := [
 		"teases": 2.4,
 		"run_chance": 0.38,
 		"run_power": 1.36,
+		"takes": 1,
 		"stamina": 6.50,
 		"haul": 0.30,
 		"weight": 0.6,
@@ -525,6 +533,7 @@ const TABLE := [
 		"teases": 3.0,
 		"run_chance": 0.26,
 		"run_power": 1.48,
+		"takes": 1,
 		"stamina": 5.50,
 		"haul": 0.36,
 		"weight": 1.0,

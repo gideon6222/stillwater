@@ -87,6 +87,9 @@ var cast_distance: float = 0.0    ## metres out, once cast
 var lure_depth: float = 0.0       ## metres down
 var spook_timer: float = 0.0      ## fish put off by a wrong tap
 var bite_in: float = 0.0          ## seconds until the next bite, drawn once
+## How many takes this fish will offer before it gives up on the bait. More than
+## one for almost everything - see the note in `_nibble`.
+var takes_left: int = 2
 
 # --- the fish -------------------------------------------------------------
 var fish_id: String = ""
@@ -226,6 +229,23 @@ func tap() -> void:
 			pass
 
 
+## PUT THE ROD DOWN WITHOUT CASTING.
+##
+## The renderer needs this because one finger carries three verbs: a still hold
+## loads a cast and a drag looks around, so the instant a hold turns out to be a
+## drag the loaded cast has to go away. There was no way to do that - the only
+## exit from CHARGING was `release_cast`, which THROWS - so looking around threw
+## a line every time. A feel test caught it on its first run.
+##
+## Distinct from `reel_in`, which is for a line already in the water.
+func cancel_cast() -> void:
+	if state != CHARGING:
+		return
+	charge = 0.0
+	_enter(IDLE)
+	_clear_fish()
+
+
 ## Wind in without a fish on, which is how a player gets out of a dead cast.
 ## There must always be a way back to IDLE or the game is stuck, and "stuck"
 ## reads to the person holding the phone as a crash.
@@ -340,6 +360,7 @@ func _clear_fish() -> void:
 	tug = 0.0
 	taking = false
 	teases_left = 0
+	takes_left = 2
 	tug_timer = 0.0
 	in_tug = false
 	tension = 0.0
@@ -424,6 +445,11 @@ func _start_nibble() -> void:
 		_enter(WAITING)
 		return
 	teases_left = Species.tease_count(s, _rng.next())
+	# The prize fish of each band give ONE take and no second chance; everything
+	# else gives two. Written as a species field rather than a constant so the
+	# forgiveness is content, and the hardest fish can be genuinely unforgiving
+	# without making the tutorial so.
+	takes_left = int(s.get("takes", 2))
 	tug = 0.0
 	taking = false
 	in_tug = false
@@ -454,7 +480,26 @@ func _nibble(dt: float) -> void:
 		tug = depth * sin(clampf(k, 0.0, 1.0) * PI)
 		if tug_timer <= 0.0:
 			if taking:
-				# The take came and went. It is gone.
+				# **A MISSED TAKE IS NOT THE END OF THE FISH.**
+				#
+				# It was: one late tap and the fish was gone. Dredge's designers
+				# named the rule this breaks - "fishing should not be
+				# frustrating" - and went as far as making their minigame
+				# succeed even if the player never touches it. This does not go
+				# that far, because the strike IS the mechanic here, but a fish
+				# that gives you one chance in a two-second window is a fish that
+				# teaches the player to distrust the whole system.
+				#
+				# So a miss costs a chance, not the fish. Most species give a
+				# second go, the best of them do not, and running out is what
+				# actually loses it.
+				takes_left -= 1
+				if takes_left > 0:
+					in_tug = false
+					tug = 0.0
+					teases_left = 1
+					tug_timer = Species.tug_gap(_rng.next())
+					return
 				lost_count += 1
 				_enter(LOST)
 				lost.emit(MISSED)
