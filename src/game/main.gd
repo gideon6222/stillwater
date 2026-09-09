@@ -44,7 +44,17 @@ var _env: Environment
 var _sun: DirectionalLight3D
 var _water_mat: ShaderMaterial
 var _dread := 0.0
-var _sky_mat: ProceduralSkyMaterial
+var _sky_mat: ShaderMaterial
+var _sky_a := "dawn"
+var _sky_b := "dawn"
+var _sky_blend := 0.0
+var _sky_grey := 0.0
+var _sky_dark := 0.0
+var _sky_tint := Color(1, 1, 1)
+var _sky_cloud := 0.0
+var _grade: ColorRect
+var _rain: GPUParticles3D
+var _mist: GPUParticles3D
 var _reeds: Node3D
 var _save_due := 0.0
 var _sounder: Control
@@ -110,6 +120,20 @@ const CAST_SWING_TIME := 0.20 ## seconds of forward swing
 ## reason, and the steeple has to be a STEEPLE on a phone screen.
 const SOUNDER_RELIEF := 2.4
 
+## EXPOSURE, and why it needed a constant of its own.
+##
+## The procedural sky was dim, so `Mood`'s sun energies were tuned against
+## essentially one light source. A Poly Haven HDRI is real-world luminance and
+## lights the scene as well, so the same numbers arrive roughly twice as hot -
+## the first frame with a real sky in it had the lake as a sheet of pure white.
+##
+## Scaled HERE rather than in `Mood`, because Mood's numbers are asserted against
+## each other (night darker than noon, and so on) and those relations are still
+## right. This is the one global multiplier that turns them into an exposure.
+const SUN_SCALE := 0.42
+const AMBIENT_SCALE := 0.30
+const SKY_ENERGY := 0.55
+
 ## Set by the headless harness. When true the frame loop does not step the sim,
 ## so `advance()` is the only thing moving time and results do not depend on how
 ## fast the machine boots.
@@ -156,23 +180,20 @@ func _build_world() -> void:
 	# same three jobs for no bytes.
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.30, 0.44, 0.62)
-	sky_mat.sky_horizon_color = Color(0.92, 0.79, 0.60)
-	sky_mat.sky_curve = 0.16
-	sky_mat.ground_bottom_color = Color(0.22, 0.26, 0.24)
-	sky_mat.ground_horizon_color = Color(0.88, 0.76, 0.58)
-	sky_mat.sun_angle_max = 6.0
-	sky_mat.sun_curve = 0.08
+	var sky_mat := _build_sky_material()
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	e.background_mode = Environment.BG_SKY
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	e.ambient_light_energy = 0.9
+	e.background_energy_multiplier = SKY_ENERGY
+	# More headroom before white. Filmic at 3.0 was clipping the specular streak
+	# into a flat blown shape the moment a real sky was reflecting in it.
+	e.tonemap_exposure = 1.0
 	e.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	e.tonemap_white = 3.0
+	e.tonemap_white = 6.0
 	e.fog_enabled = true
 	e.fog_mode = Environment.FOG_MODE_DEPTH
 	e.fog_light_color = Color(0.86, 0.80, 0.68)
@@ -234,6 +255,8 @@ func _build_world() -> void:
 	_fish = _build_fish()
 	add_child(_fish)
 
+	_build_weather()
+	_build_grade()
 	_build_hud()
 
 
@@ -248,11 +271,15 @@ func _build_world() -> void:
 func _build_water() -> void:
 	_water = MeshInstance3D.new()
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(300, 300)
-	# Enough subdivision for the waves to read near the boat, and no more; the
-	# far half of the plane is under fog before it needs any detail.
-	pm.subdivide_width = 128
-	pm.subdivide_depth = 128
+	pm.size = Vector2(220, 220)
+	# **Sized by the QUAD, not by the plane.** 300 m across 128 subdivisions is a
+	# 2.3 m quad, and the ones within five metres of the camera are most of the
+	# bottom of a portrait frame - the vertex-displaced surface came out as
+	# visible flat plates the moment the water had enough specular to show them.
+	# 256 puts it at 1.17 m, which reads. 66k vertices, and on this phone
+	# neither vertices nor draw calls are a constraint - see PIPELINE.md.
+	pm.subdivide_width = 384
+	pm.subdivide_depth = 384
 	_water.mesh = pm
 	_water.name = "Water"
 
@@ -266,6 +293,7 @@ func _build_water() -> void:
 	m.set_shader_parameter("bed_depth", Tuning.BED_DEPTH)
 	m.set_shader_parameter("gloss", 1.0)
 	m.set_shader_parameter("beam", 1.0)
+	m.set_shader_parameter("ripple", 1.0)
 	_water.material_override = m
 	_water_mat = m
 	add_child(_water)
@@ -288,8 +316,57 @@ uniform float gloss = 1.0;
 // How much DIRECT sun there is to make a streak out of. See the note on `spec`
 // in mood.gd: this is the difference between a storm and a sunset.
 uniform float beam = 1.0;
+// How hard the fine ripple bites. Rises with the weather's chop.
+uniform float ripple = 1.0;
 
 varying vec3 world_pos;
+
+// --- fine detail ----------------------------------------------------------
+//
+// The four Gerstner waves give the lake its SWELL, and in bright side light
+// that was enough. In flat light - overcast, rain, fog, most of the second half
+// of this game - a swell with no fine structure has nothing to catch, and the
+// water rendered as a dark sheet with a horizon on it.
+//
+// So: three octaves of cheap value noise, scrolling on different headings, used
+// only to perturb the NORMAL. It costs no vertices and no texture, it tiles
+// forever because it is arithmetic, and it is the difference between water and
+// a painted floor at every hour that is not sunrise.
+float hashn(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float vnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = hashn(i);
+	float b = hashn(i + vec2(1.0, 0.0));
+	float c = hashn(i + vec2(0.0, 1.0));
+	float d = hashn(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// Each octave is ROTATED as well as scaled. Value noise is built on an
+// axis-aligned integer lattice, and stacking octaves that all share that lattice
+// leaves the grid visible - the close water came out in square patches, which on
+// a lake reads as a broken shader rather than as chop. Irrational-ish angles so
+// the lattices never come back into alignment.
+const mat2 ROT1 = mat2(vec2(0.8776, -0.4794), vec2(0.4794, 0.8776));
+const mat2 ROT2 = mat2(vec2(0.5403, -0.8415), vec2(0.8415, 0.5403));
+
+float ripple_height(vec2 p, float t) {
+	float h = 0.0;
+	// Frequencies are in CYCLES PER METRE, and the first version's base octave was
+	// 1.7 - a 59 cm cell. At a grazing view from a camera a metre above the water
+	// one of those cells covers a third of the screen, and the value-noise lattice
+	// showed as flat rectangular plates. Ripples are five to twenty centimetres,
+	// so that is what these are.
+	h += vnoise(p * 6.5 + vec2(t * 0.35, t * 0.12)) * 0.55;
+	h += vnoise(ROT1 * p * 15.0 - vec2(t * 0.22, t * 0.41)) * 0.30;
+	h += vnoise(ROT2 * p * 33.0 + vec2(t * 0.61, -t * 0.28)) * 0.15;
+	return h;
+}
 
 // One Gerstner wave. Four summed is enough for a lake: the surface has to
 // move and answer, not be photoreal. A water normal map would give it relief
@@ -308,10 +385,14 @@ void vertex() {
 	vec2 xz = p.xz;
 	float t = TIME;
 	vec3 o = vec3(0.0);
+	// **Only the LONG swells are displaced.** The 1.55 m and 0.85 m waves used to
+	// be here too, and on a 1.17 m quad they are below Nyquist - a wave shorter
+	// than two samples cannot be represented and aliases into flat plates, which
+	// is exactly what the near water came out as once it had enough specular to
+	// show them. Displace what the mesh can carry; the short chop is the
+	// fragment ripple's job, which is where it belongs anyway.
 	o += gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz, t);
 	o += gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz, t);
-	o += gerstner(vec2( 0.4,-1.00), 0.07, 1.55, 1.60, xz, t);
-	o += gerstner(vec2(-1.0,-0.20), 0.05, 0.85, 2.10, xz, t);
 	VERTEX += (inverse(MODEL_MATRIX) * vec4(o, 0.0)).xyz;
 	world_pos = p + o;
 }
@@ -322,25 +403,51 @@ void fragment() {
 	float e = 0.18;
 	vec2 xz = world_pos.xz;
 	float t = TIME;
+	// The SAME two waves the vertex shader displaced, so the normal always agrees
+	// with the surface actually built. Four here against two there would light a
+	// surface that does not exist.
 	vec3 a = gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz + vec2(e,0.0), t)
-	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz + vec2(e,0.0), t)
-	       + gerstner(vec2( 0.4,-1.00), 0.07, 1.55, 1.60, xz + vec2(e,0.0), t)
-	       + gerstner(vec2(-1.0,-0.20), 0.05, 0.85, 2.10, xz + vec2(e,0.0), t);
+	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz + vec2(e,0.0), t);
 	vec3 b = gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz - vec2(e,0.0), t)
-	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz - vec2(e,0.0), t)
-	       + gerstner(vec2( 0.4,-1.00), 0.07, 1.55, 1.60, xz - vec2(e,0.0), t)
-	       + gerstner(vec2(-1.0,-0.20), 0.05, 0.85, 2.10, xz - vec2(e,0.0), t);
+	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz - vec2(e,0.0), t);
 	vec3 c = gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz + vec2(0.0,e), t)
-	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz + vec2(0.0,e), t)
-	       + gerstner(vec2( 0.4,-1.00), 0.07, 1.55, 1.60, xz + vec2(0.0,e), t)
-	       + gerstner(vec2(-1.0,-0.20), 0.05, 0.85, 2.10, xz + vec2(0.0,e), t);
+	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz + vec2(0.0,e), t);
 	vec3 d = gerstner(vec2( 1.0, 0.35), 0.14, 5.10, 1.00, xz - vec2(0.0,e), t)
-	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz - vec2(0.0,e), t)
-	       + gerstner(vec2( 0.4,-1.00), 0.07, 1.55, 1.60, xz - vec2(0.0,e), t)
-	       + gerstner(vec2(-1.0,-0.20), 0.05, 0.85, 2.10, xz - vec2(0.0,e), t);
+	       + gerstner(vec2(-0.7, 0.90), 0.10, 2.90, 1.25, xz - vec2(0.0,e), t);
 	vec3 tx = vec3(2.0 * e + a.x - b.x, a.y - b.y, a.z - b.z);
 	vec3 tz = vec3(c.x - d.x, c.y - d.y, 2.0 * e + c.z - d.z);
 	vec3 n = normalize(cross(tz, tx));
+
+	// Fine ripple on top of the swell, and FADED WITH DISTANCE - past about forty
+	// metres a centimetre of chop is far below a pixel and all it can do is alias
+	// into a shimmer that reads as a broken shader.
+	//
+	// `VERTEX` is already in VIEW space here, so its length IS the distance from
+	// the camera. The first version subtracted the world position from it, which
+	// evaluated to roughly zero everywhere - the fade did nothing and, worse, it
+	// looked like it was working.
+	float dist = length(VERTEX);
+	float near = clamp(1.0 - dist / 40.0, 0.0, 1.0);
+	if (near > 0.01) {
+		float re = 0.06;
+		float t2 = TIME;
+		float hx = ripple_height(xz + vec2(re, 0.0), t2) - ripple_height(xz - vec2(re, 0.0), t2);
+		float hz = ripple_height(xz + vec2(0.0, re), t2) - ripple_height(xz - vec2(0.0, re), t2);
+		// The SLOPE has to be steep to read. A gentle perturbation of an already
+		// near-vertical normal is no perturbation: the first attempt divided by
+		// the sample width and produced a vector within a degree of straight up,
+		// which is exactly the flat sheet it was meant to fix.
+		// NOT eased off in the near field. It was, briefly, to hide the noise
+		// lattice - and once the ripple moved to real ripple frequencies the
+		// lattice was gone and the fade was doing the opposite job: it switched
+		// the detail off over exactly the water where the mesh quads are largest
+		// on screen, leaving the bare faceted geometry showing under the boat.
+		// The fine normal is what BREAKS UP those facets, so it has to run right
+		// up to the hull.
+		float bite = 11.0 * ripple * near;
+		vec3 rn = normalize(vec3(-hx * bite, 1.0, -hz * bite));
+		n = normalize(mix(n, rn, 0.55 * near));
+	}
 	NORMAL = (VIEW_MATRIX * vec4(n, 0.0)).xyz;
 
 	// Analytic depth. The bed is flat at M1; when it becomes a heightfield the
@@ -352,7 +459,11 @@ void fragment() {
 	// Fresnel. Water is almost entirely reflection at a grazing angle, which
 	// is what makes a lake read as a lake rather than as a coloured floor.
 	float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 4.0);
-	ALBEDO = mix(body, sky.rgb, clamp(fres, 0.0, 0.82));
+	// Only a LITTLE flat sky tint now. The engine reflects the real panorama into
+	// this surface through ROUGHNESS and SPECULAR, so the old 0.82 Fresnel mix
+	// toward a flat colour was the sky being counted twice - which is most of why
+	// the lake came out as a white sheet the moment a real sky went in.
+	ALBEDO = mix(body, sky.rgb, clamp(fres, 0.0, 0.30));
 	ROUGHNESS = mix(mix(0.30, 0.07, gloss), 0.34, murk);
 	METALLIC = 0.0;
 	SPECULAR = 0.85 * beam;
@@ -381,31 +492,67 @@ func _build_boat() -> void:
 	# actually sees is the gunwale running away on both sides and converging at
 	# the bow, with water between them. Same read, three thin meshes, and it
 	# frames the water instead of covering it.
-	var rail_col := Color(0.34, 0.25, 0.17)
+	# TEXTURED, and SWEPT into a hull rather than assembled from blocks.
+	#
+	# The framing rule above still holds - no solid deck, gunwales converging on
+	# a bow, water between them - and everything here is added inside it. What
+	# was missing was surface: the rail is the closest object to the camera in
+	# the whole game and fills a tenth of the frame, which is exactly the
+	# situation ASSETS.md names as the exception to modelling in code. So it gets
+	# a real plank normal and roughness.
+	#
+	# The COLOUR map is deliberately not imported. A photographic wood albedo
+	# drags in its own palette and would be the one object in the picture not
+	# taking its colour from `Mood`; the normal and the roughness are the halves
+	# that are style-neutral, which is the rule from the notes.
+	#
+	# **A chain of boxes was tried first and read as floating debris.** Short
+	# segments toed inward leave a visible gap at every joint and each one catches
+	# the light on its own end cap, so the hull came out as a scatter of blocks. A
+	# hull is a swept curve and has to be built as one - `_sweep` below.
+	var rail_mat := _wood_mat(Color(0.30, 0.22, 0.155), Vector3(1.0, 4.0, 1.0))
+	var strake_mat := _wood_mat(Color(0.245, 0.180, 0.128), Vector3(1.0, 4.0, 1.0))
+
 	for side in [-1.0, 1.0]:
+		var rail_pts: Array[Vector3] = []
+		var strake_pts: Array[Vector3] = []
+		for i in 13:
+			var t := float(i) / 12.0
+			# Widest about a third back, not at the stern, and drawing in to a
+			# bow. A straight taper reads as a wedge rather than as a boat.
+			# Converging to a real bow. An earlier taper stopped at 0.29 and left
+			# the two sides a clear half-metre apart at the front, which reads as
+			# two rails rather than as a boat that closes. No bow BLOCK though -
+			# one stood here for a build and sat exactly in front of the float at
+			# a short cast, hiding the one object the player is watching.
+			var half: float = 0.615 - 0.50 * t * t
+			var z: float = 0.05 + t * 2.25
+			rail_pts.append(Vector3(side * half, 0.205 + 0.075 * t * t, z))
+			strake_pts.append(Vector3(side * (half + 0.010), 0.055 + 0.055 * t * t, z))
 		var rail := MeshInstance3D.new()
-		var rm2 := BoxMesh.new()
-		rm2.size = Vector3(0.12, 0.17, 2.4)
-		rail.mesh = rm2
-		rail.material_override = _mat(rail_col, 0.7)
-		rail.position = Vector3(side * 0.60, 0.20, 1.05)
-		rail.rotation_degrees = Vector3(0, side * -5.5, 0)
+		rail.mesh = _sweep(rail_pts, 0.115, 0.150)
+		rail.material_override = rail_mat
 		_boat.add_child(rail)
+		# One strake under the gunwale, catching the light differently. Two planks
+		# read as a built object; one reads as an edge.
+		var strake := MeshInstance3D.new()
+		strake.mesh = _sweep(strake_pts, 0.075, 0.215)
+		strake.material_override = strake_mat
+		_boat.add_child(strake)
 
-	# No bow block. One stood here for a build and it read as a floating crate
-	# rather than as part of the boat - and worse, at a short cast it sat exactly
-	# in front of the float, hiding the one object the player is watching. A prop
-	# that occludes the thing the game is about is a bug, not a look.
-
-	# The thwart the player is sitting behind. One edge across the bottom of the
-	# frame, which is all the "you are in a boat" the picture needs.
-	var thwart := MeshInstance3D.new()
-	var tm2 := BoxMesh.new()
-	tm2.size = Vector3(1.30, 0.10, 0.30)
-	thwart.mesh = tm2
-	thwart.material_override = _mat(Color(0.42, 0.32, 0.21), 0.65)
-	thwart.position = Vector3(0.0, 0.14, -0.25)
-	_boat.add_child(thwart)
+	# A coil of rope on the thwart. Tiny, and it is the whole difference between
+	# a boat and a diagram of a boat - the eye reads "used" from one such object.
+	var rope := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.045
+	tm.outer_radius = 0.115
+	tm.rings = 10
+	tm.ring_segments = 12
+	rope.mesh = tm
+	rope.material_override = _mat(Color(0.44, 0.39, 0.29), 0.95)
+	rope.position = Vector3(-0.40, 0.215, -0.16)
+	rope.rotation_degrees = Vector3(4, 18, 0)
+	_boat.add_child(rope)
 
 	_build_rod()
 
@@ -1293,17 +1440,16 @@ func _sync_mood(dt: float) -> void:
 	var look: Dictionary = Mood.at(sim.hour, sim.weather, _dread)
 	var k := 1.0 - exp(-2.2 * dt)
 
-	_sky_mat.sky_top_color = _sky_mat.sky_top_color.lerp(look["sky_top"], k)
-	_sky_mat.sky_horizon_color = _sky_mat.sky_horizon_color.lerp(look["sky_horizon"], k)
-	_sky_mat.ground_horizon_color = _sky_mat.sky_horizon_color
-	_sky_mat.ground_bottom_color = _sky_mat.ground_bottom_color.lerp(look["water_deep"], k)
+	_sync_sky(look, k)
 
+	_env.ambient_light_energy = lerpf(_env.ambient_light_energy,
+		float(look["ambient"]) * AMBIENT_SCALE, k)
 	_env.fog_light_color = _env.fog_light_color.lerp(look["fog_color"], k)
 	_env.fog_density = lerpf(_env.fog_density, float(look["fog_density"]), k)
 
 	if _sun != null:
 		_sun.light_color = _sun.light_color.lerp(look["sun_color"], k)
-		_sun.light_energy = lerpf(_sun.light_energy, float(look["sun_energy"]), k)
+		_sun.light_energy = lerpf(_sun.light_energy, float(look["sun_energy"]) * SUN_SCALE, k)
 		var pitch := lerpf(_sun.rotation_degrees.x, float(look["sun_pitch"]), k)
 		_sun.rotation_degrees = Vector3(pitch, 8.0, 0.0)
 
@@ -1318,6 +1464,9 @@ func _sync_mood(dt: float) -> void:
 			if mi != null:
 				mi.transparency = 1.0 - near
 
+	_sync_weather(look, k)
+	_sync_grade(k)
+
 	if _water_mat != null:
 		var sh: Color = _water_mat.get_shader_parameter("shallow")
 		var dp: Color = _water_mat.get_shader_parameter("deep")
@@ -1330,6 +1479,9 @@ func _sync_mood(dt: float) -> void:
 			lerpf(gl, clampf(1.0 / float(look["chop"]), 0.0, 1.0), k))
 		var bm: float = _water_mat.get_shader_parameter("beam")
 		_water_mat.set_shader_parameter("beam", lerpf(bm, float(look["specular"]), k))
+		var rp: float = _water_mat.get_shader_parameter("ripple")
+		_water_mat.set_shader_parameter("ripple",
+			lerpf(rp, clampf(float(look["chop"]), 0.5, 2.6), k))
 
 
 # --- keeping it -----------------------------------------------------------
@@ -1479,3 +1631,463 @@ func _draw_sounder() -> void:
 		_sounder.draw_string(font, Vector2(w * 0.5 + 12, clampf(ly2 + 8.0, 20.0, h - 6.0)),
 			SimUtil.fmt_m(sim.lure_depth),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.95, 0.90, 0.80, 0.92))
+
+
+# --- the sky ---------------------------------------------------------------
+
+## The five skies, in the order the hours run. Poly Haven 1k HDRIs, CC0.
+##
+## The `puresky` variants are sky ONLY - no ground, no trees, no horizon clutter
+## - which is what a lake needs, because the horizon in this game is water and
+## anything baked into the bottom half of the panorama would be reflected in it.
+const SKIES := {
+	"dawn": "res://assets/sky/sky_dawn.hdr",
+	"morning": "res://assets/sky/sky_morning.hdr",
+	"afternoon": "res://assets/sky/sky_afternoon.hdr",
+	"dusk": "res://assets/sky/sky_dusk.hdr",
+	"night": "res://assets/sky/sky_night.hdr",
+}
+
+## The weather sky, laid OVER whichever hour is running. Heavy cloud has no time
+## of day in it, so one panorama covers all five - and blending it in by how bad
+## the weather is means a storm at dusk gets storm clouds lit dusk-coloured,
+## rather than a second complete sky that has to agree with the first.
+const STORM_SKY := "res://assets/sky/sky_storm.hdr"
+
+## How much of the storm sky each weather pulls in.
+const SKY_CLOUD := {
+	"clear": 0.00, "overcast": 0.55, "fog": 0.30, "rain": 0.70, "storm": 0.92,
+}
+
+
+## A real sky, WITHOUT giving up the mood arc.
+##
+## The obvious way to use an HDRI is `PanoramaSkyMaterial`, and it is wrong here:
+## a panorama is one fixed photograph, and this game's whole look is a continuous
+## curve through hour, weather and depth. Swapping panoramas at each hour would
+## be exactly the hard cut the arc exists to avoid.
+##
+## So the sky is a shader that samples TWO panoramas and crossfades them, then
+## applies the same tint, grey and darkening `Mood.at` hands everything else.
+## Real cloud detail - which is the grit that was missing - and the arc still
+## drives it. The water reflects the result, which is most of why the lake now
+## reads as water rather than as a coloured surface.
+func _build_sky_material() -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = SKY_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("sky_a", load(SKIES["dawn"]))
+	m.set_shader_parameter("sky_b", load(SKIES["dawn"]))
+	m.set_shader_parameter("blend", 0.0)
+	m.set_shader_parameter("sky_cloud", load(STORM_SKY))
+	m.set_shader_parameter("cloud", 0.0)
+	m.set_shader_parameter("tint", Color(1, 1, 1))
+	m.set_shader_parameter("grey", 0.0)
+	m.set_shader_parameter("darken", 0.0)
+	m.set_shader_parameter("horizon", Color(0.8, 0.8, 0.8))
+	_sky_a = "dawn"
+	_sky_b = "dawn"
+	return m
+
+
+const SKY_SHADER := """
+shader_type sky;
+
+uniform sampler2D sky_a : source_color, filter_linear;
+uniform sampler2D sky_b : source_color, filter_linear;
+uniform sampler2D sky_cloud : source_color, filter_linear;
+uniform float blend = 0.0;
+uniform float cloud = 0.0;
+uniform vec3 tint : source_color = vec3(1.0);
+uniform float grey = 0.0;
+uniform float darken = 0.0;
+uniform vec3 horizon : source_color = vec3(0.8);
+
+vec2 equirect(vec3 dir) {
+	return vec2(atan(dir.x, -dir.z) / (2.0 * PI) + 0.5, acos(clamp(dir.y, -1.0, 1.0)) / PI);
+}
+
+void sky() {
+	vec2 uv = equirect(EYEDIR);
+	vec3 c = mix(texture(sky_a, uv).rgb, texture(sky_b, uv).rgb, blend);
+
+	// The BOTTOM HALF is never seen as sky - the lake covers it - but it IS what
+	// the water samples for its reflection, and a `puresky` panorama has nothing
+	// down there but a flat colour. Folding the horizon band down gives the
+	// reflection something with structure in it, which is what stops the lake
+	// reading as a coloured floor.
+	if (EYEDIR.y < 0.0) {
+		vec2 folded = vec2(uv.x, 0.5 - (uv.y - 0.5) * 0.55);
+		vec3 f = mix(texture(sky_a, folded).rgb, texture(sky_b, folded).rgb, blend);
+		c = mix(c, f, clamp(-EYEDIR.y * 2.4, 0.0, 0.85));
+	}
+
+	// The weather's cloud, laid over the hour and MULTIPLIED rather than mixed,
+	// so it takes its light from whatever time of day it is instead of dragging
+	// its own noon in with it. A storm at dusk stays a dusk.
+	if (cloud > 0.001) {
+		vec3 cl = texture(sky_cloud, uv).rgb;
+		float lum = dot(cl, vec3(0.299, 0.587, 0.114));
+		vec3 shaped = c * (0.35 + 1.15 * lum);
+		c = mix(c, shaped, cloud);
+	}
+
+	c *= tint;
+	c = mix(c, vec3(dot(c, vec3(0.299, 0.587, 0.114))), grey);
+	c *= (1.0 - darken);
+	COLOR = c;
+}
+"""
+
+
+## Crossfade the two skies the current hour sits between, and hand the shader the
+## same colour treatment everything else in the picture gets.
+##
+## `_sky_a`/`_sky_b` are only reassigned when the HOUR changes, because setting a
+## sampler uniform every frame re-uploads the texture binding for no reason.
+func _sync_sky(look: Dictionary, k: float) -> void:
+	var hour := sim.hour
+	if hour != _sky_b:
+		_sky_a = _sky_b
+		_sky_b = hour
+		_sky_mat.set_shader_parameter("sky_a", load(SKIES.get(_sky_a, SKIES["dawn"])))
+		_sky_mat.set_shader_parameter("sky_b", load(SKIES.get(_sky_b, SKIES["dawn"])))
+		_sky_blend = 0.0
+	_sky_blend = minf(1.0, _sky_blend + k)
+	_sky_mat.set_shader_parameter("blend", _sky_blend)
+
+	var w: Dictionary = Mood.WEATHERS.get(sim.weather, Mood.WEATHERS["clear"])
+	var tint: Color = w["tint"]
+	_sky_cloud = lerpf(_sky_cloud, float(SKY_CLOUD.get(sim.weather, 0.0)), k)
+	_sky_mat.set_shader_parameter("cloud", _sky_cloud)
+	# Weather greys the sky and depth drains it, exactly as they do everything
+	# else - the numbers come from the same table the water and the light use.
+	_sky_grey = lerpf(_sky_grey, float(w["grey"]) + (1.0 - float(w["grey"])) * _dread * 0.75, k)
+	_sky_dark = lerpf(_sky_dark, (1.0 - float(w["light"])) * 0.55 + _dread * 0.45, k)
+	_sky_tint = _sky_tint.lerp(tint, k)
+	_sky_mat.set_shader_parameter("tint", _sky_tint)
+	_sky_mat.set_shader_parameter("grey", _sky_grey)
+	_sky_mat.set_shader_parameter("darken", _sky_dark)
+	_sky_mat.set_shader_parameter("horizon", look["sky_horizon"])
+
+
+# --- the grade -------------------------------------------------------------
+
+## THE FILM THE LAKE IS PHOTOGRAPHED ON.
+##
+## Vignette, grain and a little chromatic aberration, all rising with `dread`.
+## This is the cheapest and by a distance the most effective mood tool in the
+## project - the geometry, the light and the palette were all doing their jobs
+## and the picture still looked CLEAN, which is the one thing this game must not
+## look. Nothing here is simulated; it is the camera, and a camera is exactly
+## what a game about watching water should feel like it has.
+##
+## Under the HUD on purpose. It sits on a CanvasLayer BELOW the HUD's, so it
+## grades the 3D and leaves the text alone - grain over a price list reads as a
+## broken display rather than as atmosphere, and the numbers have to stay
+## legible at arm's length on a phone.
+func _build_grade() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = -1
+	layer.name = "Grade"
+	add_child(layer)
+
+	var sh := Shader.new()
+	sh.code = GRADE_SHADER
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	m.set_shader_parameter("dread", 0.0)
+	m.set_shader_parameter("grain", 0.045)
+	m.set_shader_parameter("vignette", 0.30)
+	m.set_shader_parameter("aberration", 0.0)
+	m.set_shader_parameter("lift", Color(0.014, 0.024, 0.026))
+
+	_grade = ColorRect.new()
+	_grade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_grade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_grade.material = m
+	_grade.name = "Grade"
+	layer.add_child(_grade)
+
+
+const GRADE_SHADER := """
+shader_type canvas_item;
+
+uniform sampler2D screen : hint_screen_texture, filter_linear_mipmap;
+uniform float dread = 0.0;
+uniform float grain = 0.045;
+uniform float vignette = 0.30;
+uniform float aberration = 0.0;
+uniform vec3 lift : source_color = vec3(0.0);
+
+float hash(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+void fragment() {
+	vec2 uv = SCREEN_UV;
+	vec2 off = uv - vec2(0.5);
+	float r2 = dot(off, off);
+
+	// Chromatic aberration, radial and only at the edges. Deliberately tiny -
+	// past about a pixel and a half it stops reading as a lens and starts
+	// reading as a fault in the phone.
+	vec3 col;
+	if (aberration > 0.0001) {
+		vec2 dir = off * aberration * r2;
+		col.r = texture(screen, uv + dir).r;
+		col.g = texture(screen, uv).g;
+		col.b = texture(screen, uv - dir).b;
+	} else {
+		col = texture(screen, uv).rgb;
+	}
+
+	// Lifted blacks, toward the colour of the water rather than toward grey. A
+	// true black on an OLED phone is a HOLE, and a hole reads as the screen
+	// being off, not as darkness.
+	col += lift * (1.0 - col);
+
+	// Grain. Animated, because static grain is dirt on the lens.
+	float n = hash(uv * vec2(1024.0, 1024.0) + fract(TIME) * 91.7) - 0.5;
+	// Strongest in the mid-tones, as real film is: none in the highlights, and
+	// almost none in the blacks where it would just be noise.
+	float mid = 1.0 - abs(dot(col, vec3(0.333)) * 2.0 - 1.0);
+	col += n * grain * mid;
+
+	// Vignette last, so nothing above brightens the corners back up.
+	float v = smoothstep(0.86, 0.10, r2 * (1.0 + 1.4 * dread));
+	col *= mix(1.0, v, vignette);
+
+	COLOR = vec4(col, 1.0);
+}
+"""
+
+
+## The grade follows dread, like everything else. The numbers are small: at the
+## bottom of the lake the grain is about triple the surface value and the
+## vignette has roughly doubled, which is a long way from a filter and is meant
+## to be noticed only in the sense that the player stops feeling comfortable.
+func _sync_grade(k: float) -> void:
+	if _grade == null:
+		return
+	var m := _grade.material as ShaderMaterial
+	if m == null:
+		return
+	m.set_shader_parameter("dread", _dread)
+	m.set_shader_parameter("grain", lerpf(0.040, 0.115, _dread))
+	m.set_shader_parameter("vignette", lerpf(0.28, 0.66, _dread))
+	m.set_shader_parameter("aberration", lerpf(0.0, 0.020, _dread))
+
+
+## Wood, from the ambientCG plank maps. Albedo is a FLAT colour we choose, so the
+## boat still takes its palette from the game rather than from a photograph; the
+## normal and roughness carry the grain, the saw marks and the wear, which is
+## what a flat colour cannot do and what makes the rail read as timber at the
+## thirty centimetres it sits from the camera.
+func _wood_mat(albedo: Color, tiling: Vector3) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = albedo
+	m.roughness = 1.0
+	m.uv1_scale = tiling
+	var n := load("res://assets/tex/wood_normal.jpg")
+	if n != null:
+		m.normal_enabled = true
+		m.normal_texture = n
+		m.normal_scale = 0.85
+	var r := load("res://assets/tex/wood_rough.jpg")
+	if r != null:
+		m.roughness_texture = r
+	return m
+
+
+## Sweep a rectangular cross-section along a path, as one continuous mesh.
+##
+## Written because the boat needed it and kept because anything long and curved
+## in this game wants it. The alternative - a row of short boxes rotated to
+## follow the curve - was tried on the hull and reads as floating debris: every
+## joint leaves a gap, and every end cap catches the light on its own.
+##
+## UVs run ACROSS in u and ALONG in v, so a plank texture runs the length of the
+## timber rather than wrapping around it.
+func _sweep(path: Array[Vector3], width: float, height: float) -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var idx := PackedInt32Array()
+	var n := path.size()
+
+	var run := 0.0
+	for i in n:
+		var here: Vector3 = path[i]
+		var tangent: Vector3
+		if i == 0:
+			tangent = (path[1] - here)
+		elif i == n - 1:
+			tangent = (here - path[n - 2])
+		else:
+			tangent = (path[i + 1] - path[i - 1])
+		tangent = tangent.normalized()
+		var right := tangent.cross(Vector3.UP).normalized()
+		if right.length_squared() < 0.001:
+			right = Vector3.RIGHT
+		var up := right.cross(tangent).normalized()
+		if i > 0:
+			run += here.distance_to(path[i - 1])
+
+		var hw := width * 0.5
+		var hh := height * 0.5
+		# Four corners, in order, so consecutive rings can be stitched blindly.
+		var corners := [
+			here - right * hw + up * hh,
+			here + right * hw + up * hh,
+			here + right * hw - up * hh,
+			here - right * hw - up * hh,
+		]
+		var normals := [up, right, -up, -right]
+		for c in 4:
+			verts.append(corners[c])
+			norms.append(normals[c])
+			uvs.append(Vector2(float(c) / 4.0, run))
+
+	for i in n - 1:
+		for c in 4:
+			var a0 := i * 4 + c
+			var a1 := i * 4 + (c + 1) % 4
+			var b0 := (i + 1) * 4 + c
+			var b1 := (i + 1) * 4 + (c + 1) % 4
+			idx.append_array([a0, b0, a1, a1, b0, b1])
+
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = norms
+	arr[Mesh.ARRAY_TEX_UV] = uvs
+	arr[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return mesh
+
+
+# --- weather you can see ---------------------------------------------------
+
+## RAIN AND MIST, because until now weather was a word in the HUD.
+##
+## `Mood` made storms darker and greyer and raised the fog, which is real but is
+## also exactly what dusk does - so "rain" and "evening" were the same picture
+## with different captions. Weather has to be something in the air between the
+## player and the water, or the map's promise that the hours and the sky matter
+## is a promise about numbers.
+##
+## Both are GPUParticles3D parented to the CAMERA rig position rather than to the
+## world, because the player never travels far enough within a scene for a
+## world-anchored volume to be worth its cost - and an unanchored one is the
+## classic mistake ambient particles make. Here the boat genuinely is the frame
+## of reference: it does not move.
+func _build_weather() -> void:
+	_rain = GPUParticles3D.new()
+	_rain.name = "Rain"
+	_rain.amount = 900
+	_rain.lifetime = 1.1
+	_rain.visibility_aabb = AABB(Vector3(-9, -3, -3), Vector3(18, 14, 22))
+	_rain.local_coords = false
+	var rp := ParticleProcessMaterial.new()
+	rp.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	rp.emission_box_extents = Vector3(8.0, 0.5, 10.0)
+	rp.direction = Vector3(0.12, -1.0, 0.0)
+	rp.spread = 3.0
+	rp.initial_velocity_min = 13.0
+	rp.initial_velocity_max = 17.0
+	rp.gravity = Vector3(0, -9.0, 0)
+	rp.scale_min = 0.7
+	rp.scale_max = 1.3
+	_rain.process_material = rp
+	# A long thin quad, unshaded and barely there. Rain that is LIT reads as
+	# sparks; rain is a smear of the sky, so it takes its colour from the fog and
+	# nothing else in the frame lights it.
+	var rq := QuadMesh.new()
+	rq.size = Vector2(0.012, 0.42)
+	var rm := StandardMaterial3D.new()
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	rm.albedo_color = Color(0.78, 0.84, 0.88, 0.30)
+	rm.vertex_color_use_as_albedo = false
+	_rain.draw_pass_1 = rq
+	_rain.material_override = rm
+	_rain.position = Vector3(0, 7.0, 6.0)
+	_rain.emitting = false
+	add_child(_rain)
+
+	_mist = GPUParticles3D.new()
+	_mist.name = "Mist"
+	_mist.amount = 46
+	_mist.lifetime = 13.0
+	_mist.visibility_aabb = AABB(Vector3(-16, -2, -4), Vector3(32, 10, 30))
+	_mist.local_coords = false
+	var mp := ParticleProcessMaterial.new()
+	mp.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	mp.emission_box_extents = Vector3(13.0, 0.35, 11.0)
+	mp.direction = Vector3(1.0, 0.06, 0.0)
+	mp.spread = 22.0
+	mp.initial_velocity_min = 0.25
+	mp.initial_velocity_max = 0.75
+	mp.gravity = Vector3.ZERO
+	mp.scale_min = 5.0
+	mp.scale_max = 11.0
+	# Fades in and out over its life, so nothing ever pops.
+	var curve := Curve.new()
+	curve.add_point(Vector2(0.0, 0.0))
+	curve.add_point(Vector2(0.35, 1.0))
+	curve.add_point(Vector2(0.7, 1.0))
+	curve.add_point(Vector2(1.0, 0.0))
+	var ct := CurveTexture.new()
+	ct.curve = curve
+	mp.alpha_curve = ct
+	_mist.process_material = mp
+	var mq := QuadMesh.new()
+	mq.size = Vector2(1.0, 0.55)
+	var mm := StandardMaterial3D.new()
+	mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mm.albedo_color = Color(0.80, 0.83, 0.82, 0.055)
+	_mist.draw_pass_1 = mq
+	_mist.material_override = mm
+	_mist.position = Vector3(0, 0.55, 9.0)
+	_mist.emitting = false
+	add_child(_mist)
+
+
+## Rain falls when it is raining. Mist sits on the water in fog - and, more
+## quietly, in the deep, where it is the one thing in the picture that behaves
+## like the lake is exhaling.
+func _sync_weather(look: Dictionary, k: float) -> void:
+	if _rain == null or _mist == null:
+		return
+	var wet := 0.0
+	match sim.weather:
+		"rain": wet = 0.62
+		"storm": wet = 1.0
+		_: wet = 0.0
+	_rain.emitting = wet > 0.01
+	if _rain.emitting:
+		_rain.amount_ratio = wet
+		var rm := _rain.material_override as StandardMaterial3D
+		if rm != null:
+			var fogc: Color = look["fog_color"]
+			rm.albedo_color = Color(fogc.r, fogc.g, fogc.b, 0.16 + 0.22 * wet)
+
+	var haze := 0.0
+	if sim.weather == "fog":
+		haze = 1.0
+	elif sim.weather == "overcast":
+		haze = 0.25
+	haze = maxf(haze, _dread * 0.55)
+	_mist.emitting = haze > 0.02
+	if _mist.emitting:
+		_mist.amount_ratio = clampf(haze, 0.05, 1.0)
+		var mm := _mist.material_override as StandardMaterial3D
+		if mm != null:
+			var fogc2: Color = look["fog_color"]
+			mm.albedo_color = Color(fogc2.r, fogc2.g, fogc2.b, 0.030 + 0.055 * haze)
