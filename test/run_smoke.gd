@@ -46,6 +46,10 @@ func _initialize() -> void:
 	_check_the_float_is_the_nibble_minigame(main)
 	_check_the_cast_is_a_swing_not_a_bend(main)
 	_check_the_lure_is_where_the_line_ends(main)
+	_check_every_room_opens_and_closes(main)
+	_check_the_shed_actually_spends_money(main)
+	_check_the_rooms_cannot_be_opened_mid_fight(main)
+	_check_the_map_travels_and_the_clock_turns(main)
 
 	_finish()
 
@@ -365,3 +369,107 @@ func _drive_until_state(main, want: String, limit: float) -> bool:
 				pass
 		main.advance(step, step)
 	return main.sim.state == want
+
+
+## EVERY ROOM OPENS, DRAWS SOMETHING, AND LETS YOU OUT.
+##
+## The rooms are built in code, so "the shed is a blank screen" and "the back
+## button does nothing" are both one typo away and neither is visible from the
+## pure tests. The way out is checked for each one, for the same reason the line
+## always comes back: a screen with no exit reads as a crash.
+func _check_every_room_opens_and_closes(main) -> void:
+	_t.begin("smoke > every room opens, fills, and lets you out")
+	main.freeze(1)
+	var menus = main._menus
+	_t.ok(menus != null, "the menus were never built")
+	if menus == null:
+		return
+	for screen in [Menus.SHED, Menus.MAP, Menus.LOG]:
+		menus.open(screen)
+		_t.ok(menus.is_open(), "%s did not open" % screen)
+		_t.eq(menus.current(), screen, "%s opened the wrong room" % screen)
+		_t.gt(float(menus._list.get_child_count()), 0.0,
+			"%s opened as a blank screen" % screen)
+		_t.ok(menus._title.text != "", "%s has no title" % screen)
+		menus.close()
+		_t.ok(not menus.is_open(), "there is no way out of %s" % screen)
+
+
+## Buying goes through the same `econ` the tests use, so this checks the WIRING:
+## that the shelf the shed drew is connected to the purse, and that a purchase
+## the player cannot afford changes nothing at all.
+func _check_the_shed_actually_spends_money(main) -> void:
+	_t.begin("smoke > the shed spends money and hands over the goods")
+	main.freeze(1)
+	var econ = main.sim.econ
+	var menus = main._menus
+
+	econ.money = 0
+	var before: int = econ.line
+	menus.open(Menus.SHED)
+	menus._buy_next("line")
+	_t.eq(econ.line, before, "the shed sold line to a player with no money")
+	_t.eq(econ.money, 0, "a refused purchase still moved the purse")
+
+	econ.money = 10000
+	menus._buy_next("line")
+	_t.eq(econ.line, before + 1, "the shed took the money and handed over nothing")
+	_t.lt(float(econ.money), 10000.0, "the line was free")
+
+	# And the reach really did change, which is the only reason any of it matters.
+	#
+	# NOT in the bay, though, and the first version of this assertion got that
+	# wrong: Reed Bay has a bottom at four metres and no line ever made will find
+	# a fifth. **Better line does not deepen the water you are in, it lets you go
+	# somewhere deeper** - the spot and the line are two halves of one gate, and
+	# a test that expects either to work alone is testing a game we did not build.
+	_t.eq(main.sim.deepest_here(), 4.0,
+		"the bay got deeper when the line did - depth is the lake, not the tackle")
+	_t.gt(World.reachable_depth("narrows", econ.line), 4.0,
+		"better line reaches no further even at a deeper spot - the ladder is not wired to the lake")
+	menus.close()
+
+
+## The dock is along the bottom, which is where a thumb lands to reel. If a room
+## could open mid-fight the player would open the shop trying to land a fish.
+func _check_the_rooms_cannot_be_opened_mid_fight(main) -> void:
+	_t.begin("smoke > the rooms only open from the boat")
+	main.freeze(1)
+	main.play(Policies.HUMAN, 60.0)
+	main.sim.state = Sim.FIGHTING
+	main._open(Menus.SHED)
+	_t.ok(not main._menus.is_open(), "the shed opened in the middle of a fight")
+	main._sync_bars()
+	_t.ok(not main._dock.visible, "the dock is under the thumb during a fight")
+
+	main.sim.state = Sim.IDLE
+	main._sync_bars()
+	_t.ok(main._dock.visible, "there is no way to reach the rooms from the boat")
+
+
+## Travel and the clock, through the same buttons the player presses.
+func _check_the_map_travels_and_the_clock_turns(main) -> void:
+	_t.begin("smoke > the map moves the boat and the clock turns")
+	main.freeze(1)
+	var sim = main.sim
+	var menus = main._menus
+	menus.open(Menus.MAP)
+
+	# Without a motor the far water is refused, and refused SILENTLY is the bug -
+	# the map has to say why, in words, or the player just taps a dead row.
+	sim.econ.has_motor = false
+	_t.ok(not sim.travel_to("road"), "you rowed to the drowned road")
+	_t.ok(sim.spot_blocked("road") != "", "the map gives no reason the road is shut")
+
+	sim.econ.has_motor = true
+	sim.econ.line = 2
+	_t.ok(sim.travel_to("road"), "the motor does not get you anywhere")
+	_t.eq(sim.spot, "road", "the boat did not move")
+	_t.gt(sim.deepest_here(), 15.0, "the road is no deeper than the bay")
+
+	var hour: String = sim.hour
+	var day: int = sim.day
+	sim.sleep()
+	_t.ok(sim.hour != hour, "sleeping did not move the clock")
+	_t.gt(float(sim.day), float(day) - 1.0, "the day went backwards")
+	menus.close()

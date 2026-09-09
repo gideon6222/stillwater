@@ -36,6 +36,9 @@ var _cast_area: Control
 var _rod: MeshInstance3D
 var _wake: MeshInstance3D
 var _tension_bar: Control
+var _menus: Menus
+var _dock: HBoxContainer
+var _world_line: Label
 
 var _charging := false
 
@@ -642,6 +645,51 @@ func _build_hud() -> void:
 	_prompt.name = "Prompt"
 	_ui.add_child(_prompt)
 
+	# The world line: where you are, what day and hour it is, and what the weather
+	# is doing. Top-RIGHT, opposite the catch tally, because the two are read at
+	# different moments and stacking them makes one block nobody reads.
+	_world_line = Label.new()
+	_world_line.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_world_line.offset_left = -640
+	_world_line.offset_right = -44
+	_world_line.offset_top = 54
+	_world_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_world_line.add_theme_font_size_override("font_size", 30)
+	_world_line.add_theme_color_override("font_color", Color(0.96, 0.95, 0.90, 0.88))
+	_world_line.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.75))
+	_world_line.add_theme_constant_override("outline_size", 8)
+	_world_line.name = "WorldLine"
+	_ui.add_child(_world_line)
+
+	# THE DOCK, and it only exists when the line is in.
+	#
+	# It sits along the bottom, which is also where a thumb lands to reel - so if
+	# it were ever visible during a fight the player would open the shop trying
+	# to land a sturgeon. `_sync_bars` hides it in every state but IDLE, and that
+	# is not a nicety: the alternative is a button under the one gesture the game
+	# asks for most.
+	_dock = HBoxContainer.new()
+	_dock.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_dock.offset_left = 40
+	_dock.offset_right = -40
+	_dock.offset_top = -196
+	_dock.offset_bottom = -84
+	_dock.add_theme_constant_override("separation", 18)
+	_dock.name = "Dock"
+	_ui.add_child(_dock)
+	for pair in [[Menus.SHED, "Shed"], [Menus.MAP, "Lake"], [Menus.LOG, "Log"]]:
+		var screen: String = pair[0]
+		var b := _dock_button(str(pair[1]))
+		b.pressed.connect(func() -> void: _open(screen))
+		_dock.add_child(b)
+
+	_menus = Menus.new()
+	_menus.name = "Menus"
+	add_child(_menus)
+	_menus.setup(sim)
+	_menus.changed.connect(_sync)
+	_menus.closed.connect(_sync)
+
 	# On screen rather than behind a menu: the first thing to verify on a phone
 	# is that the build you are holding is the build you just made.
 	_stamp = Label.new()
@@ -672,8 +720,48 @@ func _build_hud() -> void:
 func _sync_bars() -> void:
 	if _tension_bar == null:
 		return
-	_tension_bar.visible = sim.state == Sim.FIGHTING
+	var in_room := _menus != null and _menus.is_open()
+	_tension_bar.visible = sim.state == Sim.FIGHTING and not in_room
 	_tension_bar.queue_redraw()
+	if _dock != null:
+		_dock.visible = sim.state == Sim.IDLE and not in_room
+	if _world_line != null:
+		_world_line.visible = not in_room
+	if _readout != null:
+		_readout.visible = not in_room
+	if _prompt != null:
+		_prompt.visible = not in_room
+
+
+func _dock_button(text: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 34)
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(0.05, 0.08, 0.09, 0.82)
+	box.border_color = Color(0.93, 0.90, 0.82, 0.22)
+	box.set_border_width_all(2)
+	box.set_corner_radius_all(8)
+	b.add_theme_stylebox_override("normal", box)
+	b.add_theme_stylebox_override("hover", box)
+	var press := box.duplicate() as StyleBoxFlat
+	press.bg_color = Color(0.14, 0.20, 0.21, 0.92)
+	b.add_theme_stylebox_override("pressed", press)
+	b.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82))
+	b.add_theme_color_override("font_hover_color", Color(0.93, 0.90, 0.82))
+	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	return b
+
+
+## Rooms open only from the boat. Refused rather than queued: a shop that opens
+## the moment a fish comes off is a shop that opens by accident.
+func _open(screen: String) -> void:
+	if sim.state != Sim.IDLE:
+		return
+	_menus.open(screen)
+	_sync_bars()
 
 
 ## MINIGAME 2: the tension gauge.
@@ -763,6 +851,8 @@ func _process(delta: float) -> void:
 
 
 func _tick(dt: float) -> void:
+	if _menus != null:
+		_menus.tick(dt)
 	sim.advance(dt)
 	_sync()
 
@@ -1077,7 +1167,16 @@ func _write_readout() -> void:
 			line = ""
 	_prompt.text = line
 
-	_readout.text = "CAUGHT %d   LOST %d\n%.2f kg" % [sim.caught, sim.lost_count, sim.total_weight]
+	_readout.text = "%d coin\n%.1f of %.1f kg" % [
+		sim.econ.money, sim.econ.load_kg(), sim.econ.capacity()]
+
+	# Metres, never years. The player does that arithmetic themselves, from the
+	# dates on what comes up off the bottom - see world.gd.
+	if _world_line != null:
+		var spot := World.spot_by_id(sim.spot)
+		_world_line.text = "%s\nday %d, %s, %s\n%s under you" % [
+			spot["name"], sim.day, sim.hour, sim.weather,
+			SimUtil.fmt_m(sim.deepest_here())]
 	_stamp.text = BuildStamp.line()
 
 

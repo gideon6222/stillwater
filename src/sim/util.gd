@@ -57,3 +57,16 @@ static func fmt(n: float) -> String:
 	if v < 1000000000:
 		return ("%.1fM" % (v / 1000000.0)) if v < 10000000 else ("%dM" % (v / 1000000))
 	return "%.1fB" % (v / 1000000000.0)
+
+
+## Depths, the way the game says them. One decimal in the shallows where a metre
+## is most of the water, whole metres once there is enough of it that the decimal
+## is noise.
+##
+## In the sim rather than the HUD because three screens print depths - the
+## readout, the map and the shed - and a lake that is "4.0 m" in one and "4 m" in
+## another reads as two different lakes.
+static func fmt_m(depth: float) -> String:
+	if depth < 10.0:
+		return "%.1f m" % depth
+	return "%d m" % int(round(depth))

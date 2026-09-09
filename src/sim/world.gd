@@ -223,7 +223,32 @@ static func depth_for_cast(spot_id: String, line_level: int, charge: float) -> f
 	var shallow: float = spot["shallow"]
 	var bed: float = spot["bed"]
 	var want := lerpf(shallow, bed, clampf(charge, 0.0, 1.0))
-	return minf(want, Gear.line_depth(line_level))
+	# **Never shallower than the spot's own shallowest water.** The line caps how
+	# deep the lure goes, and capping alone produced nonsense at the far end: six
+	# pound mono at The Spring returned four metres, in water a hundred and fifty
+	# deep, and `Species.at_depth(4.0)` duly offered bluegill. A lure hanging in
+	# open water over the quarry is not fishing the reeds.
+	#
+	# The clamp keeps the number honest; `line_reaches_water` is what stops the
+	# player being there at all.
+	return maxf(shallow, minf(want, Gear.line_depth(line_level)))
+
+
+## Can this line fish this spot AT ALL - not "reach the bottom", reach the
+## shallowest water there is. Below this there is no window to fish and the map
+## has to say so, because the alternative is a boat that travels somewhere and
+## then silently catches nothing.
+static func line_reaches_water(spot_id: String, line_level: int) -> bool:
+	return Gear.line_depth(line_level) >= float(spot_by_id(spot_id)["shallow"])
+
+
+## The band of water actually fishable here, as [top, bottom]. Empty when the
+## line does not reach it. This is what the map draws.
+static func fishable_window(spot_id: String, line_level: int) -> Array[float]:
+	if not line_reaches_water(spot_id, line_level):
+		return []
+	var spot := spot_by_id(spot_id)
+	return [float(spot["shallow"]), reachable_depth(spot_id, line_level)]
 
 
 ## The deepest this spot goes with this line - what the map shows, and what the

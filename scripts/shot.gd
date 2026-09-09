@@ -41,6 +41,9 @@ var _frames := 0
 var _seconds := 12.0
 var _until := ""
 
+## Second-argument values that name a ROOM rather than a fishing state.
+const ROOMS := ["shed", "map", "log"]
+
 
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
@@ -64,8 +67,24 @@ func _initialize() -> void:
 			break
 		Policies.act(Policies.HUMAN, _main.sim, step, mem)
 		_main.advance(step, step)
-	if _until != "" and _main.sim.state != _until:
+	if _until != "" and _main.sim.state != _until and not (_until in ROOMS):
 		printerr("never reached state '%s' in %.1fs" % [_until, _seconds])
+
+	# A ROOM instead of a state. The shed, the map and the log are built in code
+	# from live data, so the only way to find out that a price runs off the edge
+	# or a shelf is unreadable is to photograph one with money in the purse and
+	# fish in the box - which is what these two lines set up.
+	if _until in ROOMS:
+		_main.sim.econ.money = 900
+		_main.sim.econ.has_motor = true
+		# Back to the boat first. `_open` refuses from anywhere else, on purpose -
+		# so a screenshot that just calls it after a minute of play photographs
+		# the water and looks like the room is broken.
+		_main.sim.reel_in()
+		_main.sim.state = Sim.IDLE
+		_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		_main._open(_until)
+		_main.advance(1.0 / 60.0, 1.0 / 60.0)
 
 
 func _process(_delta: float) -> bool:
@@ -75,7 +94,8 @@ func _process(_delta: float) -> bool:
 	if _frames < 5:
 		return false
 	var img := root.get_texture().get_image()
-	img.save_png("user://shot.png")
-	print("wrote %s/shot.png at t=%.1fs" % [OS.get_user_data_dir(), _seconds])
+	var name := "shot" if _until == "" else "shot_" + _until
+	img.save_png("user://%s.png" % name)
+	print("wrote %s/%s.png at t=%.1fs" % [OS.get_user_data_dir(), name, _seconds])
 	quit(0)
 	return true

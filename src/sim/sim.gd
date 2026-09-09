@@ -666,6 +666,11 @@ func travel_to(id: String) -> bool:
 	var s := World.spot_by_id(id)
 	if s["needs_motor"] and not econ.has_motor:
 		return false
+	# Refused rather than allowed-and-useless. Somewhere your line cannot reach
+	# any water is somewhere the game would let you sit and catch nothing, which
+	# is the worst kind of no: one that looks like a bug.
+	if not World.line_reaches_water(id, econ.line):
+		return false
 	spot = id
 	_clear_fish()
 	return true
@@ -677,6 +682,8 @@ func spot_blocked(id: String) -> String:
 	var s := World.spot_by_id(id)
 	if s["needs_motor"] and not econ.has_motor:
 		return "you would have to row"
+	if not World.line_reaches_water(id, econ.line):
+		return "your line will not reach this water at all"
 	var reach := World.reachable_depth(id, econ.line)
 	if reach < float(s["bed"]) - 0.01:
 		return "your line will not reach the bottom"

@@ -362,3 +362,142 @@ func test_runs_get_stronger_with_depth(t: TestHarness) -> void:
 					band["name"], mean, last_name, last])
 		last = mean
 		last_name = band["name"]
+
+
+## THE LURE CAN NEVER HANG IN OPEN WATER OVER THE DEEP.
+##
+## `depth_for_cast` clamps the lure to the line's length, and clamping ALONE was
+## wrong at the far end: six pound mono at The Spring returned four metres, in a
+## hundred and fifty of water, and `Species.at_depth(4.0)` duly offered bluegill.
+## A player with the starting line and a motor could fish the reeds at the bottom
+## of the quarry.
+##
+## Two rules close it, and both are asserted because either alone leaves the hole
+## open: the depth never comes back shallower than the spot's own shallowest
+## water, and a spot whose shallowest water the line cannot reach cannot be
+## travelled to at all.
+func test_the_lure_never_fishes_above_the_water_it_is_in(t: TestHarness) -> void:
+	for spot in World.SPOTS:
+		var shallow: float = spot["shallow"]
+		for level in Gear.LINE.size():
+			for i in 9:
+				var d := World.depth_for_cast(spot["id"], level, float(i) / 8.0)
+				t.gt(d, shallow - 0.001,
+					"%s with %s fishes at %.1f m, above its own %.1f m shallows" % [
+						spot["name"], Gear.line_name(level), d, shallow])
+
+
+func test_you_cannot_travel_where_your_line_reaches_nothing(t: TestHarness) -> void:
+	for spot in World.SPOTS:
+		var id: String = spot["id"]
+		for level in Gear.LINE.size():
+			var s := Sim.new(1)
+			s.econ.has_motor = true
+			s.econ.line = level
+			var went := s.travel_to(id)
+			var reaches := World.line_reaches_water(id, level)
+			t.eq(went, reaches,
+				"%s with %s: travel says %s but the line reaching the water says %s" % [
+					spot["name"], Gear.line_name(level), went, reaches])
+			if not reaches:
+				t.ok(s.spot_blocked(id) != "",
+					"%s is unfishable with %s and the map gives no reason" % [
+						spot["name"], Gear.line_name(level)])
+
+
+## And the consequence worth stating on its own: WHEREVER YOU CAN LEGALLY BE,
+## every fish on offer belongs to water that deep. This is the assertion that
+## would have failed loudest on the bug above.
+func test_no_spot_ever_offers_a_fish_from_the_wrong_water(t: TestHarness) -> void:
+	for spot in World.SPOTS:
+		var id: String = spot["id"]
+		for level in Gear.LINE.size():
+			if not World.line_reaches_water(id, level):
+				continue
+			for i in 9:
+				var d := World.depth_for_cast(id, level, float(i) / 8.0)
+				# THE claim, and the one the old code broke: the depth fished at a
+				# spot is always inside that spot's own water. Asserting instead
+				# that each species suits the DEPTH would be tautological - the
+				# depth is the only thing `at_depth` is given, so it can never
+				# disagree with itself. The bug was that the depth was wrong.
+				t.gt(d, float(spot["shallow"]) - 0.001,
+					"%s with %s fishes %.1f m, shallower than its own %.1f m shallows" % [
+						spot["name"], Gear.line_name(level), d, float(spot["shallow"])])
+				t.lt(d, float(spot["bed"]) + 0.001,
+					"%s with %s fishes %.1f m, below its own %.1f m bed" % [
+						spot["name"], Gear.line_name(level), d, float(spot["bed"])])
+
+
+
+## THE LOGBOOK IS A RECORD BOOK, AND A SMALL FISH STILL GETS A PAGE.
+##
+## `sim.logged` maps a species to the HEAVIEST one landed, not to a count. The
+## logbook read that as a tally and tested it with `int(weight) > 0`, which is
+## false for every fish under a kilo - so a bluegill, the first thing anyone
+## catches, would never have appeared on its own page for the whole game.
+##
+## Asserted here rather than in the menu because the semantics belong to the sim:
+## anything reading `logged` has to know it holds kilos.
+func test_the_logbook_records_a_fish_lighter_than_a_kilo(t: TestHarness) -> void:
+	var light := ""
+	var lightest := 1000.0
+	for row in Species.TABLE:
+		if float(row["weight_lo"]) < lightest:
+			lightest = float(row["weight_lo"])
+			light = row["id"]
+	t.lt(lightest, 1.0, "no species in the game weighs under a kilo, so this proves nothing")
+
+	var s := Sim.new(1)
+	s.fish_id = light
+	s.fish_weight = lightest
+	s._land_fish()
+	t.ok(s.logged.has(light),
+		"%s was landed and never reached the logbook" % Species.by_id(light)["name"])
+	t.gt(float(s.logged[light]), 0.0, "the logbook recorded a weight of nothing")
+	t.eq(int(float(s.logged[light])), 0,
+		"this species is no longer under a kilo, so the truncation bug cannot be caught here")
+
+	# And the record is the BEST, not the last.
+	s.fish_weight = lightest * 3.0
+	s._land_fish()
+	t.gt(float(s.logged[light]), lightest * 2.0, "a heavier one did not beat the record")
+	s.fish_weight = lightest
+	s._land_fish()
+	t.gt(float(s.logged[light]), lightest * 2.0, "a smaller one wiped out the record")
+
+
+## Every species sits inside the band it claims, as a fact about the TABLE.
+##
+## The first attempt at this compared a species' band against `World.band_at` of
+## the depth it was offered at, and every reed fish failed at exactly 4.0 m -
+## because `band_at` is half-open (`min <= d < max`) while `Species.at_depth` is
+## inclusive at both ends, and Reed Bay's bed is exactly the reeds' 4.0 m limit.
+## Neither convention is wrong; comparing them at a boundary is. **A boundary two
+## functions disagree about is not an edge case here - it is where the starting
+## spot's full-charge cast lands every single time.**
+##
+## So the claim is made where it is unambiguous: statically, over the table.
+func test_every_species_sits_inside_the_band_it_claims(t: TestHarness) -> void:
+	for row in Species.TABLE:
+		var band := {}
+		for b in World.BANDS:
+			if b["id"] == row["band"]:
+				band = b
+		t.ok(not band.is_empty(), "%s claims band '%s', which does not exist" % [
+			row["name"], row["band"]])
+		if band.is_empty():
+			continue
+		# OVERLAP, not containment. Species range ACROSS band lines on purpose - a
+		# largemouth runs a metre into the channel and the Old Fish starts ten
+		# metres above the spring - because hard edges would make the lake read as
+		# six rooms rather than one body of water that gets older downwards. What
+		# must be true is only that the band a fish is FILED under is water it can
+		# actually be caught in, or the logbook lists it on a page you can never
+		# fill.
+		var lo := maxf(float(row["min_depth"]), float(band["min_depth"]))
+		var hi := minf(float(row["max_depth"]), float(band["max_depth"]))
+		t.gt(hi, lo - 0.001,
+			"%s lives at %.1f-%.1f m but is filed under %s, which is %.1f-%.1f m - they do not meet" % [
+				row["name"], float(row["min_depth"]), float(row["max_depth"]), band["name"],
+				float(band["min_depth"]), float(band["max_depth"])])
