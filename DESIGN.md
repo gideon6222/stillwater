@@ -187,8 +187,31 @@ five hands, and the last one is yours. OPEN.
 | Bank | reeds both sides | open water in every direction |
 | Grade | grain 0.040, vignette 0.28 | grain 0.115, vignette 0.66, aberration |
 
-Rules: import what is read at real size (HDRIs, textures); model anything judged
-on silhouette or whose shape is gameplay state (fish, reeds, hull, rod, float).
+**The asset rule, stated so it can be applied rather than reached for.** Estimate
+how many pixels tall the thing will be on the phone:
+
+- Under ~60 px, judged on silhouette → **model it in code**
+- Over ~200 px and permanently on screen → **import it**, and modelling is what
+  needs justifying
+- Shape is gameplay state → **code, and the question is closed**
+
+*If you cannot say roughly how many pixels tall it will be, you have not applied
+this rule, you have skipped it.* Three interactables in the boat had no geometry
+at all because of exactly that.
+
+| In the boat | Which | Why |
+|---|---|---|
+| Bucket, crate, lantern, lifebuoy | imported (Poly Haven, CC0) | 200–400 px, permanently on screen |
+| Hull, ribs, planks, gunwales | generated | derived from the hull functions |
+| Rod | generated | its bend IS the tension gauge |
+| Float | generated | its dip IS minigame one |
+| Fish | generated | a Thin Perch is a perch with one number changed |
+| Reeds | generated | distant, read as silhouette |
+| Wake, splash, ring | generated | marks on a surface, sized by fight state |
+
+Style matters more than licence: Kenney, Quaternius and KayKit are CC0 and
+excellent, and all stylised low-poly — any of them beside a photographic HDRI
+and PBR timber reads as a different game leaking in.
 
 ---
 

@@ -61,6 +61,7 @@ func _initialize() -> void:
 	_check_the_boat_is_never_still(main)
 	_check_looking_around_never_casts_by_accident(main)
 	_check_everything_in_the_boat_can_be_looked_at_and_used(main)
+	_check_nothing_interactable_is_invisible(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -812,3 +813,52 @@ func _check_everything_in_the_boat_can_be_looked_at_and_used(main) -> void:
 	main._look_pitch = 0.0
 	main._look_yaw_want = 0.0
 	main._look_pitch_want = 0.0
+
+
+## NOTHING YOU CAN INTERACT WITH IS INVISIBLE.
+##
+## This is the test that would have caught the worst placeholder in the project.
+## The livewell, the bait box and the lamp were all lookable and usable and NONE
+## of them existed as geometry - the player pointed at empty air and got a
+## prompt. It passed every check there was, including the reachability sweep,
+## because that tests the aim and not the picture.
+##
+## So: for every interactable, there must be actual mesh within arm's reach of
+## its point. Approximate on purpose - the claim is "there is something there",
+## not "the origin matches".
+func _check_nothing_interactable_is_invisible(main) -> void:
+	_t.begin("smoke > nothing you can interact with is invisible")
+	main.freeze(1)
+
+	var meshes: Array[Vector3] = []
+	_collect_mesh_points(main.get_node("Boat"), meshes)
+	_t.gt(float(meshes.size()), 4.0, "the boat has almost no geometry in it at all")
+
+	for t in main._things:
+		var at: Vector3 = t["at"]
+		var nearest := 999.0
+		for m in meshes:
+			nearest = minf(nearest, at.distance_to(m))
+		_t.lt(nearest, 0.42,
+			"'%s' can be used but the nearest geometry is %.2f m away - it is an invisible prompt" % [
+				t["id"], nearest])
+
+
+## Every mesh origin under a node, in the boat's own space.
+func _collect_mesh_points(node: Node, into: Array[Vector3]) -> void:
+	for c in node.get_children():
+		var mi := c as MeshInstance3D
+		# VISIBLE geometry only. Counting hidden meshes would let a prop that is
+		# switched off until it is bought stand in for one that is there - which
+		# is exactly how the lamp bracket slipped through on the first pass.
+		if mi != null and mi.mesh != null and mi.visible:
+			# The AABB centre rather than the origin: an imported model's origin
+			# is wherever its author left it, and for a lantern that is the
+			# hanging point somewhere above the lamp.
+			into.append(mi.position + mi.mesh.get_aabb().get_center() * mi.scale)
+		if c is Node3D and (c as Node3D).visible:
+			var here := (c as Node3D).position
+			var sub: Array[Vector3] = []
+			_collect_mesh_points(c, sub)
+			for pt in sub:
+				into.append(here + pt * (c as Node3D).scale)

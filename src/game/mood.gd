@@ -72,8 +72,12 @@ const WEATHERS := {
 	"clear": {"light": 1.00, "haze": 1.00, "grey": 0.00, "spec": 1.00, "tint": Color(1, 1, 1), "chop": 1.00},
 	"overcast": {"light": 0.62, "haze": 2.20, "grey": 0.45, "spec": 0.30, "tint": Color(0.86, 0.88, 0.90), "chop": 1.15},
 	"fog": {"light": 0.50, "haze": 9.00, "grey": 0.62, "spec": 0.16, "tint": Color(0.88, 0.90, 0.90), "chop": 0.55},
-	"rain": {"light": 0.44, "haze": 3.60, "grey": 0.58, "spec": 0.22, "tint": Color(0.74, 0.80, 0.84), "chop": 1.45},
-	"storm": {"light": 0.26, "haze": 5.00, "grey": 0.70, "spec": 0.10, "tint": Color(0.60, 0.66, 0.70), "chop": 2.10},
+	# `light` floors were raised after an afternoon storm rendered nearly black -
+	# oppressive is right, unreadable is not, and the player still has to be able
+	# to see their own boat. A STORM removes the sun (`spec`), it does not remove
+	# the sky; that distinction is what keeps it gloomy rather than dark.
+	"rain": {"light": 0.54, "haze": 3.60, "grey": 0.58, "spec": 0.22, "tint": Color(0.74, 0.80, 0.84), "chop": 1.45},
+	"storm": {"light": 0.40, "haze": 5.00, "grey": 0.70, "spec": 0.10, "tint": Color(0.60, 0.66, 0.70), "chop": 2.10},
 }
 
 ## Where the water colour ends up at the bottom of the lake. Not black and not

@@ -661,6 +661,7 @@ func _build_boat() -> void:
 	rope.mesh = tm
 	rope.material_override = _mat(Color(0.44, 0.39, 0.29), 0.95)
 	rope.position = Vector3(-0.34, _hull_rim_y(-0.16) + 0.030, -0.16)
+	rope.name = "Rope"
 	rope.rotation_degrees = Vector3(4, 18, 0)
 	_boat.add_child(rope)
 
@@ -673,19 +674,29 @@ func _build_boat() -> void:
 	# started - which is deliberate. It appears during the TELL, before the run
 	# does, so a player who is watching the water gets their warning from the
 	# water rather than from a number.
+	# A TAPERED, FADING V - not a glowing bar.
+	#
+	# The last obviously crude thing in the scene: a 10 cm box with emission on
+	# it, lying on the water. A wake is a disturbance, so it wants soft edges and
+	# a shape that says which way the fish is going; a hard-edged lit slab says
+	# "untextured primitive" from the first frame.
+	#
+	# Still generated, because a wake is not an object - it is a mark on the
+	# surface whose length is `fish_distance`, which is gameplay state.
 	_wake = MeshInstance3D.new()
-	var wm := BoxMesh.new()
-	wm.size = Vector3(0.10, 0.02, 1.4)
-	_wake.mesh = wm
-	var wmat := _mat(Color(0.95, 0.96, 0.94), 0.25)
-	wmat.emission_enabled = true
-	wmat.emission = Color(0.85, 0.90, 0.92)
-	wmat.emission_energy_multiplier = 0.5
+	_wake.mesh = _build_wake_mesh()
+	var wmat := StandardMaterial3D.new()
+	wmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	wmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	wmat.vertex_color_use_as_albedo = true
+	wmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	wmat.albedo_color = Color(0.95, 0.96, 0.94, 0.85)
 	_wake.material_override = wmat
 	_wake.visible = false
 	_wake.name = "Wake"
 	add_child(_wake)
 
+	_build_props()
 	_build_things()
 	_build_reeds()
 
@@ -1977,7 +1988,9 @@ func _sync_wake(lure: Vector3) -> void:
 	var lead := 1.0 if sim.tell > 0.0 else 1.9
 	_wake.position = Vector3(lure.x + side * 0.55, 0.03, lure.z + 0.2)
 	_wake.rotation_degrees = Vector3(0.0, side * 34.0, 0.0)
-	_wake.scale = Vector3(1.0, 1.0, lead)
+	# The mesh runs one unit astern from its own origin, so the head sits on the
+	# fish and the scale is how far the disturbance trails it.
+	_wake.scale = Vector3(1.0, 1.0, lead * 1.7)
 
 
 ## Where the lure is, in world space. One function so the float, the line and
@@ -2175,6 +2188,7 @@ func _sync_mood(dt: float) -> void:
 				mi.transparency = 1.0 - near
 
 	_sync_weather(look, k)
+	_sync_lamp()
 	if _lamp != null and _lamp.visible:
 		# Brightest at night and in fog, and almost nothing at noon - a lamp that
 		# is equally bright in daylight reads as a bug.
@@ -2865,6 +2879,15 @@ func _sweep_tapered(path: Array[Vector3], w0: float, w1: float) -> ArrayMesh:
 
 ## Half the beam at a station. Widest about a third back from the bow, drawing in
 ## at both ends - a straight taper reads as a wedge.
+## Half the beam at a station. Widest about a third back from the bow, drawing in
+## at both ends - a straight taper reads as a wedge.
+##
+## Note the 0.10 floor: the ends do NOT come to a point, they come to a 200 mm
+## slot, and the swept skin had no caps on it. That slot is the gap Gideon could
+## see at the front of the boat - you were looking through the bow at the lake.
+## `_build_hull_mesh` now closes both ends; the floor stays because a real boat
+## has a stem and a transom rather than a knife edge, and a cap needs something
+## to be a cap of.
 func _hull_half_width(z: float) -> float:
 	var t := clampf((z + 0.85) / 3.10, 0.0, 1.0)
 	var shape := sin(PI * pow(t, 0.72))
@@ -2883,9 +2906,16 @@ func _hull_half_width(z: float) -> float:
 ## A real boat's sole sits above its waterline and the skin carries on down
 ## outside. Only the inside is ever seen here, so the floor goes above y = 0 and
 ## the draft is left as something the player never has a view of.
+## MEASURED, not guessed. The swell is 0.160 m peak from the two displaced waves
+## (0.114 + 0.046), the hull heaves at 0.75 of it, so 0.040 m of water moves
+## relative to the boat before pitch is even counted - and the sole was at 0.045
+## at the stern. That is the "water clipping into the bottom" report: not a
+## rendering fault, an actual freeboard of five millimetres.
+##
+## 0.150 at the stern clears the residual with room for the pitch as well.
 func _hull_floor_y(z: float) -> float:
 	var t := clampf((z + 0.85) / 3.10, 0.0, 1.0)
-	return 0.045 + 0.26 * pow(t, 2.3)
+	return 0.150 + 0.24 * pow(t, 2.3)
 
 
 ## The top edge - the sheer. Rises toward the bow, like every boat ever built.
@@ -2929,6 +2959,27 @@ func _build_hull_mesh() -> ArrayMesh:
 			var b0 := (i + 1) * HULL_ARC + j
 			var b1 := (i + 1) * HULL_ARC + j + 1
 			idx.append_array([a0, b0, a1, a1, b0, b1])
+
+	# THE TRANSOM AND THE STEM. A swept surface is an open tube; without these
+	# the boat has a 200 mm slot at each end and you can see the lake through the
+	# bow. Each is a fan from the mid-point of the end ring.
+	for pair in [[0, false], [HULL_STATIONS - 1, true]]:
+		var station: int = pair[0]
+		var flip: bool = pair[1]
+		var base := station * HULL_ARC
+		var mid := Vector3.ZERO
+		for j in HULL_ARC:
+			mid += verts[base + j]
+		mid /= float(HULL_ARC)
+		var centre := verts.size()
+		verts.append(mid)
+		norms.append(Vector3(0, 0, 1) if flip else Vector3(0, 0, -1))
+		uvs.append(Vector2(0.5, 0.5))
+		for j in HULL_ARC - 1:
+			if flip:
+				idx.append_array([centre, base + j, base + j + 1])
+			else:
+				idx.append_array([centre, base + j + 1, base + j])
 
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
@@ -3294,7 +3345,7 @@ func _build_things() -> void:
 		{
 			"id": "livewell",
 			"name": "The livewell",
-			"at": Vector3(0.0, 0.30, 0.55),
+			"at": Vector3(0.34, _hull_floor_y(0.90) + 0.14, 0.90),
 			"look": func() -> String:
 				if sim.econ.held.is_empty():
 					return "The livewell   -   empty"
@@ -3306,7 +3357,7 @@ func _build_things() -> void:
 		{
 			"id": "baitbox",
 			"name": "The bait box",
-			"at": Vector3(-0.34, 0.42, -0.05),
+			"at": Vector3(-0.32, _hull_floor_y(0.35) + 0.10, 0.35),
 			"look": func() -> String:
 				var b := Gear.bait_by_id(sim.econ.bait)
 				return "%s on the hook   -   tap to change" % str(b["name"]),
@@ -3316,7 +3367,7 @@ func _build_things() -> void:
 		{
 			"id": "lamp",
 			"name": "The deck lamp",
-			"at": Vector3(0.40, 0.60, 1.05),
+			"at": Vector3(0.0, _hull_rim_y(2.05) + 0.16, 2.05),
 			"look": func() -> String:
 				if not sim.econ.has_lamp:
 					return "A bracket where a lamp would go"
@@ -3333,7 +3384,7 @@ func _build_things() -> void:
 		{
 			"id": "rope",
 			"name": "The rope",
-			"at": Vector3(-0.34, 0.50, -0.16),
+			"at": Vector3(-0.34, _hull_rim_y(-0.16) + 0.03, -0.16),
 			"look": func() -> String:
 				return "A coil of rope. Somebody else's knot.",
 			"use": func() -> void:
@@ -3344,6 +3395,7 @@ func _build_things() -> void:
 
 var _lamp_on := false
 var _lamp: OmniLight3D
+var _lamp_prop: Node3D
 var _hint_hold := 0.0
 var _hint_text := ""
 
@@ -3400,13 +3452,19 @@ func _say_hint(text: String) -> void:
 
 
 func _sync_lamp() -> void:
+	# THE LAMP IS ONLY THERE IF YOU BOUGHT IT. The shed sells a deck lamp for 400
+	# and one was standing on the stem from the first frame, while the boat's own
+	# hint said "a bracket where a lamp would go". A prop that contradicts the
+	# shop is worse than no prop.
+	if _lamp_prop != null:
+		_lamp_prop.visible = sim.econ.has_lamp
 	if _lamp == null:
 		_lamp = OmniLight3D.new()
 		_lamp.name = "DeckLamp"
 		_lamp.omni_range = 9.0
 		_lamp.light_energy = 0.0
 		_lamp.light_color = Color(1.0, 0.86, 0.62)
-		_lamp.position = Vector3(0.40, 0.72, 1.05)
+		_lamp.position = Vector3(0.0, _hull_rim_y(2.05) + 0.18, 2.05)
 		add_child(_lamp)
 	_lamp.visible = _lamp_on and sim.econ.has_lamp
 
@@ -3419,3 +3477,129 @@ func _on_use() -> void:
 			(t["use"] as Callable).call()
 			return
 
+
+# --- what is actually in the boat -------------------------------------------
+
+## THE PROPS, AND WHY THEY ARE IMPORTED.
+##
+## These four were interaction points with NOTHING THERE. The livewell, the bait
+## box and the lamp could all be looked at and used, and none of them existed as
+## geometry - the player was pointing at empty air and getting a prompt. That is
+## the worst kind of placeholder, because it passes every test: the reachability
+## sweep found all four, because it tests the aim and not the picture.
+##
+## They are imported rather than modelled, and the asset rule agrees once it is
+## actually read rather than reached for. "Model in code anything thirty pixels
+## tall and judged on silhouette" - a bucket in the bottom of a boat you are
+## sitting in is four hundred pixels tall and read as an OBJECT. It is the named
+## exception word for word: stationary, close to the camera, looked at while
+## nothing else is happening.
+##
+## Poly Haven, CC0, photoreal - which is the other half of the decision. Kenney,
+## Quaternius and KayKit are all excellent and all stylised low-poly, and any of
+## them next to a photographic HDRI and a PBR plank would look like a different
+## game had leaked in.
+const PROPS := {
+	"livewell": "res://assets/props/wooden_bucket_01/wooden_bucket_01_1k.gltf",
+	"baitbox": "res://assets/props/wooden_crate_01/wooden_crate_01_1k.gltf",
+	"lamp": "res://assets/props/Lantern_01/Lantern_01_1k.gltf",
+	"lifebuoy": "res://assets/props/lifebuoy/lifebuoy_1k.gltf",
+}
+
+
+## Load a prop, or return null if it is missing.
+##
+## Null rather than a crash, because a model that failed to import must not stop
+## the boat existing - but it must also not leave an invisible thing you can
+## still interact with, which is what `_build_props` checks.
+func _prop(id: String) -> Node3D:
+	var path: String = PROPS.get(id, "")
+	if path == "" or not ResourceLoader.exists(path):
+		return null
+	var packed: PackedScene = load(path)
+	if packed == null:
+		return null
+	return packed.instantiate() as Node3D
+
+
+func _place_prop(id: String, at: Vector3, scale: float, yaw: float) -> Node3D:
+	var n := _prop(id)
+	if n == null:
+		push_warning("prop '%s' is missing - it will not be interactable" % id)
+		return null
+	n.name = "Prop_" + id
+	n.position = at
+	n.scale = Vector3.ONE * scale
+	n.rotation_degrees = Vector3(0, yaw, 0)
+	_boat.add_child(n)
+	return n
+
+
+func _build_props() -> void:
+	# Each sits ON the sole at its own station, read from the hull functions, so
+	# raising the freeboard moved every one of them without a second edit.
+	# Placement is composition, not bookkeeping. The first pass put all four where
+	# their interaction points happened to be and the bucket filled a third of the
+	# frame while the lantern hid behind the rod. Spread along the hull, none of
+	# them across the water the player is casting into, and none of them large
+	# enough to be the subject.
+	_place_prop("livewell", Vector3(0.34, _hull_floor_y(0.90), 0.90), 0.80, 18.0)
+	_place_prop("baitbox", Vector3(-0.32, _hull_floor_y(0.35), 0.35), 0.50, -12.0)
+	# The lantern goes on the STEM, where it lights the water ahead rather than
+	# the boards - and where it is a silhouette against the sky at night.
+	var lamp := _place_prop("lamp", Vector3(0.0, _hull_rim_y(2.05) + 0.03, 2.05), 1.05, 0.0)
+	if lamp != null:
+		_lamp_prop = lamp
+	_place_prop("lifebuoy", Vector3(-0.58, _hull_rim_y(0.30) - 0.16, 0.30), 0.62, 90.0)
+
+	# THE BRACKET IS ALWAYS THERE, the lantern only once bought. Hiding the lamp
+	# until it is paid for immediately re-created the invisible-prompt bug in the
+	# other direction: the hint said "a bracket where a lamp would go" and there
+	# was no bracket either. If the game names a thing, the thing exists.
+	var bracket := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.045, 0.14, 0.045)
+	bracket.mesh = bm
+	var bmat := _mat(Color(0.24, 0.22, 0.20), 0.45)
+	bmat.metallic = 0.7
+	bracket.material_override = bmat
+	bracket.position = Vector3(0.0, _hull_rim_y(2.05) + 0.05, 2.05)
+	bracket.name = "LampBracket"
+	_boat.add_child(bracket)
+
+
+## The wake: a narrow V that widens and fades astern of the fish.
+##
+## Vertex alpha does the fading, so there is no texture and no shader - the head
+## is bright and narrow, the tail is wide and gone. Built once and stretched by
+## the fight, because its LENGTH is the distance to the fish.
+func _build_wake_mesh() -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var cols := PackedColorArray()
+	var idx := PackedInt32Array()
+	var steps := 14
+	for i in steps:
+		var t := float(i) / float(steps - 1)
+		# Widens astern, and the alpha goes with the square so the tail
+		# disappears rather than ending.
+		var half := 0.035 + t * 0.30
+		var a := (1.0 - t) * (1.0 - t) * 0.9
+		var z := -t
+		verts.append(Vector3(-half, 0.0, z))
+		verts.append(Vector3(half, 0.0, z))
+		cols.append(Color(1, 1, 1, a))
+		cols.append(Color(1, 1, 1, a))
+	for i in steps - 1:
+		var a0 := i * 2
+		var a1 := i * 2 + 1
+		var b0 := (i + 1) * 2
+		var b1 := (i + 1) * 2 + 1
+		idx.append_array([a0, b0, a1, a1, b0, b1])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_COLOR] = cols
+	arr[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return m
