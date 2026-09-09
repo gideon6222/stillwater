@@ -12,21 +12,23 @@ extends RefCounted
 ## refactored; one line each; newest first. Add this from day one. On an
 ## earlier game it arrived far too late to be as useful as it should have been.
 
-const VERSION := "0.3.0"
+const VERSION := "0.4.0"
 
 const RELEASES := [
 	{
-		"version": "0.3.0",
+		"version": "0.4.0",
 		"date": "2026-09-09",
-		"title": "The rod is the gauge",
+		"title": "Two minigames, and gauges you can see",
 		"notes": [
-			"The tension meter is gone. Watch the ROD - how far it bends is the load.",
-			"Drag anywhere on the lower half now. Nothing on screen to cover up.",
-			"It sits still: PUMP. Lift, then lower to take up line. A steady hold gains nothing.",
-			"It runs: GIVE. Drop the rod or the line parts, and it parts fastest at the start.",
-			"It thrashes on top: HOLD STEADY. Moving the thumb throws the hook.",
-			"The water warns you about a third of a second before each one.",
-			"The hook works loose the whole time, so taking it slowly is also losing.",
+			"HOOK IT: a marker sweeps a bar. Tap while it is in the green.",
+			"Dead centre starts the fight already up to pressure.",
+			"REEL IT IN: tap to keep the needle in the green band.",
+			"Stop tapping and it falls - the fish takes line back.",
+			"Tap too much and it goes into the red, and the line parts.",
+			"When the fish RUNS the needle climbs on its own. Stop tapping.",
+			"The bar flashes just before a run. Watch for it.",
+			"Gauges are at the top now, so your thumb never covers them.",
+			"The rod lifts back to cast and only bends when a fish is on.",
 		],
 	},
 ]

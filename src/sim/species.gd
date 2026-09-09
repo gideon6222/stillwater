@@ -10,27 +10,26 @@ extends RefCounted
 ## arrive in Act III they are rows in this table with different numbers, and
 ## nothing else in the game has to learn about them.
 ##
-## Fields that decide the fight:
+## Fields that decide the two minigames:
 ##
-##   run_chance    how often it bolts instead of sitting there
-##   shake_chance  how often it comes up head-shaking instead of bolting
-##   hold_speed    how BUSY it is. Sullen phases are divided by this, so a HIGH
-##                 value means short calm windows, more behaviour changes per
-##                 second, and therefore more runs to survive per fight. It is a
-##                 difficulty knob in its own right, and it caught us out: with
-##                 the bluegill's run chance raised AND `hold_speed` left at
-##                 1.35, the tutorial fish came out HARDER than the one after
-##                 it - 79% landed against the perch's 88%. Difficulty here is
-##                 the product of two fields, not either one alone
-##   stamina       how much tiring it takes before it gives up
-##   haul          metres per completed pump, relative to PUMP_GAIN
+##   sweep_speed   how fast the marker crosses the hook bar - the whole of how
+##                 hard a fish is to HOOK
+##   zone          how wide the green zone is on that bar, before any rod bonus
+##   run_chance    how often it bolts instead of coming in quietly
+##   stamina       how much tiring it takes before it stops running
+##   haul          metres per second gained, relative to REEL_RATE
 ##   weight        relative chance of being the one that bites
 ##
-## The tuning rule underneath: **a fish is hard because of what it DOES and how
-## often, never because its tolerances are tighter.** Tolerances belong to the
-## rod, so that buying a rod is felt on every species at once. A bass is hard
-## because it runs nearly half the time and shakes when it does not; a bluegill
-## is easy because it mostly just sits there and can be pumped in.
+## The tuning rule underneath: **a fish is hard because of what it DOES, never
+## because the player's tolerances are tighter.** The safe band on the tension
+## gauge is the same for every fish in the game - it belongs to the rod, so that
+## buying a rod is felt on every species at once, and so the player only ever has
+## to learn one gauge.
+##
+## Difficulty is the PRODUCT of these fields and no single one places a species.
+## That caught us out once already: raising the bluegill's run chance while
+## leaving another field high made the TUTORIAL fish harder than the one after
+## it. `test_golden.gd` asserts the table is a monotonic ladder in written order.
 
 const TABLE := [
 	{
@@ -40,12 +39,12 @@ const TABLE := [
 		"max_depth": 4.0,
 		"weight_lo": 0.10,
 		"weight_hi": 0.40,
-		"run_chance": 0.20,
-		"shake_chance": 0.14,
-		"hold_speed": 0.95,
-		"stamina": 0.85,
-		"haul": 1.30,
-		"weight": 5.0,   ## relative chance of being the one that bites
+		"sweep_speed": 0.62,
+		"zone": 0.34,
+		"run_chance": 0.16,
+		"stamina": 0.80,
+		"haul": 1.35,
+		"weight": 5.0,
 	},
 	{
 		"id": "perch",
@@ -54,9 +53,9 @@ const TABLE := [
 		"max_depth": 4.0,
 		"weight_lo": 0.20,
 		"weight_hi": 0.60,
+		"sweep_speed": 0.86,
+		"zone": 0.25,
 		"run_chance": 0.34,
-		"shake_chance": 0.24,
-		"hold_speed": 1.05,
 		"stamina": 1.05,
 		"haul": 1.05,
 		"weight": 3.5,
@@ -68,11 +67,11 @@ const TABLE := [
 		"max_depth": 4.0,
 		"weight_lo": 0.80,
 		"weight_hi": 3.00,
-		"run_chance": 0.46,
-		"shake_chance": 0.40,
-		"hold_speed": 0.82,
-		"stamina": 1.75,
-		"haul": 0.80,
+		"sweep_speed": 1.18,
+		"zone": 0.18,
+		"run_chance": 0.55,
+		"stamina": 1.70,
+		"haul": 0.78,
 		"weight": 1.5,
 	},
 ]
@@ -124,37 +123,31 @@ static func by_id(id: String) -> Dictionary:
 	return {}
 
 
-## Which behaviour comes next, from a unit value in [0, 1).
+## Where the green zone sits on the hook bar, as [lo, hi], from a unit value.
 ##
-## A tired fish runs and shakes less - that is the whole shape of a fight, and it
-## is what makes the end of one feel different from the start rather than just
-## shorter. Pure, and the caller supplies the draw, so the table stays free of
-## the rng and the draw order stays visible at the call site.
-static func next_behaviour(s: Dictionary, unit: float, stamina_left: float) -> String:
+## The POSITION is random per bite and the WIDTH is the species - so the player
+## has to actually look at the bar every single time rather than learning one
+## spot. A fixed position would turn the hook minigame into a metronome inside
+## two bites.
+static func hook_zone(s: Dictionary, unit: float) -> Array:
+	var w: float = maxf(Tuning.HOOK_ZONE_MIN, float(s["zone"]))
+	var lo := clampf(unit, 0.0, 1.0) * (1.0 - w)
+	return [lo, lo + w]
+
+
+## Whether the next phase of the fight is a run, from a unit value in [0, 1).
+## A tired fish runs less, which is what makes the end of a fight feel different
+## from the start rather than merely shorter.
+static func runs_next(s: Dictionary, unit: float, stamina_left: float) -> bool:
 	var tired := 1.0 - Tuning.TIRED_RELIEF * (1.0 - clampf(stamina_left, 0.0, 1.0))
-	var run: float = float(s["run_chance"]) * tired
-	var shake: float = float(s["shake_chance"]) * tired
-	if unit < run:
-		return "running"
-	if unit < run + shake:
-		return "surfacing"
-	return "holding"
+	return unit < float(s["run_chance"]) * tired
 
 
-## How long a sullen phase lasts, from a unit value in [0, 1).
-##
-## Scaled by `hold_speed`, so a slow heavy fish gives you LONGER windows to pump
-## in and is still harder overall, because the wear clock runs the whole time.
-static func hold_seconds(s: Dictionary, unit: float) -> float:
-	var span := Tuning.HOLD_MAX - Tuning.HOLD_MIN
-	var base := Tuning.HOLD_MIN + clampf(unit, 0.0, 1.0) * span
-	return base / maxf(0.2, float(s["hold_speed"]))
+static func calm_seconds(unit: float) -> float:
+	return Tuning.CALM_MIN + clampf(unit, 0.0, 1.0) * (Tuning.CALM_MAX - Tuning.CALM_MIN)
 
 
-## How long a run lasts, from a unit value in [0, 1). Tiredness shortens it,
-## for the same reason it makes runs rarer.
-static func run_seconds(s: Dictionary, unit: float, stamina_left: float) -> float:
-	var span := Tuning.RUN_MAX - Tuning.RUN_MIN
-	var base := Tuning.RUN_MIN + clampf(unit, 0.0, 1.0) * span
+static func run_seconds(unit: float, stamina_left: float) -> float:
+	var base := Tuning.RUN_MIN + clampf(unit, 0.0, 1.0) * (Tuning.RUN_MAX - Tuning.RUN_MIN)
 	var tired := 1.0 - Tuning.TIRED_RELIEF * (1.0 - clampf(stamina_left, 0.0, 1.0))
 	return base * maxf(0.35, tired)

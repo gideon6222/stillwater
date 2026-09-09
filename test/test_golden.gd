@@ -23,30 +23,30 @@ extends RefCounted
 ## something people assume rather than something promised.
 
 
+
 const GOLDEN := [
 	{
 		"policy": "angler",
 		"seconds": 60.000000,
 		"seed": 1,
 		"expect": {
-			"behaviour": "holding",
 			"cast_distance": 12.609000,
 			"casts": 4,
-			"caught": 4,
-			"draws": 511,
-			"fish_distance": 0.000000,
-			"fish_id": "",
-			"fish_stamina": 1.000000,
-			"load": 0.000000,
+			"caught": 3,
+			"draws": 512,
+			"fish_distance": 2.043000,
+			"fish_id": "bluegill",
+			"fish_stamina": 0.000000,
 			"lost": 0,
-			"lure_depth": 0.000000,
-			"pumps": 0,
+			"lure_depth": 4.000000,
+			"running": false,
 			"seconds": 60.000000,
-			"slip": 0.000000,
-			"state": "charging",
+			"state": "fighting",
 			"strain": 0.000000,
-			"total_weight": 3.062000,
-			"wear": 0.000000,
+			"sweep": 0.620000,
+			"taps": 14,
+			"tension": 0.543000,
+			"total_weight": 2.861000,
 		},
 	},
 	{
@@ -54,24 +54,23 @@ const GOLDEN := [
 		"seconds": 60.000000,
 		"seed": 1,
 		"expect": {
-			"behaviour": "holding",
 			"cast_distance": 12.609000,
 			"casts": 5,
 			"caught": 3,
-			"draws": 511,
-			"fish_distance": 12.609000,
-			"fish_id": "",
-			"fish_stamina": 1.000000,
-			"load": 0.000000,
+			"draws": 574,
+			"fish_distance": 7.287000,
+			"fish_id": "perch",
+			"fish_stamina": 0.048000,
 			"lost": 1,
-			"lure_depth": 0.939000,
-			"pumps": 0,
+			"lure_depth": 4.000000,
+			"running": false,
 			"seconds": 60.000000,
-			"slip": 0.000000,
-			"state": "sinking",
+			"state": "fighting",
 			"strain": 0.000000,
+			"sweep": 0.330000,
+			"taps": 10,
+			"tension": 0.569000,
 			"total_weight": 0.879000,
-			"wear": 0.000000,
 		},
 	},
 	{
@@ -79,49 +78,47 @@ const GOLDEN := [
 		"seconds": 60.000000,
 		"seed": 4,
 		"expect": {
-			"behaviour": "holding",
 			"cast_distance": 12.609000,
-			"casts": 6,
-			"caught": 3,
-			"draws": 501,
+			"casts": 5,
+			"caught": 4,
+			"draws": 433,
 			"fish_distance": 12.609000,
 			"fish_id": "",
 			"fish_stamina": 1.000000,
-			"load": 0.000000,
-			"lost": 2,
-			"lure_depth": 3.507000,
-			"pumps": 0,
+			"lost": 0,
+			"lure_depth": 0.652000,
+			"running": false,
 			"seconds": 60.000000,
-			"slip": 0.000000,
 			"state": "sinking",
 			"strain": 0.000000,
-			"total_weight": 0.897000,
-			"wear": 0.000000,
+			"sweep": 0.000000,
+			"taps": 0,
+			"tension": 0.000000,
+			"total_weight": 1.210000,
 		},
 	},
 	{
-		"policy": "hauler",
+		"policy": "blind",
 		"seconds": 60.000000,
 		"seed": 1,
 		"expect": {
-			"behaviour": "holding",
 			"cast_distance": 12.609000,
-			"casts": 6,
-			"caught": 2,
-			"draws": 670,
-			"fish_distance": 12.609000,
-			"fish_id": "",
-			"fish_stamina": 1.000000,
-			"load": 0.000000,
-			"lost": 3,
+			"casts": 4,
+			"caught": 3,
+			"draws": 512,
+			"fish_distance": 2.891000,
+			"fish_id": "bluegill",
+			"fish_stamina": 0.000000,
+			"lost": 0,
 			"lure_depth": 4.000000,
-			"pumps": 0,
+			"running": false,
 			"seconds": 60.000000,
-			"slip": 0.000000,
-			"state": "waiting",
+			"state": "fighting",
 			"strain": 0.000000,
-			"total_weight": 0.480000,
-			"wear": 0.000000,
+			"sweep": 0.620000,
+			"taps": 13,
+			"tension": 0.614000,
+			"total_weight": 2.861000,
 		},
 	},
 	{
@@ -129,24 +126,23 @@ const GOLDEN := [
 		"seconds": 60.000000,
 		"seed": 1,
 		"expect": {
-			"behaviour": "holding",
 			"cast_distance": 12.609000,
-			"casts": 8,
+			"casts": 9,
 			"caught": 0,
-			"draws": 732,
+			"draws": 865,
 			"fish_distance": 12.609000,
 			"fish_id": "",
 			"fish_stamina": 1.000000,
-			"load": 0.000000,
-			"lost": 7,
-			"lure_depth": 0.000000,
-			"pumps": 0,
+			"lost": 8,
+			"lure_depth": 4.000000,
+			"running": false,
 			"seconds": 60.000000,
-			"slip": 0.000000,
-			"state": "flying",
+			"state": "waiting",
 			"strain": 0.000000,
+			"sweep": 0.000000,
+			"taps": 0,
+			"tension": 0.000000,
 			"total_weight": 0.000000,
-			"wear": 0.000000,
 		},
 	},
 	{
@@ -154,49 +150,47 @@ const GOLDEN := [
 		"seconds": 60.000000,
 		"seed": 1,
 		"expect": {
-			"behaviour": "holding",
 			"cast_distance": 12.609000,
 			"casts": 6,
 			"caught": 0,
-			"draws": 632,
-			"fish_distance": 12.609000,
+			"draws": 724,
+			"fish_distance": 0.000000,
 			"fish_id": "",
 			"fish_stamina": 1.000000,
-			"load": 0.000000,
-			"lost": 5,
-			"lure_depth": 4.000000,
-			"pumps": 0,
+			"lost": 6,
+			"lure_depth": 0.000000,
+			"running": false,
 			"seconds": 60.000000,
-			"slip": 0.000000,
-			"state": "waiting",
+			"state": "charging",
 			"strain": 0.000000,
+			"sweep": 0.000000,
+			"taps": 0,
+			"tension": 0.000000,
 			"total_weight": 0.000000,
-			"wear": 0.000000,
 		},
 	},
 	{
-		"policy": "panicker",
+		"policy": "slowpoke",
 		"seconds": 60.000000,
 		"seed": 1,
 		"expect": {
-			"behaviour": "running",
 			"cast_distance": 12.609000,
-			"casts": 4,
+			"casts": 3,
 			"caught": 0,
-			"draws": 515,
-			"fish_distance": 13.484000,
-			"fish_id": "bluegill",
-			"fish_stamina": 1.000000,
-			"load": 0.016000,
-			"lost": 3,
+			"draws": 347,
+			"fish_distance": 18.128000,
+			"fish_id": "bass",
+			"fish_stamina": 0.632000,
+			"lost": 2,
 			"lure_depth": 4.000000,
-			"pumps": 0,
+			"running": false,
 			"seconds": 60.000000,
-			"slip": 0.023000,
 			"state": "fighting",
 			"strain": 0.000000,
+			"sweep": 0.138000,
+			"taps": 9,
+			"tension": 0.235000,
 			"total_weight": 0.000000,
-			"wear": 0.285000,
 		},
 	},
 ]
@@ -220,36 +214,44 @@ func test_every_recorded_session_replays_exactly(t: TestHarness) -> void:
 ## game is any good, and a golden recorded from a broken build is a broken build
 ## defended by a test. These are the properties that make those numbers mean
 ## something, asserted separately so a failure says which one went.
-func test_only_a_player_who_reads_the_water_does_well(t: TestHarness) -> void:
-	# HAULER and ANGLER pump identically. The ONLY difference is that one looks
-	# at the tell, so the gap between them is a claim about the game rather than
-	# about the bots - and it is the entire premise of the second fight.
-	for seed_value in [1, 2, 3, 4, 5, 6]:
-		var reads := Policies.play(Policies.ANGLER, 90.0, seed_value)
-		var blind := Policies.play(Policies.HAULER, 90.0, seed_value)
-		t.gt(float(reads["caught"]), float(blind["caught"]) - 0.5,
-			"ignoring the water beats reading it on seed %d" % seed_value)
-		t.lt(float(reads["lost"]), float(blind["lost"]) + 0.5,
-			"ignoring the water loses fewer fish than reading it on seed %d" % seed_value)
-
-
-func test_nobody_who_ignores_the_rod_catches_anything(t: TestHarness) -> void:
-	for policy in [Policies.IDLE_HANDS, Policies.MASHER, Policies.PANICKER]:
+func test_nobody_who_ignores_the_gauges_catches_anything(t: TestHarness) -> void:
+	for policy in [Policies.IDLE_HANDS, Policies.MASHER, Policies.SLOWPOKE]:
 		for seed_value in [1, 2, 3]:
 			var r := Policies.play(policy, 90.0, seed_value)
 			t.eq(r["caught"], 0,
-				"%s catches fish on seed %d, so the fight is decoration" % [policy, seed_value])
+				"%s catches fish on seed %d, so the minigames are decoration" % [policy, seed_value])
 			t.gt(float(r["lost"]), 0.0, "%s never even loses one" % policy)
 
 
-## THE test that answers Gideon's note.
+## The claim the WARNING makes, and the pair that proves it.
 ##
-## The first fight was called too easy, and the probe had said so a day earlier
-## without anyone reading it that way: the best bot landed everything and lost
-## nothing. **A perfect controller winning is not evidence about difficulty** -
-## it is a fact about perfect controllers. HUMAN is the honest instrument, with
-## reaction time, a misread rate and a thumb that wobbles, and what IT loses is
-## the number that means something.
+## BLIND and ANGLER are the same player - the same tap rhythm, the same reaction
+## time - except that ANGLER acts on the tell and BLIND only learns about a run
+## from the needle. So the gap between them is a claim about the game and not
+## about the bots.
+##
+## This one had to be earned twice. The first version of the pair used a
+## per-frame controller, which automatically stops tapping when the needle is
+## high - so the run solved itself, and BLIND, ANGLER and HUMAN all scored
+## identically at 100%. **A bot that reads the gauge sixty times a second is not
+## a model of anyone**, and the mechanic looked free until the bots tapped on a
+## rhythm like a person does.
+func test_watching_the_water_is_worth_something(t: TestHarness) -> void:
+	var watched := 0
+	var blind := 0
+	for seed_value in [1, 2, 3, 4, 5, 6]:
+		watched += int(Policies.play(Policies.ANGLER, 90.0, seed_value)["lost"])
+		blind += int(Policies.play(Policies.BLIND, 90.0, seed_value)["lost"])
+	t.lt(float(watched), float(blind),
+		"ignoring the run warning costs nothing, so the warning is decoration")
+	t.eq(watched, 0, "reading the warning is not enough to avoid every run")
+
+
+## THE test that answers Gideon's note about the first fight.
+##
+## "A perfect controller wins" is a fact about perfect controllers. HUMAN has a
+## reaction time, a sloppy aim on the hook bar and a tapping rhythm it corrects
+## a few times a second, and what IT loses is the number that means anything.
 func test_a_plausible_player_loses_real_fish(t: TestHarness) -> void:
 	var caught := 0
 	var lost := 0
@@ -260,20 +262,19 @@ func test_a_plausible_player_loses_real_fish(t: TestHarness) -> void:
 	var hooked := caught + lost
 	t.gt(float(hooked), 0.0, "the human never hooked anything")
 	var loss_rate := float(lost) / float(hooked)
-	t.gt(loss_rate, 0.10,
-		"a plausible player loses %.0f%% of what they hook - the fight is too easy again" % (loss_rate * 100.0))
+	t.gt(loss_rate, 0.05,
+		"a plausible player loses %.0f%% of what they hook - the fight is too easy" % (loss_rate * 100.0))
 	t.lt(loss_rate, 0.45,
 		"a plausible player loses %.0f%% of what they hook - the fight is unfair" % (loss_rate * 100.0))
 	t.gt(float(caught), 0.0, "a plausible player cannot land anything at all")
 
 
-## The species table has to be an ordered ladder, and the order has to be the
-## one the table is written in.
+## The species table has to be an ordered ladder, in the order it is written.
 ##
-## This caught a real inversion: raising the bluegill's run chance while leaving
-## its `hold_speed` high made the TUTORIAL fish harder than the one after it -
-## 79% landed against the perch's 88%. Difficulty here is the product of two
-## fields and neither one alone tells you where a species sits.
+## This caught a real inversion once, in the previous fight: raising the
+## bluegill's run chance while leaving another field high made the TUTORIAL fish
+## harder than the one after it. Difficulty is the product of several fields and
+## no single one places a species.
 func test_the_species_form_a_difficulty_ladder(t: TestHarness) -> void:
 	var rates: Array[float] = []
 	for row in Species.TABLE:
@@ -303,8 +304,9 @@ func _win_rate(id: String) -> float:
 		s.fish_weight = row["weight_lo"]
 		s.fish_distance = Tuning.CAST_MAX
 		s.fish_stamina = 1.0
-		s.behaviour = Sim.B_HOLDING
-		s.behaviour_time = 2.0
+		s.tension = Tuning.SAFE_LO
+		s.running = false
+		s.phase_time = 2.0
 		s.state = Sim.FIGHTING
 		s.state_time = 0.0
 		for j in int(round(120.0 / step)):

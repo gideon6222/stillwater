@@ -41,9 +41,13 @@ func _initialize() -> void:
 	root.add_child(_main)
 	_main.freeze()
 
+	# One memory for the whole run - see the note on Policies.act. A fresh dict
+	# per frame silently stops the bot tapping at all, and the screenshot would
+	# then be of a game nobody is playing.
 	var step := 1.0 / 60.0
+	var mem := {}
 	for i in int(round(_seconds / step)):
-		Policies.act(Policies.HUMAN, _main.sim, step)
+		Policies.act(Policies.HUMAN, _main.sim, step, mem)
 		_main.advance(step, step)
 
 

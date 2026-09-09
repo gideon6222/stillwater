@@ -62,25 +62,25 @@ func _fight_lengths() -> void:
 	# aggregate table above hides the thing that matters most: a bluegill should
 	# be almost unlosable and a bass should be a real gamble, and one mean over
 	# all three says nothing about either.
-	print("  %-18s %8s %8s %8s %8s %8s" % ["species", "seconds", "pumps", "won%", "runs", "haul"])
+	print("  %-18s %8s %8s %8s %8s %8s" % ["species", "seconds", "taps", "won%", "runs", "zone"])
 	print("  %s" % "-".repeat(62))
 	for row in Species.TABLE:
 		var id: String = row["id"]
 		var won := 0
 		var secs := 0.0
-		var pumps := 0
+		var taps := 0
 		var tries := 24
 		for i in tries:
 			var r := _one_fight(id, Policies.HUMAN, i + 1)
 			if r["won"]:
 				won += 1
 				secs += float(r["seconds"])
-				pumps += int(r["pumps"])
+				taps += int(r["taps"])
 		var avg_s := secs / maxf(1.0, float(won))
-		var avg_p := float(pumps) / maxf(1.0, float(won))
+		var avg_p := float(taps) / maxf(1.0, float(won))
 		print("  %-18s %8.1f %8.1f %7.0f%% %8.2f %8.2f" % [
 			row["name"], avg_s, avg_p, float(won) / float(tries) * 100.0,
-			row["run_chance"], row["haul"],
+			row["run_chance"], row["zone"],
 		])
 	print("")
 
@@ -101,21 +101,22 @@ func _one_fight(id: String, policy: String, seed_value: int) -> Dictionary:
 	s.fish_weight = row["weight_lo"]
 	s.fish_distance = Tuning.CAST_MAX
 	s.fish_stamina = 1.0
-	s.behaviour = Sim.B_HOLDING
-	s.behaviour_time = 2.0
+	s.tension = Tuning.SAFE_LO
+	s.running = false
+	s.phase_time = 2.0
 	s.state = Sim.FIGHTING
 	s.state_time = 0.0
 	var elapsed := 0.0
-	var pumps := 0
+	var taps := 0
 	for i in int(round(120.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
 		Policies.act(policy, s, step, mem)
 		s.advance(step)
 		elapsed += step
-		pumps = s.pumps
+		taps = s.taps
 	return {
 		"won": s.state == Sim.HOLDING,
 		"seconds": elapsed,
-		"pumps": pumps,
+		"taps": taps,
 	}

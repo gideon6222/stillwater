@@ -24,96 +24,76 @@ const SINK_RATE := 1.15           ## m/s the lure descends once it lands
 
 # --- waiting for a bite ---------------------------------------------------
 const BITE_CHANCE_PER_SEC := 0.55 ## while the lure is at fishing depth
-const NIBBLE_TIME := 0.40         ## warning taps before the take
-const BITE_WINDOW := 0.45         ## seconds to strike, and the whole tutorial
+const NIBBLE_TIME := 0.35         ## the rod tip taps - the fish is interested
 const SPOOK_TIME := 1.20          ## a wrong strike puts them off for this long
 
-# --- the rod --------------------------------------------------------------
-## The inherited cane rod. Rods differ by the WIDTH OF THE BAND and nothing
-## else - not by a damage number - which is legible in ten seconds of use.
-const ROD_GAIN := 1.0             ## thumb travel to rod load
-const ROD_FORGIVENESS := 0.10     ## the cane is slow and soft; graphite will be 0
-
-# --- the fight ------------------------------------------------------------
+# --- THE FIGHT, third version ---------------------------------------------
 ##
-## THE SECOND FIGHT. The first was a threshold model - hold the tension inside a
-## band - and it failed for two reasons Gideon named exactly on 2026-09-09: it
-## was too easy, and his thumb covered the meter he was supposed to be reading.
+## Gideon, after playing the second: "it is not very intuitive to tell what you
+## are supposed to do. it doesnt need to be realistic fishing mechanics. it can
+## just be a fun challenging mini game feel, like tapping to keep the pressure
+## on without breaking the line. or a combination of two different mini games,
+## like one to hook the fish and one to reel it in. in either case, I think
+## having visual on screen queues or gauges would be a good addition"
 ##
-## Both have the same root, and it is worth stating because it will come up
-## again: **a threshold fight settles into ONE correct sustained input.** Once
-## the player finds the thumb position that holds the needle in the band, the
-## mechanic is over - there is nothing left to do but not move. The scripted
-## angler landed 6.83 fish and lost zero, which was the same fact showing up in
-## the probe a day before a human felt it.
+## Built as described, because he named the mechanism. Two minigames:
 ##
-## So the band is gone, and with it the meter. There is no HUD gauge at all now:
-## the ROD's bend is the tension, the float's wake is the fish's bearing, and the
-## thumb drags anywhere on the lower half of the screen. Nothing you touch is
-## anything you look at.
+##   1. THE HOOK   a marker sweeps a bar; tap while it is in the green zone
+##   2. THE REEL   tap to keep the tension needle inside the safe band
 ##
-## What replaces it is three fish behaviours, each wanting a different response,
-## each telegraphed in the water before it starts:
-##
-##   HOLDING     it sits there  -> PUMP: lift, then lower to take up line
-##   RUNNING     it takes off   -> GIVE: drop the rod and lose ground
-##   SURFACING   it head-shakes -> HOLD STEADY at mid load, and do not move
-##
-## No single thumb position is right for more than a couple of seconds, because
-## gaining line at all requires a rhythm rather than a value.
-const LOAD_RATE := 5.2            ## how fast the rod follows the thumb
-const LOAD_MAX := 1.0
+## **And the gauges are back.** The second fight deleted them, which was an
+## over-correction: his complaint about the FIRST fight was that his thumb
+## covered the meter, and the fix for that is to move the meter off the thumb,
+## not to remove it. Readouts live at the TOP of the screen now and the tap
+## target is the whole bottom - so they cannot overlap, and a tap needs no
+## precision of position at all, which is what makes that split possible.
 
-## Pumping. A cycle is a lift above HIGH followed by a drop below LOW, and line
-## is gained on the DOWN stroke - which is what a real pump is: you lift against
-## the fish, then take up the slack you just made. Holding a steady lift gains
-## nothing at all, and that single rule is what killed the first fight's exploit.
-const PUMP_HIGH := 0.60           ## the lift has to clear this to count
-const PUMP_LOW := 0.26            ## and then drop below this
-const PUMP_GAIN := 2.35           ## metres per completed pump, at full peak
-const PUMP_TIRE := 0.20           ## stamina taken per completed pump
+# --- 1. the hook ----------------------------------------------------------
+const HOOK_SWEEPS := 2.0          ## full passes before it loses interest
+const HOOK_ZONE_MIN := 0.10       ## the green zone never gets smaller than this
+const HOOK_PERFECT := 0.35        ## fraction of the zone that counts as dead centre
+const HOOK_PERFECT_BONUS := 0.22  ## tension the fight starts with, on a perfect set
 
-## The risk dial the player actually holds. Gain scales with how high the lift
-## went, and the line starts taking damage just above the most profitable pump -
-## so a greedy pump is worth more and is genuinely close to the edge.
-const STRAIN_START := 0.82        ## load above this damages the line
-const STRAIN_RATE := 1.15         ## toward a break, scaled by how far over
+# --- 2. the reel ----------------------------------------------------------
+## Tapping is the whole input. Each tap kicks the needle up; it falls on its own
+## between taps, so holding a rate IS the mechanic and there is no position to
+## hold. That is what makes it legible on a phone: the player is doing one thing
+## and can see the result of it immediately.
+const TAP_KICK := 0.115           ## how far one tap moves the needle
+const TAP_DECAY := 0.46           ## how fast it falls back, per second
+const SAFE_LO := 0.42             ## bottom of the green band
+const SAFE_HI := 0.78             ## top of it
+const TENSION_MAX := 1.0
 
-## Runs. The fish takes line and there is nothing to do but let it: hold any real
-## load during a run and the line parts quickly. Giving costs ground, which is
-## the price, and the run ends on its own.
-const GIVE_MAX := 0.30            ## load allowed during a run
-const RUN_STRAIN := 3.40           ## damage rate when you hold on through one
-const RUN_SPEED := 2.50           ## metres per second it takes back
-const RUN_SURGE := 2.20           ## extra strain multiplier at the instant a run starts
-const RUN_SURGE_DECAY := 0.33     ## seconds for that surge to fade
+const REEL_RATE := 1.55           ## m/s gained while the needle is in the band
+const SLIP_RATE := 0.62           ## m/s the fish takes back while below the band
+const STRAIN_RATE := 4.40         ## toward a snapped line, while above the band
+const STRAIN_RECOVER := 0.40      ## strain bleeding off once you stop
 
-## Head-shakes at the surface. The opportunity and the trap: it tires the fish
-## fastest, and it is the only time MOVING the thumb is the mistake.
-const SHAKE_LO := 0.38
-const SHAKE_HI := 0.64
-const SHAKE_STILL := 0.85         ## thumb speed above this counts as moving
-const SHAKE_SLIP := 1.05          ## toward a thrown hook
-const SHAKE_TIRE := 0.62          ## stamina per second while held correctly
+## Runs. The needle climbs ON ITS OWN, so the correct answer is to STOP TAPPING -
+## which is legible on a gauge in a way that no amount of instruction would be.
+## The player sees the needle rising without their input and understands.
+## The JOLT is what makes the warning load-bearing. A run adds this to the needle
+## the instant it starts, so what decides the outcome is whether the player had
+## ALREADY stopped tapping - not how fast they can react afterwards. Without it a
+## rate-controller simply corrects its way out of every run and nothing about the
+## fight is a decision.
+const RUN_JOLT := 0.30            ## tension added the moment a run begins
+const RUN_PULL := 0.18            ## tension per second it adds while it lasts
+const RUN_GAIN := 1.05            ## m/s it takes back during one
+const RUN_MIN := 1.2
+const RUN_MAX := 2.4
+const TELL_TIME := 0.45           ## warning before a run - just over a reaction time
 
-## Wear. Grows for the whole fight and faster under load, so playing it safe is
-## also a way to lose. Without this a cautious player could take all day, and
-## "take all day" is the strategy every forgiving fishing minigame collapses to.
-const WEAR_RATE := 0.0215         ## per second, always
-const WEAR_LOAD := 0.030          ## per second more, at full load
-const SLACK_SLIP := 0.34          ## slack for a long time and it works loose
+const CALM_MIN := 2.2             ## seconds of ordinary reeling between runs
+const CALM_MAX := 4.6
 
-## How long each behaviour lasts, and the warning before it starts. The tell is
-## the whole reason this is a game of awareness rather than reaction: a player
-## watching the water drops the rod before the run begins and takes no damage.
-const TELL_TIME := 0.34
-const HOLD_MIN := 1.5
-const HOLD_MAX := 3.4
-const RUN_MIN := 1.1
-const RUN_MAX := 2.3
-const SHAKE_TIME := 1.5
+## Losing. The fish reaching this far past where it was hooked means it has
+## found cover or taken all the line - a legible, thematic way to lose that is
+## not "a bar filled up".
+const ESCAPE_MARGIN := 6.0
 
-const RECOVER_RATE := 0.26        ## strain bleeding off when the line is behaving
+const TIRE_RATE := 0.30           ## stamina per second while being reeled
 const TIRED_RELIEF := 0.60        ## how much of the fish's fight tiredness removes
 
 # --- landing --------------------------------------------------------------
@@ -134,30 +114,18 @@ static func cast_flight_seconds(charge: float) -> float:
 	return cast_distance(charge) / CAST_FLIGHT_SPEED
 
 
-## Where the line starts taking damage, once the rod's forgiveness is in.
+## True if the tension is where it should be. One function, used by the rules
+## AND by the gauge that draws the band, so what the player sees and what the
+## game scores cannot drift apart.
+static func in_band(tension: float) -> bool:
+	return tension >= SAFE_LO and tension <= SAFE_HI
+
+
+## How many taps per second it takes to hold the needle at a given level.
 ##
-## This is the rod ladder's one lever, and it works the same way the band did:
-## a softer rod lets you pump higher before the line complains, so it forgives a
-## greedy pump. It does NOT make the fish weaker. Buying a rod is felt on every
-## species at once, which is the property worth keeping.
-static func strain_start() -> float:
-	return minf(0.96, STRAIN_START + ROD_FORGIVENESS)
-
-
-## Line gained by a pump that peaked at `peak`.
-##
-## Scales with the peak so the risk dial is real: a pump to the strain threshold
-## is worth roughly three times one to the minimum, and the threshold is close
-## enough above the profitable range that a greedy player will sometimes go
-## through it. Below PUMP_HIGH there is no pump and no gain at all.
-static func pump_gain(peak: float, haul: float) -> float:
-	if peak < PUMP_HIGH:
-		return 0.0
-	var over := (clampf(peak, PUMP_HIGH, 1.0) - PUMP_HIGH) / maxf(0.001, 1.0 - PUMP_HIGH)
-	return PUMP_GAIN * (0.34 + 0.66 * over) * haul
-
-
-## True if the load is where a head-shake wants it. A narrow window, and the
-## only place in the fight where holding still is the correct answer.
-static func shake_ok(load: float) -> bool:
-	return load >= SHAKE_LO and load <= SHAKE_HI
+## Not used by the game - it exists so the tests can assert the mechanic is
+## PHYSICALLY TAPPABLE. A band that needs eleven taps a second is unplayable on
+## a phone however good it looks in a diagram, and that is not something a
+## screenshot or a bot would ever reveal.
+static func taps_per_second_for(tension: float) -> float:
+	return (TAP_DECAY * tension) / TAP_KICK

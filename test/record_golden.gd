@@ -17,10 +17,10 @@ const CASES := [
 	{"policy": "angler", "seconds": 60.0, "seed": 1},
 	{"policy": "human", "seconds": 60.0, "seed": 1},
 	{"policy": "human", "seconds": 60.0, "seed": 4},
-	{"policy": "hauler", "seconds": 60.0, "seed": 1},
+	{"policy": "blind", "seconds": 60.0, "seed": 1},
 	{"policy": "masher", "seconds": 60.0, "seed": 1},
 	{"policy": "idle_hands", "seconds": 60.0, "seed": 1},
-	{"policy": "panicker", "seconds": 60.0, "seed": 1},
+	{"policy": "slowpoke", "seconds": 60.0, "seed": 1},
 ]
 
 

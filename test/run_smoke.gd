@@ -41,8 +41,9 @@ func _initialize() -> void:
 
 	_check_a_whole_fish_can_be_caught_through_the_real_scene(main)
 	_check_the_line_always_comes_back(main)
-	_check_the_rod_is_the_gauge(main)
+	_check_the_gauges_are_clear_of_the_thumb(main)
 	_check_the_controls_are_anchored(main)
+	_check_the_cast_is_a_swing_not_a_bend(main)
 	_check_the_lure_is_where_the_line_ends(main)
 
 	_finish()
@@ -93,53 +94,95 @@ func _check_the_line_always_comes_back(main) -> void:
 		for i in int(round(25.0 / step)):
 			if main.sim.state != Sim.FIGHTING:
 				break
-			main.sim.set_pull(1.0)
+			main.sim.tap()
+			main.sim.tap()
 			main.advance(step, step)
 		_t.eq(main.sim.state, Sim.LOST, "holding the thumb flat out never ends the fight")
 		main.advance(Tuning.HOLD_TIME + 0.5)
 		_t.eq(main.sim.state, Sim.IDLE, "a lost fish leaves the player stuck")
 
 
-## The gauge must draw the numbers the rules use, not its own copy of them.
+## The gauges have to be READABLE and CLEAR OF THE THUMB, and they have to draw
+## the numbers the rules use rather than a copy of them.
 ##
-## Any time a control shows a thing the simulation also uses, a copy is a second
-## source of truth that will drift - usually within one session. Coreward's shop
-## solved the same problem by reparenting the real ship instead of building a
-## preview of it.
-func _check_the_rod_is_the_gauge(main) -> void:
-	_t.begin("smoke > the rod is the gauge, and there is no other one")
+## Both halves come from notes on earlier builds. Gideon on the first fight: the
+## thumb covered the meter. On the second: the meter was gone entirely and there
+## was no way to tell what to do. The settlement is gauges at the TOP and a tap
+## anywhere - so what is asserted here is the SEPARATION, which is the property
+## that makes both notes stay fixed.
+func _check_the_gauges_are_clear_of_the_thumb(main) -> void:
+	_t.begin("smoke > the gauges are at the top and the thumb is not")
 	main.freeze(1)
 	if not _drive_until(main, Sim.FIGHTING, 180.0):
-		_t.ok(false, "no fish was hooked to check the rod against")
+		_t.ok(false, "no fish was hooked to check the gauges against")
 		return
 
-	# There must be no HUD gauge. Gideon's note on the first fight was that his
-	# thumb covered the meter he was reading, and the fix was to delete it rather
-	# than move it - so this asserts the ABSENCE, which is the only way a deleted
-	# thing stays deleted.
-	for child in main._ui.get_children():
-		_t.ok((child as Node).name != "Gauge",
-			"a HUD gauge is back - the rod is supposed to be the only instrument")
+	var hook_bar: Control = main._hook_bar
+	var gauge: Control = main._tension_bar
 
-	# The rod's bend has to BE the load, not a copy of it kept in sync.
-	# `main` is untyped, so everything read off it is a Variant and `:=` cannot
-	# infer from one. Annotate the locals - the parse error names the variable,
-	# never the property access that caused it.
+	# Both live in the TOP third. A readout the thumb can rest on is the whole of
+	# the first note.
+	#
+	# Measured against the project's BASE height rather than the live viewport,
+	# for two reasons: headless has not laid the UI out, so `_ui.size` is zero
+	# and the comparison passes against nothing; and these anchor to the TOP,
+	# which `aspect = "expand"` never moves - a control 342 px down is 342 px
+	# down on every device, so the base is the honest reference.
+	var base_h := float(ProjectSettings.get_setting("display/window/size/viewport_height"))
+	_t.gt(base_h, 0.0, "the project has no base viewport height to measure against")
+	for bar in [hook_bar, gauge]:
+		var c := bar as Control
+		_t.eq(c.anchor_top, 0.0, "%s is not anchored to the top of the viewport" % c.name)
+		_t.eq(c.anchor_bottom, 0.0,
+			"%s is anchored to the bottom, so it moves with the aspect ratio" % c.name)
+		_t.gt(c.offset_top, 0.0, "%s sits above the top edge" % c.name)
+		_t.lt(c.offset_bottom, base_h / 3.0,
+			"%s reaches out of the top third, toward where the thumb goes" % c.name)
+		# And neither may eat a touch, or tapping "on the gauge" does nothing -
+		# which on a full-screen tap target is a dead zone the player cannot see.
+		_t.eq(c.mouse_filter, Control.MOUSE_FILTER_IGNORE,
+			"%s consumes touches, so tapping over it does nothing" % c.name)
+
+	# The tension gauge draws Tuning.SAFE_LO/SAFE_HI and the rules use
+	# Tuning.in_band(). One source, so the player aims at what is scored.
+	var live: float = main.sim.tension
+	_t.eq(main.sim.in_band(), Tuning.in_band(live),
+		"in_band disagrees with the band the gauge draws")
+
+	# The rod still bends under load, and the line still leaves its bent tip.
 	var bend: float = main.rod_bend_degrees()
 	_t.gt(bend, 0.0, "the rod does not bend at all during a fight")
-	var live_load: float = main.sim.load
-	var full_bend: float = main.ROD_BEND
-	_t.approx(bend, live_load * full_bend, 3.5,
-		"the rod's bend is not the load the rules are using")
-
-	# And the line has to leave from the tip of the BENT rod, not from where the
-	# tip would be if it were straight. The tip moves several centimetres under
-	# load, and a line hanging in the air beside the rod is the visible symptom
-	# of a tip computed once and cached.
 	var tip: Vector3 = main._rod_tip
 	var seg_count: int = main.ROD_SEGMENTS
 	_t.gt(float(seg_count), 1.0, "the rod is a single stick again, so it tilts rather than bends")
 	_t.gt(tip.z, 0.0, "the rod tip is behind the boat")
+
+
+## The cast is a SWING and only a fish is a BEND.
+##
+## Gideon: "the rod bends back then flicks forward which isnt how it should
+## work. the rod should be straight initially lift the rod up and back, then
+## swing it forward. once the fish bites, the rod should bend forward since it is
+## now under pressure."
+##
+## The bug was one number driving both motions. This asserts they are separate:
+## a rod being charged is STRAIGHT, however far back it has been taken.
+func _check_the_cast_is_a_swing_not_a_bend(main) -> void:
+	_t.begin("smoke > loading a cast swings the rod without bending it")
+	main.freeze(1)
+	main.sim.hold_cast()
+	main.advance(0.9)
+	_t.eq(main.sim.state, Sim.CHARGING, "the cast is not still charging")
+	_t.gt(main.sim.charge, 0.4, "the charge did not build")
+
+	var bend: float = main.rod_bend_degrees()
+	_t.lt(bend, 1.0, "the rod BENDS while being charged - a cast is a swing, not a load")
+
+	# And the butt has actually moved, so it is swinging rather than doing
+	# nothing at all.
+	var butt: Node3D = main._rod
+	_t.gt(butt.rotation_degrees.x, -14.0 + 5.0,
+		"the rod does not lift back when the cast is charged")
 
 
 ## The controls must be ANCHORED to the viewport, never placed at a literal
@@ -201,10 +244,11 @@ func _check_the_lure_is_where_the_line_ends(main) -> void:
 ## Play, through the real input seam, until a state is reached or time runs out.
 func _drive_until(main, want: String, limit: float) -> bool:
 	var step := 1.0 / 60.0
+	var mem := {}
 	for i in int(round(limit / step)):
 		if main.sim.state == want:
 			return true
-		Policies.act(Policies.ANGLER, main.sim, step)
+		Policies.act(Policies.ANGLER, main.sim, step, mem)
 		main.advance(step, step)
 	return main.sim.state == want
 
