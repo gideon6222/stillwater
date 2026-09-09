@@ -348,7 +348,7 @@ By the Quarry it reads the day's catch back to you.
 
 ---
 
-### 11.5 Wrong fish **[next]**
+### 11.5 Wrong fish **[done]**
 
 *What.* `wrong` exists in the species data and changes nothing on screen.
 
@@ -359,6 +359,13 @@ generator, worse numbers.
 
 *Feel.* Never remarked on. The logbook prints the note in the keeper's hand and
 the game says nothing.
+
+*Built as:* body 22% longer and 14% thinner; the counter-shading gives out, so
+it is evenly coloured all round, which reads as wrong long before anyone works
+out which rule it broke; the eye goes matte with no highlight, the cheapest way
+to make a thing look dead. Below 80 m it also grows a **second pair of fins** -
+`wrong` alone does not earn that, being deep as well does, so Old Town is subtly
+off and the Quarry is not subtle.
 
 ---
 

@@ -64,6 +64,7 @@ func _initialize() -> void:
 	_check_nothing_interactable_is_invisible(main)
 	_check_the_title_leads_into_the_game(main)
 	_check_the_first_morning_teaches_and_ends(main)
+	_check_a_wrong_fish_is_drawn_wrong(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -963,3 +964,47 @@ func _check_the_first_morning_teaches_and_ends(main) -> void:
 	Save.apply(fresh, parsed)
 	_t.ok(fresh.intro_done, "the first morning will play again on the next launch")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(main.SAVE_PATH))
+
+
+## A WRONG FISH LOOKS WRONG.
+##
+## `wrong` sat in the species data from the first day and changed nothing on
+## screen for six species. This asserts that it now does - not how it looks,
+## which is taste, but that the generator produces a DIFFERENT mesh for one.
+## A data flag that draws identically is a flag that does not exist.
+func _check_a_wrong_fish_is_drawn_wrong(main) -> void:
+	_t.begin("smoke > a wrong fish is actually drawn wrong")
+	main.freeze(1)
+
+	var wrong_ids: Array[String] = []
+	var right_ids: Array[String] = []
+	for row in Species.TABLE:
+		if bool(row.get("wrong", false)):
+			wrong_ids.append(str(row["id"]))
+		else:
+			right_ids.append(str(row["id"]))
+	_t.gt(float(wrong_ids.size()), 0.0, "no species is flagged wrong at all")
+
+	# Same band, so the comparison is about `wrong` and not about depth.
+	main._rebuild_fish("thin_perch")
+	var wrong_parts: int = main._fish.get_child_count()
+	var wrong_aabb: AABB = (main._fish.get_node("Body") as MeshInstance3D).mesh.get_aabb()
+
+	main._rebuild_fish("perch")
+	var right_aabb: AABB = (main._fish.get_node("Body") as MeshInstance3D).mesh.get_aabb()
+
+	_t.gt(absf(wrong_aabb.size.z - right_aabb.size.z) + absf(wrong_aabb.size.y - right_aabb.size.y),
+		0.02, "a Thin Perch is the same shape as a perch - `wrong` draws nothing")
+
+	# And the worst of them grow something extra.
+	main._rebuild_fish("blindfish")
+	var deep_parts: int = main._fish.get_child_count()
+	main._rebuild_fish("chub")
+	var ordinary_parts: int = main._fish.get_child_count()
+	_t.gt(float(deep_parts), float(ordinary_parts),
+		"the deep wrong ones have no more to them than an ordinary fish")
+
+	# Every wrong species still builds without erroring.
+	for id in wrong_ids:
+		main._rebuild_fish(id)
+		_t.ok(main._fish.get_child_count() > 3, "'%s' built almost nothing" % id)

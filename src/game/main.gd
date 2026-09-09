@@ -1021,8 +1021,26 @@ func _rebuild_fish(id: String) -> void:
 		c.queue_free()
 
 	var look := Species.look_of(id)
+	var row := Species.by_id(id)
+	# **THE WRONG ONES ARE THE SAME GENERATOR WITH WORSE NUMBERS.**
+	#
+	# `wrong` has been in the species data since the table was written and had
+	# never once changed anything on screen - six species flagged as not-right
+	# and all six drawn as ordinary fish. That is the whole reason the shape of a
+	# fish lives in data: a wrong fish is not a new model or a new code path, it
+	# is these fields pushed past the range a real fish uses.
+	#
+	# Nothing is ever remarked on. The logbook prints the note in the keeper's
+	# hand and the game says nothing at all.
+	var wrong: bool = bool(row.get("wrong", false))
 	var long: float = look["long"]
 	var deep: float = look["deep"]
+	if wrong:
+		# Too long in the body and too thin through it - which is exactly what
+		# Edith Moss writes in the book at sixty-eight metres, forty years before
+		# the player reads it.
+		long *= 1.22
+		deep *= 0.86
 	var back: Color = look["back"]
 	var belly: Color = look["belly"]
 	var stripes: int = int(look["stripes"])
@@ -1053,6 +1071,12 @@ func _rebuild_fish(id: String) -> void:
 			# single thing that makes a generated body read as a fish rather than
 			# as a lozenge, because it is what every real fish does.
 			var down := clampf(0.5 - cy * 0.5, 0.0, 1.0)
+			if wrong:
+				# The counter-shading gives out. A real fish is dark above and
+				# pale below because that is what light in water does to a thing
+				# that lives in it; one that is evenly coloured all round reads
+				# as WRONG long before anyone works out which rule it broke.
+				down = lerpf(down, 0.45, 0.55)
 			# Cubed, so the dark holds most of the upper flank and the pale is
 			# confined to the underside. A linear blend puts the midtone across
 			# the widest part of the body, which is exactly where the eye looks,
@@ -1128,6 +1152,20 @@ func _rebuild_fish(id: String) -> void:
 		Vector3(0, -half_h * 0.82, -length * 0.30),
 	], fmat, "Anal"))
 
+	# A SECOND PAIR OF FINS on the worst of them. Not on every wrong fish - the
+	# ones in Old Town are subtly off and the ones in the Quarry are not subtle -
+	# so `wrong` alone does not earn this; being deep as well does.
+	if wrong and float(row.get("min_depth", 0.0)) >= 80.0:
+		for side3 in [-1.0, 1.0]:
+			var extra := _fin([
+				Vector3(0, 0, -length * 0.10),
+				Vector3(0, half_h * 0.50, -length * 0.24),
+				Vector3(0, -half_h * 0.22, -length * 0.26),
+			], fmat, "SecondPair")
+			extra.rotation_degrees = Vector3(0, 0, side3 * 74.0)
+			extra.position = Vector3(side3 * half_w * 0.80, -half_h * 0.20, 0)
+			_fish.add_child(extra)
+
 	for side in [-1.0, 1.0]:
 		var pec := _fin([
 			Vector3(0, 0, length * 0.20),
@@ -1151,6 +1189,12 @@ func _rebuild_fish(id: String) -> void:
 		eye.mesh = em
 		var emat := _mat(look["eye"], 0.20)
 		emat.metallic = 0.35
+		if wrong:
+			# Flat and matte. An eye with no highlight in it is the single
+			# cheapest way to make something look dead, which is why every
+			# taxidermist puts a glass one in.
+			emat.metallic = 0.0
+			emat.roughness = 0.95
 		eye.material_override = emat
 		eye.position = Vector3(side2 * half_w * 0.62, half_h * 0.34, length * 0.395)
 		eye.name = "Eye"
