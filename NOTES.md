@@ -195,6 +195,53 @@ reeds get their own weaker claim: a missed tell there costs TIME, not fish, so
 the tutorial can be forgiving without teaching the player that the tell is
 decoration.
 
+## The two arcs, and why they are the same shape
+
+The score and the picture are both driven by ONE number - `dread`, which is
+depth, the same quantity the whole game is built on - and both move continuously
+rather than switching at a band boundary.
+
+| | Surface | The Quarry |
+|---|---|---|
+| bells | the whole first hour | gone, and nothing replaces them |
+| what is underneath | silent | most of what you can hear |
+| colour | pale gold, warm | drained to a green-grey |
+| light | 2.2 with a long streak | 0.10 and no beam at all |
+| fog | 0.0003 | up to the 0.011 cap |
+| the bank | reeds down both sides | open water in every direction |
+
+Three things about this are worth keeping.
+
+**It runs backwards.** Fish the reeds after the quarry and the bells come back,
+the colour returns, and the bank is there again. Nothing else in the game gives
+that, and finding out the cheerful version still exists is stranger than losing
+it was. It is free only because the arc is tied to depth rather than to progress.
+
+**The layer that LEAVES does more than any layer that arrives.** An absence is
+the loudest thing you can put in a score and it costs no assets.
+
+**Both arcs are asserted, not eyeballed.** `Mood.at` is a pure function so
+"night is darker than noon in every weather" and "nothing about going deeper
+brightens anything" are tests; the mixer is driven at the depths the game
+actually produces and checked for monotonicity AND a 20 dB span at each end. A
+mix or a palette that quietly stopped changing would otherwise be an invisible
+regression - nobody compares a screenshot with the one from an hour ago.
+
+### What only screenshots caught
+
+The suites were green for all of these:
+
+- the logbook could never show a fish under a kilo (`int(0.14) > 0`)
+- owned gear was drawn in the same dead grey as unaffordable gear
+- the map printed the same true, useless sentence five times
+- reeds stood in a hundred and fifty metres of open water at The Spring
+- near-black gradients banded into rainbow contour rings (fixed with
+  `use_debanding`) and a storm at dusk rendered as a golden sunset, because a
+  grazing specular streak survives a dim sun and carries the SUN's colour
+
+**Photograph every screen and every extreme of the arc, once, and look at it.**
+`scripts/shot.gd` takes an hour, a weather and a depth for exactly this.
+
 ## Open, in rough priority order
 
 1. **Does the third fight feel good?** Specifically: is the hook bar readable at a glance, is

@@ -501,3 +501,84 @@ func test_every_species_sits_inside_the_band_it_claims(t: TestHarness) -> void:
 			"%s lives at %.1f-%.1f m but is filed under %s, which is %.1f-%.1f m - they do not meet" % [
 				row["name"], float(row["min_depth"]), float(row["max_depth"]), band["name"],
 				float(band["min_depth"]), float(band["max_depth"])])
+
+
+## THE LOOK IS A PURE FUNCTION, SO THE LOOK IS TESTABLE.
+##
+## `Mood.at(hour, weather, dread)` is the whole appearance of the lake, and the
+## reason it is a function rather than thirty assignments inside the renderer is
+## precisely this block. "Night is darker than noon in every weather" is a claim
+## about the game; made in the renderer it could only ever be checked by taking
+## twenty-five screenshots and squinting.
+func test_night_is_darker_than_the_day_in_every_weather(t: TestHarness) -> void:
+	for w in Mood.WEATHERS:
+		var night := Mood.brightness(Mood.at("night", w, 0.0))
+		for hour in ["dawn", "morning", "afternoon", "dusk"]:
+			t.lt(night, Mood.brightness(Mood.at(hour, w, 0.0)),
+				"night is no darker than %s in %s weather" % [hour, w])
+
+
+func test_worse_weather_is_always_darker(t: TestHarness) -> void:
+	# In the order they are written, which is also the order they get worse.
+	var order := ["clear", "overcast", "rain", "storm"]
+	for hour in Mood.HOURS:
+		for i in order.size() - 1:
+			var a := Mood.brightness(Mood.at(hour, order[i], 0.0))
+			var b := Mood.brightness(Mood.at(hour, order[i + 1], 0.0))
+			t.lt(b, a + 0.0001,
+				"%s at %s is no darker than %s (%.3f against %.3f)" % [
+					order[i + 1], hour, order[i], b, a])
+
+
+## NOTHING ABOUT GOING DEEPER MAKES ANYTHING BRIGHTER OR MORE COLOURFUL.
+##
+## The single claim the whole visual arc rests on. It is easy to break by
+## accident - one `lerp` toward a colour lighter than where it started - and
+## impossible to notice, because no screenshot is ever compared with the one from
+## an hour of play earlier.
+func test_the_lake_only_ever_gets_darker_and_greyer(t: TestHarness) -> void:
+	for hour in Mood.HOURS:
+		for w in Mood.WEATHERS:
+			var last := 999.0
+			var last_sat := 999.0
+			var last_fog := -1.0
+			for i in 11:
+				var look := Mood.at(hour, w, float(i) / 10.0)
+				var bright := Mood.brightness(look)
+				t.lt(bright, last + 0.0001,
+					"%s/%s gets BRIGHTER at dread %.1f" % [hour, w, float(i) / 10.0])
+				last = bright
+
+				var c: Color = look["sky_horizon"]
+				var sat: float = c.s
+				t.lt(sat, last_sat + 0.002,
+					"%s/%s gets more colourful at dread %.1f" % [hour, w, float(i) / 10.0])
+				last_sat = sat
+
+				var fog: float = look["fog_density"]
+				t.gt(fog, last_fog - 0.0000001,
+					"%s/%s loses fog going deeper" % [hour, w])
+				last_fog = fog
+
+
+## Every combination has to produce something a renderer can actually use. A
+## negative light energy or a fog density of two is not a look, it is a bug that
+## only shows on the one hour and weather nobody screenshotted.
+func test_every_hour_and_weather_produces_a_usable_picture(t: TestHarness) -> void:
+	for hour in Mood.HOURS:
+		for w in Mood.WEATHERS:
+			for i in 3:
+				var look := Mood.at(hour, w, float(i) / 2.0)
+				var where := "%s/%s/%.1f" % [hour, w, float(i) / 2.0]
+				t.gt(float(look["sun_energy"]), 0.05,
+					"%s has no sun at all, so the water throws nothing back" % where)
+				t.lt(float(look["sun_energy"]), 6.0, "%s is blown out" % where)
+				t.gt(float(look["ambient"]), 0.05, "%s has no ambient light" % where)
+				t.gt(float(look["fog_density"]), 0.0, "%s has no fog at all" % where)
+				t.lt(float(look["fog_density"]), Mood.MAX_FOG + 0.0001,
+					"%s is solid fog - the player cannot see the float" % where)
+				for key in ["sky_top", "sky_horizon", "fog_color", "water_shallow",
+						"water_deep", "water_sky", "sun_color"]:
+					var c: Color = look[key]
+					t.gt(c.r + c.g + c.b, -0.001, "%s has a negative %s" % [where, key])
+					t.lt(maxf(c.r, maxf(c.g, c.b)), 1.001, "%s blows out %s" % [where, key])

@@ -40,6 +40,12 @@ var _menus: Menus
 var _dock: HBoxContainer
 var _world_line: Label
 var _audio: Audio
+var _env: Environment
+var _sun: DirectionalLight3D
+var _water_mat: ShaderMaterial
+var _dread := 0.0
+var _sky_mat: ProceduralSkyMaterial
+var _reeds: Node3D
 
 var _charging := false
 
@@ -175,6 +181,8 @@ func _build_world() -> void:
 	e.fog_sky_affect = 0.22
 	env.environment = e
 	add_child(env)
+	_env = e
+	_sky_mat = sky_mat
 
 	# Low, and AHEAD of the boat rather than behind it, so the specular path
 	# runs sun -> water -> camera and the lake gets its long gold streak. Put
@@ -186,6 +194,7 @@ func _build_world() -> void:
 	sun.light_color = Color(1.0, 0.86, 0.64)
 	sun.name = "Sun"
 	add_child(sun)
+	_sun = sun
 
 	_cam = Camera3D.new()
 	_cam.fov = 58
@@ -248,7 +257,10 @@ func _build_water() -> void:
 	m.set_shader_parameter("deep", Color(0.06, 0.13, 0.16))
 	m.set_shader_parameter("sky", Color(0.78, 0.84, 0.86))
 	m.set_shader_parameter("bed_depth", Tuning.BED_DEPTH)
+	m.set_shader_parameter("gloss", 1.0)
+	m.set_shader_parameter("beam", 1.0)
 	_water.material_override = m
+	_water_mat = m
 	add_child(_water)
 
 
@@ -260,6 +272,15 @@ uniform vec4 shallow : source_color;
 uniform vec4 deep : source_color;
 uniform vec4 sky : source_color;
 uniform float bed_depth = 4.0;
+// How glassy the surface is, 1 for a flat calm and 0 for a storm. A tight
+// highlight on a DIM light is the worst of both: at night the specular came out
+// as hard blue-white blobs on near-black water, which reads as a bug rather than
+// as moonlight. Rough water spreads the same energy over a wider, softer streak,
+// which is both what a choppy lake does and what makes a dark scene legible.
+uniform float gloss = 1.0;
+// How much DIRECT sun there is to make a streak out of. See the note on `spec`
+// in mood.gd: this is the difference between a storm and a sunset.
+uniform float beam = 1.0;
 
 varying vec3 world_pos;
 
@@ -325,9 +346,9 @@ void fragment() {
 	// is what makes a lake read as a lake rather than as a coloured floor.
 	float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 4.0);
 	ALBEDO = mix(body, sky.rgb, clamp(fres, 0.0, 0.82));
-	ROUGHNESS = mix(0.06, 0.22, murk);
+	ROUGHNESS = mix(mix(0.30, 0.07, gloss), 0.34, murk);
 	METALLIC = 0.0;
-	SPECULAR = 0.85;
+	SPECULAR = 0.85 * beam;
 }
 """
 
@@ -494,7 +515,15 @@ func _update_rod_tip() -> void:
 ## The fix is not to move them closer, which would put weeds around a boat in
 ## open water. It is to place them where the cone actually widens: far enough
 ## ahead that the frame has spread to reach them.
+## The bank. **Held in a parent so it can leave**, which it must: these are reeds
+## in two metres of water, and the same fifty-four of them were standing in the
+## middle of a hundred and fifty metres of open lake at The Spring. A shoreline
+## that follows you out to the deepest water in the game is the sort of thing
+## that is invisible while you build it and impossible to unsee afterwards.
 func _build_reeds() -> void:
+	_reeds = Node3D.new()
+	_reeds.name = "Reeds"
+	add_child(_reeds)
 	for i in 54:
 		var reed := MeshInstance3D.new()
 		var rr := BoxMesh.new()
@@ -515,7 +544,7 @@ func _build_reeds() -> void:
 		reed.rotation_degrees = Vector3(
 			SimUtil.hash2(i, 23) * 14.0 - 7.0, 0, SimUtil.hash2(i, 29) * 12.0 - 6.0
 		)
-		add_child(reed)
+		_reeds.add_child(reed)
 
 
 ## A fish, assembled rather than imported.
@@ -863,6 +892,7 @@ func _process(delta: float) -> void:
 
 
 func _tick(dt: float) -> void:
+	_sync_mood(dt)
 	if _menus != null:
 		_menus.tick(dt)
 	if _audio != null:
@@ -1199,3 +1229,65 @@ func _write_readout() -> void:
 func _ease_out(k: float) -> float:
 	var x := clampf(k, 0.0, 1.0)
 	return 1.0 - (1.0 - x) * (1.0 - x)
+
+
+## Put the hour, the weather and the depth into the picture.
+##
+## `Mood.at` decides everything and this only assigns it, which is what lets the
+## look be tested at all - "night is darker than noon in every weather" is an
+## assertion over a pure function, and would otherwise be a thing you could only
+## check by taking twenty-five screenshots.
+##
+## Everything is followed rather than set, at the same rate as the score, so the
+## lake changes on the way down instead of at the moment a band boundary is
+## crossed. Weather is the exception the player is allowed to notice: it changes
+## while they are asleep.
+func _sync_mood(dt: float) -> void:
+	if _env == null or _sky_mat == null:
+		return
+
+	var want := clampf(sim.lure_depth / Audio.DREAD_FULL, 0.0, 1.0)
+	if sim.state == Sim.IDLE or sim.state == Sim.CHARGING:
+		want = clampf(sim.deepest_here() / Audio.DREAD_FULL, 0.0, 1.0) * 0.5
+	_dread = lerpf(_dread, want, 1.0 - exp(-1.1 * dt))
+
+	var look: Dictionary = Mood.at(sim.hour, sim.weather, _dread)
+	var k := 1.0 - exp(-2.2 * dt)
+
+	_sky_mat.sky_top_color = _sky_mat.sky_top_color.lerp(look["sky_top"], k)
+	_sky_mat.sky_horizon_color = _sky_mat.sky_horizon_color.lerp(look["sky_horizon"], k)
+	_sky_mat.ground_horizon_color = _sky_mat.sky_horizon_color
+	_sky_mat.ground_bottom_color = _sky_mat.ground_bottom_color.lerp(look["water_deep"], k)
+
+	_env.fog_light_color = _env.fog_light_color.lerp(look["fog_color"], k)
+	_env.fog_density = lerpf(_env.fog_density, float(look["fog_density"]), k)
+
+	if _sun != null:
+		_sun.light_color = _sun.light_color.lerp(look["sun_color"], k)
+		_sun.light_energy = lerpf(_sun.light_energy, float(look["sun_energy"]), k)
+		var pitch := lerpf(_sun.rotation_degrees.x, float(look["sun_pitch"]), k)
+		_sun.rotation_degrees = Vector3(pitch, 8.0, 0.0)
+
+	# The bank recedes as the water gets older, and is gone by Old Town. There is
+	# no shoreline in the middle of the lake and there is nothing to replace it
+	# with - open water in every direction is the correct and much worse picture.
+	if _reeds != null:
+		var near := 1.0 - clampf(sim.deepest_here() / 45.0, 0.0, 1.0)
+		_reeds.visible = near > 0.02
+		for r in _reeds.get_children():
+			var mi := r as MeshInstance3D
+			if mi != null:
+				mi.transparency = 1.0 - near
+
+	if _water_mat != null:
+		var sh: Color = _water_mat.get_shader_parameter("shallow")
+		var dp: Color = _water_mat.get_shader_parameter("deep")
+		var sk: Color = _water_mat.get_shader_parameter("sky")
+		_water_mat.set_shader_parameter("shallow", sh.lerp(look["water_shallow"], k))
+		_water_mat.set_shader_parameter("deep", dp.lerp(look["water_deep"], k))
+		_water_mat.set_shader_parameter("sky", sk.lerp(look["water_sky"], k))
+		var gl: float = _water_mat.get_shader_parameter("gloss")
+		_water_mat.set_shader_parameter("gloss",
+			lerpf(gl, clampf(1.0 / float(look["chop"]), 0.0, 1.0), k))
+		var bm: float = _water_mat.get_shader_parameter("beam")
+		_water_mat.set_shader_parameter("beam", lerpf(bm, float(look["specular"]), k))

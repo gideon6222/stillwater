@@ -40,6 +40,7 @@ var _main
 var _frames := 0
 var _seconds := 12.0
 var _until := ""
+var _tag := ""
 
 ## Second-argument values that name a ROOM rather than a fishing state.
 const ROOMS := ["shed", "map", "log"]
@@ -51,6 +52,8 @@ func _initialize() -> void:
 		_seconds = float(args[0])
 	if args.size() > 1:
 		_until = String(args[1])
+	if args.size() > 2:
+		_tag = "_".join(PackedStringArray(args.slice(2)))
 
 	var scene: PackedScene = load("res://src/game/main.tscn")
 	_main = scene.instantiate()
@@ -74,6 +77,27 @@ func _initialize() -> void:
 	# from live data, so the only way to find out that a price runs off the edge
 	# or a shelf is unreadable is to photograph one with money in the purse and
 	# fish in the box - which is what these two lines set up.
+	# A third argument sets the HOUR and the fourth the WEATHER, so the twenty-five
+	# combinations of the mood arc can each be photographed. They are also the
+	# only way to see night: the clock only advances when the player sleeps.
+	if args.size() > 2:
+		_main.sim.hour = String(args[2])
+	if args.size() > 3:
+		_main.sim.weather = String(args[3])
+	if args.size() > 4:
+		# Dread is depth, so this is "photograph it as if the line were this far
+		# down" - the whole visual arc in one number.
+		_main.sim.econ.line = 5
+		_main.sim.spot = "spring"
+		_main.sim.lure_depth = float(args[4])
+		_main.sim.state = Sim.WAITING
+	# `_sync` as well as `_sync_mood`, or the HUD in the photograph still says
+	# whatever it said before the hour was set - and a screenshot whose caption
+	# disagrees with its own picture is worse than no screenshot.
+	for i in 400:
+		_main._sync_mood(1.0 / 12.0)
+	_main._sync()
+
 	if _until in ROOMS:
 		_main.sim.econ.money = 900
 		_main.sim.econ.has_motor = true
@@ -95,6 +119,8 @@ func _process(_delta: float) -> bool:
 		return false
 	var img := root.get_texture().get_image()
 	var name := "shot" if _until == "" else "shot_" + _until
+	if _tag != "":
+		name = "shot_" + _tag
 	img.save_png("user://%s.png" % name)
 	print("wrote %s/%s.png at t=%.1fs" % [OS.get_user_data_dir(), name, _seconds])
 	quit(0)
