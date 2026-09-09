@@ -51,6 +51,13 @@ func _initialize() -> void:
 	_check_the_rooms_cannot_be_opened_mid_fight(main)
 	_check_the_map_travels_and_the_clock_turns(main)
 
+	_check_the_music_goes_wrong_as_the_water_gets_older(main)
+
+	# Free what we built. Without this the run ends with "8 resources still in
+	# use at exit" - the audio mixer's stream cache, held by a node the quitting
+	# tree never tears down. Harmless in itself, and still worth removing: a gate
+	# that always prints an error is a gate whose errors nobody reads.
+	main.free()
 	_finish()
 
 
@@ -473,3 +480,62 @@ func _check_the_map_travels_and_the_clock_turns(main) -> void:
 	_t.ok(sim.hour != hour, "sleeping did not move the clock")
 	_t.gt(float(sim.day), float(day) - 1.0, "the day went backwards")
 	menus.close()
+
+
+## THE ARC IS A CLAIM, SO IT IS CHECKED.
+##
+## The music is the one part of the presentation that asserts something about the
+## design: **going deeper sounds worse, continuously, and nothing ever cuts.** A
+## mix built by ear could satisfy that on the day and quietly stop satisfying it
+## the next time a bed's level is nudged, and the failure is inaudible - you do
+## not notice a soundtrack that stopped changing.
+##
+## Driven through `tick` at the depths the game actually produces, not at made-up
+## numbers, so a change to the lake moves this test too.
+func _check_the_music_goes_wrong_as_the_water_gets_older(main) -> void:
+	_t.begin("smoke > the music goes wrong as the water gets older")
+	main.freeze(1)
+	var audio = main._audio
+	_t.ok(audio != null, "the mixer was never built")
+	if audio == null:
+		return
+
+	var bells: Array[float] = []
+	var under: Array[float] = []
+	for depth in [0.0, 4.0, 15.0, 40.0, 80.0, 140.0]:
+		main.sim.state = Sim.WAITING
+		main.sim.lure_depth = depth
+		# Long enough for the follow to arrive. The mixer deliberately takes about
+		# eight seconds to cross, so a test that ticked once would measure the
+		# smoothing rather than the arc.
+		for i in 600:
+			audio.tick(1.0 / 30.0, false)
+		var mix: Dictionary = audio.mix_snapshot()
+		bells.append(float(mix["bed_bells"]))
+		under.append(float(mix["bed_under"]))
+
+	for i in bells.size() - 1:
+		_t.lt(bells[i + 1], bells[i] + 0.01,
+			"the bells are no quieter at the next depth (%.1f dB then %.1f dB)" % [
+				bells[i], bells[i + 1]])
+		_t.gt(under[i + 1], under[i] - 0.01,
+			"what is underneath is no louder deeper down (%.1f dB then %.1f dB)" % [
+				under[i], under[i + 1]])
+
+	# The two ends have to be genuinely different, or a monotonic arc that moves
+	# by half a decibel would pass every assertion above and be inaudible.
+	_t.gt(bells[0] - bells[bells.size() - 1], 20.0,
+		"the bells only drop %.1f dB across the whole lake - nobody will hear that" % [
+			bells[0] - bells[bells.size() - 1]])
+	_t.gt(under[under.size() - 1] - under[0], 20.0,
+		"what is underneath only rises %.1f dB across the whole lake" % [
+			under[under.size() - 1] - under[0]])
+
+	# And it runs BACKWARDS. Fishing the reeds after the quarry brings the bells
+	# back, which is the point of tying the arc to depth rather than to progress.
+	main.sim.lure_depth = 1.0
+	for i in 900:
+		audio.tick(1.0 / 30.0, false)
+	var back: Dictionary = audio.mix_snapshot()
+	_t.gt(float(back["bed_bells"]), bells[bells.size() - 1] + 15.0,
+		"the bells do not come back in the shallows - the arc is one-way")

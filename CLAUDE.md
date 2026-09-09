@@ -44,6 +44,9 @@ $godot = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Mi
 & $godot --headless --path . --script res://test/run_smoke.gd           # boots the real scene
 & $godot --headless --path . --export-debug "Android" build/stillwater.apk
 & $godot --headless --path . --script res://scripts/check_size.gd       # size guard
+& $godot --headless --path . --script res://scripts/make_audio.gd      # regenerate every sound
+& $godot --headless --path . --script res://scripts/balance.gd         # print the difficulty table
+& $godot --path . --resolution 460x996 --script res://scripts/shot.gd -- 45 shed   # photograph a room
 & $godot --path .                                                        # open the editor
 ```
 
@@ -57,7 +60,15 @@ something to read.
 | `src/sim/sim.gd` | **The whole game, with no renderer in it.** The cast and fight state machine |
 | `src/sim/species.gd` | What lives in the water, as DATA. A species is a row, never a class |
 | `src/sim/tuning.gd` | Every number that shapes how it feels, plus the derived arithmetic |
-| `src/sim/util.gd` | `smooth`, `hash2`, `fmt` — pure, and the hash is load-bearing |
+| `src/sim/util.gd` | `smooth`, `hash2`, `fmt`, `fmt_m` — pure, and the hash is load-bearing |
+| `src/sim/world.gd` | The lake: bands, spots, the clock, the weather. **Depth is time** |
+| `src/sim/gear.gd` | Every ladder you can buy, as data. LINE is the progression |
+| `src/sim/econ.gd` | Money, what you own, and the livewell's weight cap |
+| `src/sim/objects.gd` | What comes up that is not a fish. **This is how the story is told** |
+| `src/game/menus.gd` | The Shed, the Lake and the Logbook. Built from `sim` every open |
+| `src/game/audio.gd` | The mixer. The music arc is a crossfade on DEPTH, never a playlist |
+| `scripts/make_audio.gd` | Generates all nineteen sounds from arithmetic. Deterministic |
+| `scripts/balance.gd` | Prints the land rate per species and per band. Tune against this |
 | `src/sim/rng.gd` | A seeded stream for values that decide *when* something happens |
 | `src/game/main.gd` | The shell: reads `Sim`, draws it, feeds it input. Decides nothing |
 | `src/game/main.tscn` | Four lines. One node with the script; the world is built in code |

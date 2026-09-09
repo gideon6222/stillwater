@@ -39,6 +39,7 @@ var _tension_bar: Control
 var _menus: Menus
 var _dock: HBoxContainer
 var _world_line: Label
+var _audio: Audio
 
 var _charging := false
 
@@ -683,10 +684,17 @@ func _build_hud() -> void:
 		b.pressed.connect(func() -> void: _open(screen))
 		_dock.add_child(b)
 
+	_audio = Audio.new()
+	_audio.name = "Audio"
+	add_child(_audio)
+	_audio.setup(sim)
+	_audio.start()
+
 	_menus = Menus.new()
 	_menus.name = "Menus"
 	add_child(_menus)
 	_menus.setup(sim)
+	_menus.changed.connect(func() -> void: _audio.play("coin", -6.0))
 	_menus.changed.connect(_sync)
 	_menus.closed.connect(_sync)
 
@@ -760,6 +768,8 @@ func _dock_button(text: String) -> Button:
 func _open(screen: String) -> void:
 	if sim.state != Sim.IDLE:
 		return
+	if _audio != null:
+		_audio.play("page", -4.0)
 	_menus.open(screen)
 	_sync_bars()
 
@@ -831,6 +841,8 @@ func _on_cast_input(event: InputEvent) -> void:
 				sim.tap()
 	elif _charging:
 		_charging = false
+		if _audio != null and sim.state == Sim.CHARGING:
+			_audio.play("cast", -5.0)
 		sim.release_cast()
 	_cast_area.accept_event()
 
@@ -853,6 +865,8 @@ func _process(delta: float) -> void:
 func _tick(dt: float) -> void:
 	if _menus != null:
 		_menus.tick(dt)
+	if _audio != null:
+		_audio.tick(dt, _menus != null and _menus.is_open())
 	sim.advance(dt)
 	_sync()
 
