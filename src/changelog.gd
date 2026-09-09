@@ -12,19 +12,21 @@ extends RefCounted
 ## refactored; one line each; newest first. Add this from day one. On an
 ## earlier game it arrived far too late to be as useful as it should have been.
 
-const VERSION := "0.2.0"
+const VERSION := "0.3.0"
 
 const RELEASES := [
 	{
-		"version": "0.2.0",
+		"version": "0.3.0",
 		"date": "2026-09-09",
-		"title": "You can fish",
+		"title": "The rod is the gauge",
 		"notes": [
-			"Hold anywhere to load the rod, let go to cast. Longer hold, longer cast.",
-			"Tap the moment it takes - you get less than half a second.",
-			"Drag the gauge on the right to fight it. Keep the line in the green band.",
-			"Pull too hard and the line parts; too little and it throws the hook.",
-			"Bluegill, yellow perch and largemouth bass, in a reed bay at dawn.",
+			"The tension meter is gone. Watch the ROD - how far it bends is the load.",
+			"Drag anywhere on the lower half now. Nothing on screen to cover up.",
+			"It sits still: PUMP. Lift, then lower to take up line. A steady hold gains nothing.",
+			"It runs: GIVE. Drop the rod or the line parts, and it parts fastest at the start.",
+			"It thrashes on top: HOLD STEADY. Moving the thumb throws the hook.",
+			"The water warns you about a third of a second before each one.",
+			"The hook works loose the whole time, so taking it slowly is also losing.",
 		],
 	},
 ]

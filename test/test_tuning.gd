@@ -35,32 +35,55 @@ func test_flight_time_is_a_playable_length(t: TestHarness) -> void:
 	t.lt(long_cast, 2.0, "the longest cast must not feel like waiting")
 
 
-func test_the_band_never_covers_everything(t: TestHarness) -> void:
-	# A rod that widens the band far enough removes the mechanic instead of
-	# making it forgiving, which is the failure mode of every "just make it
-	# easier" tuning pass.
-	for w in [0.0, 0.26, 0.36, 0.9, 4.0]:
-		var half := Tuning.band_half(w)
-		t.lt(half, 0.5, "band half-width stays under half the range for width %s" % str(w))
-		t.gt(Tuning.band_lo(w), 0.0, "the band has a bottom above zero for width %s" % str(w))
+## The pump window has to be a real gap, or the mechanic collapses back into a
+## threshold fight where any wobble around one position counts as pumping.
+func test_the_pump_window_is_a_real_stroke(t: TestHarness) -> void:
+	t.gt(Tuning.PUMP_HIGH - Tuning.PUMP_LOW, 0.25,
+		"the lift and the drop are so close together that a twitch is a pump")
+	t.gt(Tuning.PUMP_LOW, 0.0, "the drop goes all the way to slack, which is a different mistake")
+	t.lt(Tuning.PUMP_HIGH, Tuning.strain_start(),
+		"a pump cannot be completed without damaging the line")
 
 
-func test_a_wider_species_band_is_never_harder(t: TestHarness) -> void:
-	var narrow := Tuning.band_half(0.26)
-	var wide := Tuning.band_half(0.36)
-	t.gt(wide, narrow, "a wider species band gives more room")
+## The risk dial. The most profitable pump has to sit just BELOW the point where
+## the line starts complaining - close enough that a greedy player crosses it.
+func test_the_profitable_pump_is_near_the_edge(t: TestHarness) -> void:
+	var edge := Tuning.strain_start()
+	t.lt(edge, 1.0, "the line never complains, so there is no risk at all")
+	t.gt(edge, Tuning.PUMP_HIGH + 0.10, "the edge is so close to the pump that every pump is a gamble")
+	t.gt(Tuning.pump_gain(edge - 0.01, 1.0), Tuning.pump_gain(Tuning.PUMP_HIGH, 1.0) * 1.8,
+		"pumping near the edge is not worth the risk of crossing it")
 
 
-func test_idle_hands_cannot_reach_the_band_for_any_species(t: TestHarness) -> void:
-	# The load-bearing balance claim of the whole fight, asserted directly on
-	# the numbers rather than only through the bots. A fish whose resting pull
-	# already sits inside the band is one that lands itself.
-	for s in Species.TABLE:
-		var band_w: float = s["band"]
-		var lo := Tuning.band_lo(band_w)
-		var resting_peak: float = s["pull"] + s["surge"]
-		t.lt(resting_peak, lo + 0.12,
-			"%s must not sit in the band with no thumb on the rod" % s["name"])
+## A rod makes the line more forgiving; it never makes the fish weaker. That is
+## what keeps a rod purchase felt on every species at once.
+func test_rod_forgiveness_only_widens_the_safe_range(t: TestHarness) -> void:
+	t.gt(Tuning.strain_start(), Tuning.STRAIN_START - 0.0001,
+		"the rod makes the line LESS tolerant than the base figure")
+	t.lt(Tuning.strain_start(), 1.0, "a rod can make the line unbreakable")
+
+
+## Every one of the three behaviours needs a different response, or two of them
+## are the same behaviour wearing different names.
+func test_the_three_responses_are_genuinely_different(t: TestHarness) -> void:
+	var shake_mid := (Tuning.SHAKE_LO + Tuning.SHAKE_HI) * 0.5
+	t.gt(shake_mid, Tuning.GIVE_MAX,
+		"holding steady for a shake is the same load as giving line for a run")
+	t.lt(shake_mid, Tuning.PUMP_HIGH,
+		"holding steady for a shake is indistinguishable from the top of a pump")
+	t.lt(Tuning.GIVE_MAX, Tuning.PUMP_HIGH,
+		"you can pump straight through a run without ever exceeding the give limit")
+	t.gt(Tuning.SHAKE_HI - Tuning.SHAKE_LO, 0.10, "the shake window is too tight to hit at all")
+	t.lt(Tuning.SHAKE_HI - Tuning.SHAKE_LO, 0.45, "the shake window is so wide it is not a window")
+
+
+## Doing nothing must lose. Without a clock the winning strategy is to take all
+## day, which is what every forgiving fishing minigame collapses to.
+func test_the_wear_clock_makes_dithering_lose(t: TestHarness) -> void:
+	t.gt(Tuning.WEAR_RATE, 0.0, "the hook never works loose, so a fight can be sat out")
+	var slowest := 1.0 / Tuning.WEAR_RATE
+	t.lt(slowest, 90.0, "a fight can last %.0f seconds with no pressure at all" % slowest)
+	t.gt(slowest, 30.0, "the wear clock alone ends a fight before it can be won")
 
 
 func test_every_species_is_reachable_and_sane(t: TestHarness) -> void:
@@ -70,10 +93,14 @@ func test_every_species_is_reachable_and_sane(t: TestHarness) -> void:
 		t.gt(s["max_depth"], s["min_depth"], "%s has a real depth range" % s["name"])
 		t.ok(s["min_depth"] <= Tuning.BED_DEPTH,
 			"%s can be reached in water this deep" % s["name"])
-		t.gt(s["period"], 0.0, "%s has a surge period" % s["name"])
 		t.gt(s["stamina"], 0.0, "%s has stamina" % s["name"])
-		t.gt(s["haul"], 0.0, "%s can be hauled" % s["name"])
+		t.gt(s["haul"], 0.0, "%s can be pumped in" % s["name"])
+		t.gt(s["hold_speed"], 0.0, "%s has sullen phases to pump during" % s["name"])
 		t.gt(s["weight"], 0.0, "%s can actually be picked" % s["name"])
+		# A fish that always runs or always shakes can never be pumped in, so it
+		# is unlandable however well it is played. The clock still runs.
+		var busy: float = float(s["run_chance"]) + float(s["shake_chance"])
+		t.lt(busy, 0.92, "%s is interrupting so often it can never be pumped in" % s["name"])
 
 
 ## Every species must be catchable somewhere.
@@ -123,28 +150,43 @@ func test_pick_is_weighted_toward_the_common_fish(t: TestHarness) -> void:
 		"the common fish is more common than the prize")
 
 
-func test_a_tired_fish_pulls_less(t: TestHarness) -> void:
-	var s := Species.by_id("bass")
-	t.ok(not s.is_empty(), "the bass is in the table")
-	# Sampled over a whole surge cycle rather than at one instant, because the
-	# sine makes a single sample say whatever the phase wants it to.
-	var fresh := 0.0
-	var spent := 0.0
-	for i in 60:
-		var period_a: float = s["period"]
-		var tt := float(i) / 60.0 * period_a
-		fresh += absf(Species.pull_at(s, tt, 1.0))
-		spent += absf(Species.pull_at(s, tt, 0.0))
-	t.gt(fresh, spent, "a fresh fish pulls harder than a spent one")
-
-
-func test_pull_never_goes_negative(t: TestHarness) -> void:
-	# A negative pull would mean the fish pushing toward the boat, which the
-	# tension model reads as slack and would silently make surges HELP.
+## A tired fish runs and shakes less. That is the shape of a fight, and it is
+## what makes the end of one feel different from the start rather than shorter.
+func test_a_tired_fish_interrupts_less(t: TestHarness) -> void:
 	for s in Species.TABLE:
-		for i in 120:
-			var period_b: float = s["period"]
-			var tt := float(i) / 120.0 * period_b * 2.0
-			for stam in [0.0, 0.5, 1.0]:
-				t.ok(Species.pull_at(s, tt, stam) >= 0.0,
-					"%s never pulls backwards" % s["name"])
+		var fresh := 0
+		var spent := 0
+		for i in 400:
+			var u := float(i) / 400.0
+			if Species.next_behaviour(s, u, 1.0) != Sim.B_HOLDING:
+				fresh += 1
+			if Species.next_behaviour(s, u, 0.0) != Sim.B_HOLDING:
+				spent += 1
+		t.gt(float(fresh), float(spent) - 0.5,
+			"%s interrupts as much when spent as when fresh" % s["name"])
+
+
+## Every species must produce all three behaviours, or a fish exists that the
+## player can never learn the full mechanic on.
+func test_every_species_can_do_all_three_things(t: TestHarness) -> void:
+	for s in Species.TABLE:
+		var seen := {}
+		for i in 400:
+			seen[Species.next_behaviour(s, float(i) / 400.0, 1.0)] = true
+		t.ok(seen.has(Sim.B_HOLDING), "%s never sits still to be pumped" % s["name"])
+		t.ok(seen.has(Sim.B_RUNNING), "%s never runs" % s["name"])
+		t.ok(seen.has(Sim.B_SURFACING), "%s never head-shakes" % s["name"])
+
+
+func test_behaviour_lengths_are_playable(t: TestHarness) -> void:
+	for s in Species.TABLE:
+		for u in [0.0, 0.5, 1.0]:
+			var hold := Species.hold_seconds(s, u)
+			t.gt(hold, Tuning.TELL_TIME * 2.0,
+				"%s's sullen phase is shorter than its own warning" % s["name"])
+			t.lt(hold, 12.0, "%s sits still long enough to be boring" % s["name"])
+			var run := Species.run_seconds(s, u, 1.0)
+			t.gt(run, 0.3, "%s's run is over before it can be reacted to" % s["name"])
+			t.lt(run, 6.0, "%s's run takes back more than any pump can recover" % s["name"])
+			t.lt(Species.run_seconds(s, u, 0.0), run + 0.0001,
+				"%s's runs get longer as it tires" % s["name"])

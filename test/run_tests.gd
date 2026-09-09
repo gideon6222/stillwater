@@ -16,6 +16,7 @@ func _initialize() -> void:
 		load("res://test/test_tuning.gd").new(),
 		load("res://test/test_sim.gd").new(),
 		load("res://test/test_golden.gd").new(),
+
 	]
 	var code := TestHarness.run_all(suites)
 	quit(code)

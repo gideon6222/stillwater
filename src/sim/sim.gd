@@ -62,17 +62,38 @@ var lure_depth: float = 0.0       ## metres down
 var spook_timer: float = 0.0      ## fish put off by a wrong strike
 
 # --- the fish -------------------------------------------------------------
+## What the fish is doing. The player has to read this off the WATER - the float
+## shearing away, the line going flat, the fish breaking the surface - and there
+## is deliberately no HUD element that names it.
+const B_HOLDING := "holding"       ## sullen. Pump it in
+const B_RUNNING := "running"       ## bolting. Give line or lose the lot
+const B_SURFACING := "surfacing"   ## head-shaking on top. Hold steady
+
 var fish_id: String = ""
 var fish_weight: float = 0.0
 var fish_distance: float = 0.0    ## metres from the boat
-var fish_stamina: float = 1.0     ## [0, 1], falls under pressure
+var fish_stamina: float = 1.0     ## [0, 1], falls as it tires
 var fight_time: float = 0.0       ## seconds this fish has been on
+
+var behaviour: String = B_HOLDING
+var behaviour_time: float = 0.0   ## seconds left in the current behaviour
+var behaviour_elapsed: float = 0.0 ## seconds since it started, for the run surge
+var next_behaviour: String = ""   ## what the tell is warning about
+var tell: float = 0.0             ## seconds of warning left, 0 when not telling
 
 # --- the line -------------------------------------------------------------
 var pull: float = 0.0             ## the thumb, [0, 1]
-var tension: float = 0.0          ## [0, TENSION_MAX]
-var stress: float = 0.0           ## [0, 1] toward a break
+var load: float = 0.0             ## the rod's actual bend, chasing the thumb
+var strain: float = 0.0           ## [0, 1] toward a snapped line
 var slip: float = 0.0             ## [0, 1] toward a thrown hook
+var wear: float = 0.0             ## [0, 1] the hook working loose, all fight long
+
+## Pump tracking. A pump is a lift over PUMP_HIGH then a drop under PUMP_LOW, and
+## the line is gained on the DOWN stroke - so a steady lift, which is what beat
+## the first version of this fight, gains exactly nothing.
+var _pump_armed := false
+var _pump_peak := 0.0
+var pumps: int = 0                ## completed this fight, for the probe and HUD
 
 # --- the session ----------------------------------------------------------
 var caught: int = 0
@@ -106,10 +127,19 @@ func restart(seed_value: int = 1) -> void:
 	fish_distance = 0.0
 	fish_stamina = 1.0
 	fight_time = 0.0
+	behaviour = B_HOLDING
+	behaviour_time = 0.0
+	behaviour_elapsed = 0.0
+	next_behaviour = ""
+	tell = 0.0
 	pull = 0.0
-	tension = 0.0
-	stress = 0.0
+	load = 0.0
+	strain = 0.0
 	slip = 0.0
+	wear = 0.0
+	_pump_armed = false
+	_pump_peak = 0.0
+	pumps = 0
 	caught = 0
 	lost_count = 0
 	total_weight = 0.0
@@ -237,31 +267,39 @@ func state_snapshot() -> Dictionary:
 		"fish_id": fish_id,
 		"fish_distance": snappedf(fish_distance, 0.001),
 		"fish_stamina": snappedf(fish_stamina, 0.001),
-		"tension": snappedf(tension, 0.001),
-		"stress": snappedf(stress, 0.001),
+		"behaviour": behaviour,
+		"load": snappedf(load, 0.001),
+		"strain": snappedf(strain, 0.001),
 		"slip": snappedf(slip, 0.001),
+		"wear": snappedf(wear, 0.001),
+		"pumps": pumps,
 		"draws": _rng.draws(),
 	}
 
 
-## The safe band right now, as [lo, hi]. The HUD draws exactly this, so the band
-## the player sees and the band the rules use cannot drift apart - the same
-## guarantee as showing the real ship in Coreward's shop instead of a copy.
-func band() -> Array:
-	if fish_id == "":
-		return [Tuning.band_lo(0.3), Tuning.band_hi(0.3)]
-	var s := Species.by_id(fish_id)
-	if s.is_empty():
-		return [Tuning.band_lo(0.3), Tuning.band_hi(0.3)]
-	var w: float = s["band"]
-	return [Tuning.band_lo(w), Tuning.band_hi(w)]
+## Is the thumb doing the right thing for what the fish is doing right now?
+##
+## The renderer uses this to decide how hard the rod is bending and whether the
+## line is singing, and the rules use the same call - so what the player reads
+## off the picture and what the game is scoring cannot drift apart. There is no
+## HUD element for it and there must not be one: the whole point of the second
+## fight is that the instrument is the rod.
+func doing_well() -> bool:
+	if state != FIGHTING:
+		return false
+	match behaviour:
+		B_RUNNING:
+			return load <= Tuning.GIVE_MAX
+		B_SURFACING:
+			return Tuning.shake_ok(load)
+		_:
+			return load < Tuning.strain_start()
 
 
-## True while the tension is where it should be. Drives both the rules and the
-## colour of the band, for the same reason.
-func in_band() -> bool:
-	var b := band()
-	return tension >= b[0] and tension <= b[1]
+## How close the line is to going, [0, 1]. The worst of the three failures, so a
+## single reading can drive the sound and the shake.
+func danger() -> float:
+	return maxf(strain, maxf(slip, wear))
 
 
 # --- internals ------------------------------------------------------------
@@ -277,10 +315,19 @@ func _clear_fish() -> void:
 	fish_distance = 0.0
 	fish_stamina = 1.0
 	fight_time = 0.0
+	behaviour = B_HOLDING
+	behaviour_time = 0.0
+	behaviour_elapsed = 0.0
+	next_behaviour = ""
+	tell = 0.0
 	pull = 0.0
-	tension = 0.0
-	stress = 0.0
+	load = 0.0
+	strain = 0.0
 	slip = 0.0
+	wear = 0.0
+	_pump_armed = false
+	_pump_peak = 0.0
+	pumps = 0
 	charge = 0.0
 	lure_depth = 0.0
 
@@ -307,10 +354,20 @@ func _wait(dt: float) -> void:
 
 func _hook() -> void:
 	fish_distance = cast_distance
-	tension = Tuning.BAND_CENTRE
-	stress = 0.0
+	load = 0.0
+	strain = 0.0
 	slip = 0.0
+	wear = 0.0
+	pumps = 0
+	_pump_armed = false
+	_pump_peak = 0.0
 	fight_time = 0.0
+	# Every fish starts sullen, so the first thing a player ever does in a fight
+	# is pump. Opening on a run would teach the wrong lesson first.
+	behaviour = B_HOLDING
+	behaviour_time = Species.hold_seconds(Species.by_id(fish_id), _rng.next())
+	next_behaviour = ""
+	tell = 0.0
 	_enter(FIGHTING)
 	hooked.emit(fish_id)
 
@@ -323,10 +380,9 @@ func _miss() -> void:
 
 ## The fight.
 ##
-## Tension is the thumb PLUS the fish, chased toward its target rather than
-## snapped to it, so the rod has some give in it. The band is fixed, so staying
-## inside means giving line when the fish surges and taking it back when it
-## rests. That is the whole mechanic and everything else here is bookkeeping.
+## Three behaviours, three different correct answers, and a wear clock underneath
+## that makes doing nothing a way to lose. See the long note in `tuning.gd` for
+## why the previous threshold model was replaced.
 func _fight(dt: float) -> void:
 	var s := Species.by_id(fish_id)
 	if s.is_empty():
@@ -335,41 +391,149 @@ func _fight(dt: float) -> void:
 		return
 
 	fight_time += dt
-	var fish_pull := Species.pull_at(s, fight_time, fish_stamina)
-	var target := clampf(pull * Tuning.ROD_GAIN + fish_pull, 0.0, Tuning.TENSION_MAX)
-	tension = lerpf(tension, target, SimUtil.smooth(Tuning.TENSION_RATE, dt))
 
-	var b := band()
-	var lo: float = b[0]
-	var hi: float = b[1]
+	# The rod chases the thumb rather than snapping to it. That lag IS the cane
+	# rod's character, and it is why a late reaction to a run still costs you
+	# something even after the thumb has moved.
+	var before := load
+	load = lerpf(load, pull * Tuning.ROD_GAIN, SimUtil.smooth(Tuning.LOAD_RATE, dt))
+	var load_speed := absf(load - before) / maxf(0.0001, dt)
 
-	if tension > hi:
-		# How far over, as a fraction of the headroom. A line an inch over the
-		# band must not fail as fast as one at the stop, or there is no reason
-		# to ease off rather than let go entirely.
-		var over := (tension - hi) / maxf(0.001, Tuning.TENSION_MAX - hi)
-		stress = clampf(stress + Tuning.STRESS_RATE * over * dt, 0.0, 1.0)
-		slip = maxf(0.0, slip - Tuning.RECOVER_RATE * dt)
-		if stress >= 1.0:
-			_break_off(BROKE)
-			return
-	elif tension < lo:
-		var under := (lo - tension) / maxf(0.001, lo)
-		slip = clampf(slip + Tuning.SLIP_RATE * under * dt, 0.0, 1.0)
-		stress = maxf(0.0, stress - Tuning.RECOVER_RATE * dt)
-		if slip >= 1.0:
-			_break_off(SLIPPED)
-			return
-	else:
-		var haul: float = s["haul"]
-		fish_distance = maxf(0.0, fish_distance - Tuning.RETRIEVE_RATE * haul * dt)
-		var stam: float = s["stamina"]
-		fish_stamina = maxf(0.0, fish_stamina - (Tuning.STAMINA_DRAIN / stam) * dt)
-		stress = maxf(0.0, stress - Tuning.RECOVER_RATE * dt)
-		slip = maxf(0.0, slip - Tuning.RECOVER_RATE * dt)
+	_advance_behaviour(s, dt)
+
+	match behaviour:
+		B_RUNNING:
+			_run(dt)
+		B_SURFACING:
+			_shake(s, dt, load_speed)
+		_:
+			_pump(s, dt)
+
+	# Wear runs for the whole fight and faster under load, so a cautious player
+	# loses too. Without it the winning strategy is to take all day, which is
+	# what every forgiving fishing minigame collapses to.
+	wear = clampf(wear + (Tuning.WEAR_RATE + Tuning.WEAR_LOAD * load) * dt, 0.0, 1.0)
+
+	if strain >= 1.0:
+		_break_off(BROKE)
+		return
+	if slip >= 1.0 or wear >= 1.0:
+		_break_off(SLIPPED)
+		return
 
 	if fish_distance <= Tuning.LAND_DISTANCE:
 		_land()
+
+
+## The behaviour clock, and the tell.
+##
+## The tell is the whole reason this is a game of awareness rather than reaction:
+## the water changes about four tenths of a second before the fish does, so a
+## player who is watching drops the rod BEFORE a run starts and takes no damage
+## at all. A player who is watching the numbers instead reacts after it begins
+## and pays for it.
+func _advance_behaviour(s: Dictionary, dt: float) -> void:
+	if tell > 0.0:
+		tell -= dt
+		if tell > 0.0:
+			return
+		behaviour = next_behaviour
+		behaviour_elapsed = 0.0
+		next_behaviour = ""
+		behaviour_time = (
+			Species.run_seconds(s, _rng.next(), fish_stamina) if behaviour == B_RUNNING
+			else Tuning.SHAKE_TIME if behaviour == B_SURFACING
+			else Species.hold_seconds(s, _rng.next())
+		)
+		return
+
+	behaviour_time -= dt
+	behaviour_elapsed += dt
+	if behaviour_time > 0.0:
+		return
+
+	# Decide the next behaviour now, but do not switch to it yet - announce it.
+	next_behaviour = Species.next_behaviour(s, _rng.next(), fish_stamina)
+	if next_behaviour == behaviour and behaviour == B_HOLDING:
+		# Do not "tell" a hold that follows a hold; there is nothing to warn
+		# about, and a tell that fires for nothing teaches the player to ignore
+		# tells - which is the only way this mechanic can actually break.
+		behaviour_time = Species.hold_seconds(s, _rng.next())
+		behaviour_elapsed = 0.0
+		next_behaviour = ""
+		return
+	tell = Tuning.TELL_TIME
+
+
+## Sullen. Pump it in: lift over PUMP_HIGH, then drop under PUMP_LOW, and the
+## line comes in on the drop. A steady lift gains nothing, which is the single
+## rule that killed the first fight's one-thumb-position exploit.
+func _pump(s: Dictionary, dt: float) -> void:
+	if load >= Tuning.PUMP_HIGH:
+		_pump_armed = true
+		_pump_peak = maxf(_pump_peak, load)
+	elif _pump_armed and load <= Tuning.PUMP_LOW:
+		var haul: float = s["haul"]
+		fish_distance = maxf(0.0, fish_distance - Tuning.pump_gain(_pump_peak, haul))
+		var stam: float = s["stamina"]
+		fish_stamina = maxf(0.0, fish_stamina - Tuning.PUMP_TIRE / stam)
+		pumps += 1
+		_pump_armed = false
+		_pump_peak = 0.0
+
+	# The risk dial. Line gained scales with the peak, and damage begins just
+	# above the most profitable pump - so a greedy lift is worth more and is
+	# genuinely near the edge.
+	var start := Tuning.strain_start()
+	if load > start:
+		var over := (load - start) / maxf(0.001, 1.0 - start)
+		strain = clampf(strain + Tuning.STRAIN_RATE * over * dt, 0.0, 1.0)
+	else:
+		strain = maxf(0.0, strain - Tuning.RECOVER_RATE * dt)
+
+	# Leaving the line slack for a long stretch works the hook loose on its own.
+	if load < Tuning.PUMP_LOW * 0.5:
+		slip = clampf(slip + Tuning.SLACK_SLIP * dt, 0.0, 1.0)
+	else:
+		slip = maxf(0.0, slip - Tuning.RECOVER_RATE * dt)
+
+
+## It has bolted. There is nothing to do but let it go, and holding on is the
+## fastest way to lose a fish in the game.
+func _run(dt: float) -> void:
+	fish_distance += Tuning.RUN_SPEED * dt
+	if load > Tuning.GIVE_MAX:
+		var over := (load - Tuning.GIVE_MAX) / maxf(0.001, 1.0 - Tuning.GIVE_MAX)
+		# **A run hits hardest at its start**, decaying over the first third of a
+		# second. That is what actually parts line on a real rod, and it is the
+		# change that makes this mechanic reward AWARENESS rather than reflexes:
+		# being a tenth of a second late costs several times what being late
+		# later in the run does, so a player who reads the tell and drops the rod
+		# BEFORE the run starts wins by a margin nobody can close by reacting
+		# faster. Without it, more runs only made fights longer.
+		var surge := 1.0 + Tuning.RUN_SURGE * exp(-behaviour_elapsed / Tuning.RUN_SURGE_DECAY)
+		strain = clampf(strain + Tuning.RUN_STRAIN * surge * over * dt, 0.0, 1.0)
+	else:
+		strain = maxf(0.0, strain - Tuning.RECOVER_RATE * dt)
+	# A pump cannot be banked across a run.
+	_pump_armed = false
+	_pump_peak = 0.0
+
+
+## Head-shaking on the surface. The opportunity and the trap: it tires the fish
+## faster than anything else, and it is the only moment in the game where MOVING
+## the thumb is the mistake.
+func _shake(s: Dictionary, dt: float, load_speed: float) -> void:
+	var steady := Tuning.shake_ok(load) and load_speed <= Tuning.SHAKE_STILL
+	if steady:
+		var stam: float = s["stamina"]
+		fish_stamina = maxf(0.0, fish_stamina - (Tuning.SHAKE_TIRE / stam) * dt)
+		slip = maxf(0.0, slip - Tuning.RECOVER_RATE * dt)
+		strain = maxf(0.0, strain - Tuning.RECOVER_RATE * dt)
+	else:
+		slip = clampf(slip + Tuning.SHAKE_SLIP * dt, 0.0, 1.0)
+	_pump_armed = false
+	_pump_peak = 0.0
 
 
 func _land() -> void:

@@ -12,16 +12,25 @@ extends RefCounted
 ##
 ## Fields that decide the fight:
 ##
-##   pull     the fish's steady drag on the line, in tension units
-##   surge    how far it swings either side of that
-##   period   seconds per surge cycle - low is frantic, high is heavy
-##   band     the safe band's width BEFORE the rod's forgiveness is added
-##   stamina  seconds of in-band pressure needed to tire it out
-##   haul     metres per second gained, relative to RETRIEVE_RATE
+##   run_chance    how often it bolts instead of sitting there
+##   shake_chance  how often it comes up head-shaking instead of bolting
+##   hold_speed    how BUSY it is. Sullen phases are divided by this, so a HIGH
+##                 value means short calm windows, more behaviour changes per
+##                 second, and therefore more runs to survive per fight. It is a
+##                 difficulty knob in its own right, and it caught us out: with
+##                 the bluegill's run chance raised AND `hold_speed` left at
+##                 1.35, the tutorial fish came out HARDER than the one after
+##                 it - 79% landed against the perch's 88%. Difficulty here is
+##                 the product of two fields, not either one alone
+##   stamina       how much tiring it takes before it gives up
+##   haul          metres per completed pump, relative to PUMP_GAIN
+##   weight        relative chance of being the one that bites
 ##
-## The tuning rule underneath: a fish is hard because its surge is wide and its
-## period is short, never because its band is narrow. Narrowing the band is the
-## ROD's job, so that buying a rod is felt on every species at once.
+## The tuning rule underneath: **a fish is hard because of what it DOES and how
+## often, never because its tolerances are tighter.** Tolerances belong to the
+## rod, so that buying a rod is felt on every species at once. A bass is hard
+## because it runs nearly half the time and shakes when it does not; a bluegill
+## is easy because it mostly just sits there and can be pumped in.
 
 const TABLE := [
 	{
@@ -31,12 +40,11 @@ const TABLE := [
 		"max_depth": 4.0,
 		"weight_lo": 0.10,
 		"weight_hi": 0.40,
-		"pull": 0.22,
-		"surge": 0.08,
-		"period": 2.1,
-		"band": 0.36,
+		"run_chance": 0.20,
+		"shake_chance": 0.14,
+		"hold_speed": 0.95,
 		"stamina": 0.85,
-		"haul": 2.2,
+		"haul": 1.30,
 		"weight": 5.0,   ## relative chance of being the one that bites
 	},
 	{
@@ -46,12 +54,11 @@ const TABLE := [
 		"max_depth": 4.0,
 		"weight_lo": 0.20,
 		"weight_hi": 0.60,
-		"pull": 0.26,
-		"surge": 0.13,
-		"period": 1.5,
-		"band": 0.32,
-		"stamina": 1.00,
-		"haul": 1.8,
+		"run_chance": 0.34,
+		"shake_chance": 0.24,
+		"hold_speed": 1.05,
+		"stamina": 1.05,
+		"haul": 1.05,
 		"weight": 3.5,
 	},
 	{
@@ -61,12 +68,11 @@ const TABLE := [
 		"max_depth": 4.0,
 		"weight_lo": 0.80,
 		"weight_hi": 3.00,
-		"pull": 0.34,
-		"surge": 0.20,
-		"period": 1.1,
-		"band": 0.26,
-		"stamina": 1.70,
-		"haul": 1.0,
+		"run_chance": 0.46,
+		"shake_chance": 0.40,
+		"hold_speed": 0.82,
+		"stamina": 1.75,
+		"haul": 0.80,
 		"weight": 1.5,
 	},
 ]
@@ -118,11 +124,37 @@ static func by_id(id: String) -> Dictionary:
 	return {}
 
 
-## The fish's pull right now: a steady drag plus a surge, eased off as it tires.
-## Pure, so the tests can plot the curve without standing a fight up.
-static func pull_at(s: Dictionary, t: float, stamina_left: float) -> float:
-	var base: float = s["pull"]
-	var surge: float = s["surge"]
-	var period: float = s["period"]
+## Which behaviour comes next, from a unit value in [0, 1).
+##
+## A tired fish runs and shakes less - that is the whole shape of a fight, and it
+## is what makes the end of one feel different from the start rather than just
+## shorter. Pure, and the caller supplies the draw, so the table stays free of
+## the rng and the draw order stays visible at the call site.
+static func next_behaviour(s: Dictionary, unit: float, stamina_left: float) -> String:
 	var tired := 1.0 - Tuning.TIRED_RELIEF * (1.0 - clampf(stamina_left, 0.0, 1.0))
-	return (base + surge * sin(TAU * t / period)) * tired
+	var run: float = float(s["run_chance"]) * tired
+	var shake: float = float(s["shake_chance"]) * tired
+	if unit < run:
+		return "running"
+	if unit < run + shake:
+		return "surfacing"
+	return "holding"
+
+
+## How long a sullen phase lasts, from a unit value in [0, 1).
+##
+## Scaled by `hold_speed`, so a slow heavy fish gives you LONGER windows to pump
+## in and is still harder overall, because the wear clock runs the whole time.
+static func hold_seconds(s: Dictionary, unit: float) -> float:
+	var span := Tuning.HOLD_MAX - Tuning.HOLD_MIN
+	var base := Tuning.HOLD_MIN + clampf(unit, 0.0, 1.0) * span
+	return base / maxf(0.2, float(s["hold_speed"]))
+
+
+## How long a run lasts, from a unit value in [0, 1). Tiredness shortens it,
+## for the same reason it makes runs rarer.
+static func run_seconds(s: Dictionary, unit: float, stamina_left: float) -> float:
+	var span := Tuning.RUN_MAX - Tuning.RUN_MIN
+	var base := Tuning.RUN_MIN + clampf(unit, 0.0, 1.0) * span
+	var tired := 1.0 - Tuning.TIRED_RELIEF * (1.0 - clampf(stamina_left, 0.0, 1.0))
+	return base * maxf(0.35, tired)

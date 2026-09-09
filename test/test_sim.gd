@@ -34,7 +34,7 @@ func test_a_new_sim_starts_in_the_boat(t: TestHarness) -> void:
 	t.eq(s.state, Sim.IDLE, "starts idle")
 	t.eq(s.caught, 0, "nothing caught yet")
 	t.eq(s.casts, 0, "nothing cast yet")
-	t.approx(s.tension, 0.0, 1e-6, "no tension on the line")
+	t.approx(s.load, 0.0, 1e-6, "no load on the rod")
 
 
 func test_charging_then_releasing_puts_the_lure_in_the_air(t: TestHarness) -> void:
@@ -112,47 +112,198 @@ func test_missing_the_window_loses_the_fish(t: TestHarness) -> void:
 	t.eq(s.lost_count, 1, "and it counts as a loss")
 
 
-func test_hooking_starts_the_fight_inside_the_band(t: TestHarness) -> void:
+
+
+## Every fish opens sullen, so the first thing a player ever does in a fight is
+## pump. Opening on a run would teach the wrong lesson first.
+func test_a_fight_opens_sullen_and_undamaged(t: TestHarness) -> void:
 	var s := Sim.new(1)
 	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
-	t.ok(s.in_band(), "the fight opens with the tension where it should be")
-	t.approx(s.stress, 0.0, 1e-6, "no stress on the line yet")
-	t.approx(s.slip, 0.0, 1e-6, "and no slip")
+	t.eq(s.behaviour, Sim.B_HOLDING, "the fight opens with the fish sitting there")
+	t.approx(s.strain, 0.0, 1e-6, "no strain on the line yet")
+	# One simulation step runs between the hook and this assertion, so these are
+	# "essentially undamaged" rather than exactly zero. Asserting an exact zero
+	# here would be asserting a property of the test helper, not of the game.
+	t.lt(s.slip, 0.05, "the fight opens with the hook already working loose")
+	t.lt(s.wear, 0.05, "the fight opens with a worn hook")
+	t.eq(s.pumps, 0, "and nothing has been pumped in")
 	t.gt(s.fish_distance, 0.0, "the fish starts away from the boat")
 
 
-func test_holding_the_thumb_flat_out_breaks_the_line(t: TestHarness) -> void:
+## THE load-bearing test of the second fight.
+##
+## The first fight died because a single sustained thumb position landed every
+## fish; a bot that found the band and stopped moving scored 6.83 and lost none.
+## Gaining line now requires a lift AND a drop, so holding any constant load -
+## high, low or perfect - must gain nothing at all. If this ever passes with a
+## non-zero gain, the mechanic has quietly reverted to a threshold fight.
+func test_a_steady_hand_gains_no_line_at_any_load(t: TestHarness) -> void:
+	for held in [0.0, 0.25, 0.45, 0.62, 0.80, 1.0]:
+		var s := Sim.new(1)
+		if not _drive_to(s, Sim.FIGHTING):
+			t.ok(false, "a fish can be hooked")
+			return
+		var start := s.fish_distance
+		var step := 1.0 / 60.0
+		for i in int(round(3.0 / step)):
+			if s.state != Sim.FIGHTING:
+				break
+			s.set_pull(held)
+			s.advance(step)
+		t.eq(s.pumps, 0, "holding at %.2f completed a pump" % held)
+		t.ok(s.fish_distance >= start - 0.001,
+			"holding at %.2f gained line without a single pump" % held)
+
+
+func test_a_full_pump_gains_line_and_tires_the_fish(t: TestHarness) -> void:
 	var s := Sim.new(1)
 	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
+	var start := s.fish_distance
+	var stam := s.fish_stamina
 	var step := 1.0 / 60.0
-	for i in int(round(20.0 / step)):
+	# One deliberate cycle, driven through the input seam: lift over the top,
+	# then drop under the bottom.
+	for i in int(round(0.8 / step)):
+		if s.state != Sim.FIGHTING or s.behaviour != Sim.B_HOLDING:
+			break
+		s.set_pull(0.78)
+		s.advance(step)
+	for i in int(round(0.8 / step)):
+		if s.state != Sim.FIGHTING or s.behaviour != Sim.B_HOLDING:
+			break
+		s.set_pull(0.0)
+		s.advance(step)
+	t.gt(float(s.pumps), 0.0, "a full lift and drop did not count as a pump")
+	t.lt(s.fish_distance, start, "a pump gained no line")
+	t.lt(s.fish_stamina, stam, "a pump did not tire the fish")
+
+
+## The risk dial. A greedy pump is worth more, and the line starts complaining
+## just above the profitable range - so the reward for going higher has to be
+## real, or nobody would take the risk.
+func test_a_higher_pump_is_worth_more(t: TestHarness) -> void:
+	var small := Tuning.pump_gain(Tuning.PUMP_HIGH + 0.01, 1.0)
+	var big := Tuning.pump_gain(0.95, 1.0)
+	t.gt(small, 0.0, "a minimum pump gains nothing at all")
+	t.gt(big, small * 1.8, "a greedy pump is barely better than a timid one")
+	t.approx(Tuning.pump_gain(Tuning.PUMP_HIGH - 0.05, 1.0), 0.0, 1e-6,
+		"a lift that never cleared the top still counted")
+
+
+func test_holding_on_through_a_run_breaks_the_line(t: TestHarness) -> void:
+	var s := _fish_in_behaviour(Sim.B_RUNNING)
+	t.ok(s != null, "a run can be reached")
+	if s == null:
+		return
+	# The helper fishes until a run, so it may have landed fish on the way.
+	# Compare against what it had, not against zero.
+	var before := s.caught
+	var step := 1.0 / 60.0
+	for i in int(round(6.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
 		s.set_pull(1.0)
 		s.advance(step)
-	t.eq(s.state, Sim.LOST, "the fight ends")
-	t.eq(s.caught, 0, "and not with a fish")
+	t.eq(s.state, Sim.LOST, "holding the rod up through a run did not cost the fish")
+	t.eq(s.caught, before, "the fish was landed rather than lost")
 
 
-func test_no_thumb_at_all_throws_the_hook(t: TestHarness) -> void:
-	var s := Sim.new(1)
-	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
+func test_giving_line_survives_a_run_but_costs_ground(t: TestHarness) -> void:
+	var s := _fish_in_behaviour(Sim.B_RUNNING)
+	t.ok(s != null, "a run can be reached")
+	if s == null:
+		return
+	var start := s.fish_distance
 	var step := 1.0 / 60.0
-	for i in int(round(20.0 / step)):
+	for i in int(round(1.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
 		s.set_pull(0.0)
 		s.advance(step)
-	t.eq(s.state, Sim.LOST, "the fight ends")
-	t.eq(s.caught, 0, "and not with a fish")
+	t.eq(s.state, Sim.FIGHTING, "giving line through a run still lost the fish")
+	t.gt(s.fish_distance, start, "a run took no ground back - it has no cost")
+	t.approx(s.strain, 0.0, 1e-6, "giving line during a run still strained it")
 
 
-func test_tracking_the_band_lands_the_fish(t: TestHarness) -> void:
+## The warning. Acting on the tell rather than on the run is the difference
+## between the two bots, and therefore the whole claim the mechanic makes.
+func test_a_run_is_announced_before_it_starts(t: TestHarness) -> void:
+	var s := Sim.new(3)
+	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
+	var step := 1.0 / 60.0
+	var saw_tell := false
+	var tell_led_the_run := false
+	for i in int(round(30.0 / step)):
+		if s.state != Sim.FIGHTING:
+			break
+		if s.tell > 0.0 and s.next_behaviour == Sim.B_RUNNING:
+			saw_tell = true
+			t.eq(s.behaviour, Sim.B_HOLDING, "the tell fires after the run has already begun")
+		if saw_tell and s.behaviour == Sim.B_RUNNING:
+			tell_led_the_run = true
+			break
+		Policies.act(Policies.ANGLER, s, step)
+		s.advance(step)
+	t.ok(saw_tell, "no run was ever announced")
+	t.ok(tell_led_the_run, "a tell fired but no run followed it")
+
+
+func test_moving_the_thumb_during_a_head_shake_throws_the_hook(t: TestHarness) -> void:
+	var s := _fish_in_behaviour(Sim.B_SURFACING)
+	t.ok(s != null, "a head-shake can be reached")
+	if s == null:
+		return
+	var step := 1.0 / 60.0
+	var flip := 0.0
+	for i in int(round(4.0 / step)):
+		if s.state != Sim.FIGHTING:
+			break
+		flip = 1.0 - flip
+		s.set_pull(flip)
+		s.advance(step)
+	t.gt(s.slip, 0.4, "thrashing the thumb through a head-shake cost nothing")
+
+
+func test_holding_steady_through_a_head_shake_tires_it_fastest(t: TestHarness) -> void:
+	var s := _fish_in_behaviour(Sim.B_SURFACING)
+	t.ok(s != null, "a head-shake can be reached")
+	if s == null:
+		return
+	var mid := (Tuning.SHAKE_LO + Tuning.SHAKE_HI) * 0.5
+	var start := s.fish_stamina
+	var step := 1.0 / 60.0
+	for i in int(round(1.0 / step)):
+		if s.state != Sim.FIGHTING or s.behaviour != Sim.B_SURFACING:
+			break
+		s.set_pull(mid)
+		s.advance(step)
+	t.lt(s.fish_stamina, start, "holding steady through a shake did not tire it")
+	t.lt(s.slip, 0.25, "holding steady through a shake was punished")
+
+
+## Doing nothing has to lose too, or the winning strategy is to take all day -
+## which is what every forgiving fishing minigame collapses to.
+func test_dithering_loses_the_fish_to_the_hook_working_loose(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
+	var step := 1.0 / 60.0
+	# A load that is safe everywhere and productive nowhere: never high enough
+	# to arm a pump, never slack enough to count as slack.
+	for i in int(round(90.0 / step)):
+		if s.state != Sim.FIGHTING:
+			break
+		s.set_pull(0.30)
+		s.advance(step)
+	t.eq(s.state, Sim.LOST, "a fight can be sat out indefinitely")
+	t.eq(s.caught, 0, "and it was not landed")
+
+
+func test_playing_it_properly_lands_the_fish(t: TestHarness) -> void:
 	var s := Sim.new(1)
 	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
 	var step := 1.0 / 60.0
 	var landed := false
-	for i in int(round(60.0 / step)):
+	for i in int(round(90.0 / step)):
 		if s.state == Sim.HOLDING:
 			landed = true
 			break
@@ -160,11 +311,48 @@ func test_tracking_the_band_lands_the_fish(t: TestHarness) -> void:
 			break
 		Policies.act(Policies.ANGLER, s, step)
 		s.advance(step)
-	t.ok(landed, "playing it properly brings it in")
+	t.ok(landed, "reading the water and pumping does not bring a fish in")
 	t.eq(s.caught, 1, "and it is counted")
 	t.gt(s.total_weight, 0.0, "with a real weight")
+	t.gt(float(s.pumps), 0.0, "it came in without a single pump")
 
 
+## `doing_well` drives both the rules and the picture. If they can disagree the
+## player is being told one thing and scored on another - the same guarantee the
+## old gauge had, kept after the gauge itself was deleted.
+func test_doing_well_agrees_with_what_the_rules_do(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
+	t.ok(not Sim.new(1).doing_well(), "a sim with no fish on reports doing well")
+	var step := 1.0 / 60.0
+	for i in int(round(20.0 / step)):
+		if s.state != Sim.FIGHTING:
+			break
+		var expected := false
+		match s.behaviour:
+			Sim.B_RUNNING:
+				expected = s.load <= Tuning.GIVE_MAX
+			Sim.B_SURFACING:
+				expected = Tuning.shake_ok(s.load)
+			_:
+				expected = s.load < Tuning.strain_start()
+		t.eq(s.doing_well(), expected,
+			"doing_well disagrees with the rules during %s" % s.behaviour)
+		Policies.act(Policies.ANGLER, s, step)
+		s.advance(step)
+
+
+func test_danger_reports_the_worst_of_the_three(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
+	var step := 1.0 / 60.0
+	for i in int(round(10.0 / step)):
+		if s.state != Sim.FIGHTING:
+			break
+		s.set_pull(1.0)
+		s.advance(step)
+		t.approx(s.danger(), maxf(s.strain, maxf(s.slip, s.wear)), 1e-6,
+			"danger is not the worst of strain, slip and wear")
 func test_a_landed_fish_returns_the_player_to_the_boat(t: TestHarness) -> void:
 	# The way OUT of the state. This is the assertion that would have caught
 	# the frozen level on a sibling game.
@@ -209,7 +397,7 @@ func test_casting_straight_out_of_a_loss_clears_the_last_fish(t: TestHarness) ->
 	t.eq(s.state, Sim.CHARGING, "the player can cast again immediately")
 	t.eq(s.fish_id, "", "the lost fish is cleared")
 	t.approx(s.slip, 0.0, 1e-6, "and so is its slip")
-	t.approx(s.stress, 0.0, 1e-6, "and its stress")
+	t.approx(s.strain, 0.0, 1e-6, "and its strain")
 
 
 func test_reeling_in_always_gets_out_of_a_dead_cast(t: TestHarness) -> void:
@@ -220,54 +408,6 @@ func test_reeling_in_always_gets_out_of_a_dead_cast(t: TestHarness) -> void:
 	s.reel_in()
 	t.eq(s.state, Sim.IDLE, "winding in returns to the boat")
 	t.approx(s.lure_depth, 0.0, 1e-6, "and the lure comes back up")
-
-
-func test_the_band_the_hud_draws_is_the_band_the_rules_use(t: TestHarness) -> void:
-	var s := Sim.new(1)
-	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
-	var b := s.band()
-	var w: float = Species.by_id(s.fish_id)["band"]
-	t.approx(b[0], Tuning.band_lo(w), 1e-6, "the drawn bottom is the real bottom")
-	t.approx(b[1], Tuning.band_hi(w), 1e-6, "the drawn top is the real top")
-	# in_band() must agree with the numbers it hands the HUD, or the player is
-	# told one thing and scored on another.
-	t.eq(s.in_band(), s.tension >= b[0] and s.tension <= b[1],
-		"in_band agrees with the band it reports")
-
-
-func test_band_is_safe_to_ask_for_with_no_fish_on(t: TestHarness) -> void:
-	# The HUD asks every frame, including the frames where nothing is hooked.
-	var s := Sim.new(1)
-	var b := s.band()
-	t.eq(b.size(), 2, "a band is always two numbers")
-	t.gt(b[1], b[0], "and the top is above the bottom")
-
-
-func test_the_fish_tires_only_while_the_tension_is_right(t: TestHarness) -> void:
-	# A fight OPENS with the tension inside the band, so a fish tires for the
-	# fraction of a second it takes a slack line to fall out of it. The claim
-	# worth asserting is not "no tiring ever" but "no tiring once the line is
-	# actually slack" - measured after the tension has left the band, not from
-	# the instant of the hook.
-	var s := Sim.new(1)
-	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
-	var step := 1.0 / 60.0
-
-	# Let it go slack first.
-	for i in int(round(1.0 / step)):
-		if s.state != Sim.FIGHTING or not s.in_band():
-			break
-		s.set_pull(0.0)
-		s.advance(step)
-	t.ok(not s.in_band(), "a slack line leaves the band")
-
-	var start := s.fish_stamina
-	for i in int(round(1.5 / step)):
-		if s.state != Sim.FIGHTING:
-			break
-		s.set_pull(0.0)
-		s.advance(step)
-	t.approx(s.fish_stamina, start, 1e-6, "a slack line does not tire a fish")
 
 
 func test_the_simulation_is_frame_rate_independent(t: TestHarness) -> void:
@@ -299,3 +439,21 @@ func test_different_seeds_give_different_water(t: TestHarness) -> void:
 		var r := Policies.play(Policies.ANGLER, 45.0, seed_value)
 		ids["%s/%s" % [str(r["caught"]), str(r["total_weight"])]] = true
 	t.gt(float(ids.size()), 1.0, "not every seed produces an identical session")
+
+
+## Fish until the fish is doing a particular thing, then hand the sim back mid
+## behaviour. Returns null if it never happened, so a test can assert the setup
+## rather than quietly test nothing.
+##
+## Plays with the angler until the behaviour arrives, because a bot that loses
+## the fish before it ever runs cannot set up a test about running.
+func _fish_in_behaviour(want: String, seeds: Array = [1, 2, 3, 4, 5, 6, 7, 8]) -> Sim:
+	var step := 1.0 / 60.0
+	for seed_value in seeds:
+		var s := Sim.new(seed_value)
+		for i in int(round(200.0 / step)):
+			if s.state == Sim.FIGHTING and s.behaviour == want:
+				return s
+			Policies.act(Policies.ANGLER, s, step)
+			s.advance(step)
+	return null

@@ -32,20 +32,38 @@ var _ui: Control
 var _readout: Label
 var _stamp: Label
 var _prompt: Label
-var _gauge: Control
 var _cast_area: Control
+var _rod: MeshInstance3D
+var _wake: MeshInstance3D
 
 var _charging := false
-var _gauge_grab := -1
+var _drag_id := -1
+var _drag_from := 0.0
+var _drag_pull := 0.0
 
-## The gauge is the tension band AND the thumb that sets it, in one control.
-## Wrecking Crew's crane dial earned this: a control that draws the STATE rather
-## than the input lets the player read the gap between what they are asking for
-## and what is actually happening, without looking away at a separate gauge.
-const GAUGE_W := 132.0
-const GAUGE_H := 560.0
-const GAUGE_RIGHT := 46.0    ## from the right edge
-const GAUGE_BOTTOM := 190.0  ## from the real bottom edge, clear of the gesture bar
+## THERE IS NO GAUGE, AND THERE MUST NOT BE ONE.
+##
+## The first fight put the tension band on a control on the right-hand side.
+## Gideon's note on 2026-09-09: "I don't like that my thumb will be blocking the
+## gauge I am looking at." He is right, and the general form is worth keeping,
+## because it is not obvious while building the thing:
+##
+##   **A readout that must be watched continuously cannot live under the thumb
+##   that operates it.** Wrecking Crew's crane dial got away with it because you
+##   GLANCE at a dial; a tension meter is read every frame.
+##
+## Rather than move it, it is gone. The ROD's bend is the tension, the float's
+## wake is the fish's bearing, and the thumb drags anywhere on the lower half of
+## the screen - a relative drag with no fixed control, so there is nothing on
+## screen for a hand to cover. That also makes the instrument the actual object,
+## which is what "draw the control as the thing it controls" was reaching for.
+
+## How far the thumb travels for the rod's full range, as a fraction of screen
+## height rather than a pixel count, so it feels the same on any phone.
+const DRAG_SPAN := 0.28
+
+## How far the rod bends, in degrees, at full load.
+const ROD_BEND := 34.0
 
 ## Set by the headless harness. When true the frame loop does not step the sim,
 ## so `advance()` is the only thing moving time and results do not depend on how
@@ -329,30 +347,101 @@ func _build_boat() -> void:
 	thwart.position = Vector3(0.0, 0.14, -0.25)
 	_boat.add_child(thwart)
 
-	# The rod. Points out over the bow; the tip is where the line starts, and
-	# that point is shared with _sync so the line cannot leave from somewhere
-	# the rod is not.
-	# Thin, and out of the middle of the frame. The tip is where the line starts
-	# and that point is shared with `_sync`, so the line cannot leave from
-	# somewhere the rod is not.
-	var rod := MeshInstance3D.new()
-	var rm := BoxMesh.new()
-	rm.size = Vector3(0.022, 0.022, 2.3)
-	rod.mesh = rm
-	rod.material_override = _mat(Color(0.46, 0.33, 0.21), 0.5)
-	rod.position = Vector3(0.42, 0.56, 1.30)
-	rod.rotation_degrees = Vector3(-14, 0, 9)
-	rod.name = "Rod"
-	_boat.add_child(rod)
+	_build_rod()
 
-	# The tip, in world space, from the rod's own transform. `transform` rather
-	# than `global_transform`: outside the tree the global one does not error, it
-	# returns IDENTITY - a plausible wrong answer, which is worse - and the
-	# headless harness builds this world before anything is in the tree.
-	var half_length: float = rm.size.z * 0.5
-	_rod_tip = _boat.transform * (rod.transform * Vector3(0.0, 0.0, half_length))
+	_update_rod_tip()
+
+	# The fish's wake. A thin slab on the surface that points where the fish is
+	# bearing, and the only thing on screen that tells the player a run has
+	# started - which is deliberate. It appears during the TELL, before the run
+	# does, so a player who is watching the water gets their warning from the
+	# water rather than from a number.
+	_wake = MeshInstance3D.new()
+	var wm := BoxMesh.new()
+	wm.size = Vector3(0.10, 0.02, 1.4)
+	_wake.mesh = wm
+	var wmat := _mat(Color(0.95, 0.96, 0.94), 0.25)
+	wmat.emission_enabled = true
+	wmat.emission = Color(0.85, 0.90, 0.92)
+	wmat.emission_energy_multiplier = 0.5
+	_wake.material_override = wmat
+	_wake.visible = false
+	_wake.name = "Wake"
+	add_child(_wake)
 
 	_build_reeds()
+
+
+## The rod, as a chain of segments that BENDS rather than a stick that tilts.
+##
+## Worth the extra four meshes, because the rod is the only instrument in the
+## game now and it has to be readable at a glance. A single box rotated by the
+## load reads as "the rod tilted" - the same silhouette, moved - and a player
+## cannot tell 40% load from 60% that way. A chain whose segments each take a
+## share of the angle, weighted toward the tip, reads as a rod under strain the
+## way a real one looks: straight at the butt, curving hard at the last third.
+##
+## The weights are what make it look right. An even share bends it into an arc
+## of a circle, which reads as a bow rather than a rod.
+const ROD_SEGMENTS := 5
+const ROD_CURVE := [0.05, 0.12, 0.20, 0.28, 0.35]  ## share of the bend, butt to tip
+const ROD_SEG_LENGTH := 0.46
+
+var _rod_chain: Array[Node3D] = []
+
+
+func _build_rod() -> void:
+	var parent: Node3D = _boat
+	for i in ROD_SEGMENTS:
+		var seg := MeshInstance3D.new()
+		var m := BoxMesh.new()
+		# Tapered, so the tip is visibly whippier than the butt.
+		var thick := lerpf(0.030, 0.012, float(i) / float(ROD_SEGMENTS - 1))
+		m.size = Vector3(thick, thick, ROD_SEG_LENGTH)
+		seg.mesh = m
+		seg.material_override = _mat(Color(0.46, 0.33, 0.21), 0.5)
+		if i == 0:
+			seg.position = Vector3(0.42, 0.56, 1.30)
+			seg.rotation_degrees = Vector3(-14, 0, 9)
+			_rod = seg
+			seg.name = "Rod"
+		else:
+			seg.position = Vector3(0.0, 0.0, ROD_SEG_LENGTH)
+			seg.name = "RodSeg%d" % i
+		parent.add_child(seg)
+		_rod_chain.append(seg)
+		parent = seg
+
+
+## Total bend across the whole rod, in degrees. The quantity the smoke test
+## checks against `sim.load`, because the first segment's own rotation is only
+## a twentieth of it and asserting on that would be asserting about the chain
+## rather than about the instrument.
+func rod_bend_degrees() -> float:
+	var total := 0.0
+	for i in _rod_chain.size():
+		var seg := _rod_chain[i]
+		total += absf(seg.rotation_degrees.x - (-14.0 if i == 0 else 0.0))
+	return total
+
+
+## The rod tip, in world space, from the rod's own transform.
+##
+## Recomputed whenever the rod bends, never typed twice - a hand-copied tip
+## drifts the moment the rod moves, and the symptom is a line hanging in the air
+## beside it. `transform` rather than `global_transform`: outside the tree the
+## global one does not error, it returns IDENTITY, which is a plausible wrong
+## answer and therefore worse. The headless harness builds this world before
+## anything is in the tree.
+func _update_rod_tip() -> void:
+	# Walk the chain in local space and compose. `transform` rather than
+	# `global_transform` throughout, because outside the tree the global one
+	# returns IDENTITY instead of erroring - a plausible wrong answer - and the
+	# headless harness builds this world before anything is in the tree.
+	var t := _boat.transform
+	for seg in _rod_chain:
+		t = t * seg.transform
+	_rod_tip = t * Vector3(0.0, 0.0, ROD_SEG_LENGTH * 0.5)
 
 
 ## Reeds, laid out for the aspect ratio the game actually has.
@@ -498,21 +587,6 @@ func _build_hud() -> void:
 	_prompt.name = "Prompt"
 	_ui.add_child(_prompt)
 
-	# Anchored to the real bottom-right corner. PRESET_BOTTOM_RIGHT plus
-	# negative offsets puts it a fixed distance from the actual edge at any
-	# aspect ratio, which is the whole point.
-	_gauge = Control.new()
-	_gauge.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_gauge.offset_left = -GAUGE_W - GAUGE_RIGHT
-	_gauge.offset_right = -GAUGE_RIGHT
-	_gauge.offset_top = -GAUGE_H - GAUGE_BOTTOM
-	_gauge.offset_bottom = -GAUGE_BOTTOM
-	_gauge.mouse_filter = Control.MOUSE_FILTER_STOP
-	_gauge.name = "Gauge"
-	_gauge.gui_input.connect(_on_gauge_input)
-	_gauge.draw.connect(_draw_gauge)
-	_ui.add_child(_gauge)
-
 	# On screen rather than behind a menu: the first thing to verify on a phone
 	# is that the build you are holding is the build you just made.
 	_stamp = Label.new()
@@ -526,96 +600,41 @@ func _build_hud() -> void:
 	_ui.add_child(_stamp)
 
 
-## The gauge draws the state, not the input.
+## One touch surface, and what it does depends on what the line is doing - so
+## there is never a control on screen that does nothing, and never a control on
+## screen at all.
 ##
-## Three things on one track: the safe BAND, the live TENSION, and where the
-## thumb is asking for. The gap between the last two is the rod's give, and it
-## is the thing a player learns to anticipate. A plain slider would show only
-## the input, which is the part they already know.
-func _draw_gauge() -> void:
-	var w := _gauge.size.x
-	var h := _gauge.size.y
-	var fighting := sim.state == Sim.FIGHTING
-
-	_gauge.draw_rect(Rect2(0, 0, w, h), Color(0.03, 0.05, 0.06, 0.55))
-	_gauge.draw_rect(Rect2(0, 0, w, h), Color(0.85, 0.88, 0.86, 0.22), false, 2.0)
-
-	if not fighting:
+##   Idle      hold to load the rod, release to cast
+##   Waiting   tap to strike
+##   Fighting  drag up to load the rod, down to give line
+##
+## The fight drag is RELATIVE to where the thumb went down, not absolute. That is
+## the opposite of the rule the old gauge followed, and deliberately so: an
+## absolute mapping needs a fixed track, a fixed track has to be drawn, and
+## anything drawn is something a thumb can cover. Relative means the player can
+## grab anywhere - including the far edge of the screen, away from the rod - and
+## still have the full range under their thumb.
+func _on_cast_input(event: InputEvent) -> void:
+	if event is InputEventScreenDrag or event is InputEventMouseMotion:
+		if _drag_id >= 0 and sim.state == Sim.FIGHTING:
+			_read_drag(event.position.y)
+			_cast_area.accept_event()
 		return
 
-	var b := sim.band()
-	var lo: float = b[0]
-	var hi: float = b[1]
-	var y_of := func(v: float) -> float:
-		return h - clampf(v / Tuning.TENSION_MAX, 0.0, 1.0) * h
-
-	# The band, drawn from the same numbers the rules use.
-	var band_top: float = y_of.call(hi)
-	var band_bottom: float = y_of.call(lo)
-	var good := sim.in_band()
-	var band_col := Color(0.55, 0.85, 0.62, 0.30) if good else Color(0.85, 0.72, 0.35, 0.22)
-	_gauge.draw_rect(Rect2(0, band_top, w, band_bottom - band_top), band_col)
-	_gauge.draw_line(Vector2(0, band_top), Vector2(w, band_top), Color(0.75, 0.92, 0.78, 0.7), 2.0)
-	_gauge.draw_line(Vector2(0, band_bottom), Vector2(w, band_bottom), Color(0.75, 0.92, 0.78, 0.7), 2.0)
-
-	# Tension. The needle, and the only number that matters.
-	var ty: float = y_of.call(sim.tension)
-	var tc := Color(0.62, 0.95, 0.68) if good else Color(0.95, 0.45, 0.32)
-	_gauge.draw_line(Vector2(0, ty), Vector2(w, ty), tc, 6.0)
-
-	# Where the thumb is. Deliberately quieter than the needle: it is the
-	# request, and the needle is the answer.
-	var py: float = h - clampf(sim.pull, 0.0, 1.0) * h
-	_gauge.draw_line(Vector2(w * 0.18, py), Vector2(w * 0.82, py), Color(1, 1, 1, 0.5), 3.0)
-
-	# Damage. Fills from the top for a line about to part, from the bottom for
-	# a hook working loose - so which mistake you are making is readable at a
-	# glance rather than from a number.
-	if sim.stress > 0.0:
-		_gauge.draw_rect(Rect2(0, 0, w, h * 0.06 * 1.0), Color(0.95, 0.30, 0.22, sim.stress))
-	if sim.slip > 0.0:
-		_gauge.draw_rect(Rect2(0, h - h * 0.06, w, h * 0.06), Color(0.95, 0.72, 0.25, sim.slip))
-
-
-## Absolute, not relative: the thumb's position on the track IS the pull. A
-## relative mapping lets the control and the value drift apart, which defeats
-## the point of drawing them together.
-func _on_gauge_input(event: InputEvent) -> void:
-	if event is InputEventScreenTouch or event is InputEventMouseButton:
-		if event.pressed:
-			_gauge_grab = event.index if event is InputEventScreenTouch else 0
-			_read_gauge(event.position)
-		else:
-			_gauge_grab = -1
-			sim.set_pull(0.0)
-		_gauge.accept_event()
-	elif event is InputEventScreenDrag or event is InputEventMouseMotion:
-		if _gauge_grab >= 0:
-			_read_gauge(event.position)
-			_gauge.accept_event()
-
-
-func _read_gauge(local: Vector2) -> void:
-	var h := maxf(1.0, _gauge.size.y)
-	sim.set_pull(clampf(1.0 - local.y / h, 0.0, 1.0))
-
-
-## Hold to cast, tap to strike. One control, and which it does depends on what
-## the line is doing - so there is never a button on screen that does nothing.
-func _on_cast_input(event: InputEvent) -> void:
 	var pressed := false
-	var released := false
 	if event is InputEventScreenTouch:
 		pressed = event.pressed
-		released = not event.pressed
 	elif event is InputEventMouseButton:
 		pressed = event.pressed
-		released = not event.pressed
 	else:
 		return
 
 	if pressed:
 		match sim.state:
+			Sim.FIGHTING:
+				_drag_id = event.index if event is InputEventScreenTouch else 0
+				_drag_from = event.position.y
+				_drag_pull = sim.pull
 			Sim.BITING, Sim.WAITING, Sim.NIBBLING:
 				sim.strike()
 			Sim.IDLE, Sim.HOLDING, Sim.LOST:
@@ -623,10 +642,25 @@ func _on_cast_input(event: InputEvent) -> void:
 				_charging = true
 			_:
 				pass
-	elif released and _charging:
-		_charging = false
-		sim.release_cast()
+	else:
+		if _drag_id >= 0:
+			_drag_id = -1
+			# Letting go drops the rod, which is what a hand coming off a rod
+			# does - and it means "give line NOW" is always one release away.
+			# That matters, because giving line is the correct answer to the
+			# fastest-failing thing in the game.
+			sim.set_pull(0.0)
+		if _charging:
+			_charging = false
+			sim.release_cast()
 	_cast_area.accept_event()
+
+
+func _read_drag(y: float) -> void:
+	var h := maxf(1.0, _cast_area.size.y)
+	# Up the screen is up the rod, so the sign is inverted.
+	var moved := (_drag_from - y) / (h * DRAG_SPAN)
+	sim.set_pull(clampf(_drag_pull + moved, 0.0, 1.0))
 
 
 func _mat(c: Color, rough: float = 0.6) -> StandardMaterial3D:
@@ -687,6 +721,7 @@ func play(name: String, seconds: float, step: float = 1.0 / 60.0) -> void:
 # --- drawing --------------------------------------------------------------
 
 func _sync() -> void:
+	_sync_rod()
 	var out := _lure_position()
 
 	# Transform3D.looking_at rather than Node3D.look_at. The node method
@@ -708,9 +743,68 @@ func _sync() -> void:
 	_draw_line_between(_rod_tip, out)
 	_line.visible = _float.visible
 
+	_sync_wake(out)
 	_sync_fish()
 	_write_readout()
-	_gauge.queue_redraw()
+
+
+## The rod IS the tension gauge.
+##
+## Its bend is `sim.load`, straight through, so what the player reads off the
+## picture and what the rules are scoring are the same number - not two numbers
+## kept in sync. The old HUD gauge showed exactly this and was covered by the
+## thumb that set it; a bent rod is in the upper half of the frame where nothing
+## is touching.
+func _sync_rod() -> void:
+	if _rod == null:
+		return
+	var bend := 0.0
+	if sim.state == Sim.FIGHTING:
+		bend = sim.load
+	elif sim.state == Sim.CHARGING:
+		bend = sim.charge * 0.55
+	# A rod under strain also shivers. Cosmetic, so `randf` would be legal here -
+	# but it is keyed on the sim's own clock instead so two screenshots of the
+	# same second are identical, which is what makes them comparable at all.
+	var shiver := 0.0
+	if sim.state == Sim.FIGHTING and sim.danger() > 0.35:
+		shiver = sin(sim.time * 47.0) * (sim.danger() - 0.35) * 2.2
+
+	var total := bend * ROD_BEND + shiver
+	for i in _rod_chain.size():
+		var share: float = ROD_CURVE[i] * total
+		if i == 0:
+			_rod_chain[i].rotation_degrees = Vector3(-14.0 - share, 0.0, 9.0)
+		else:
+			_rod_chain[i].rotation_degrees = Vector3(-share, 0.0, 0.0)
+	_update_rod_tip()
+
+
+## The fish's bearing, on the water.
+##
+## This is the tell, and it is the only warning a run gives. It appears DURING
+## the tell window - before the run starts - so a player watching the water can
+## drop the rod in time and take no damage at all. A player watching a number
+## reacts after the run has begun and pays for it. That difference is the whole
+## premise of the second fight, and `test_golden.gd` asserts a bot that ignores
+## it does measurably worse than one that does not.
+func _sync_wake(lure: Vector3) -> void:
+	if _wake == null:
+		return
+	var showing := sim.state == Sim.FIGHTING and (
+		sim.behaviour == Sim.B_RUNNING
+		or (sim.tell > 0.0 and sim.next_behaviour == Sim.B_RUNNING)
+	)
+	_wake.visible = showing
+	if not showing:
+		return
+	# Which way it bears is decided per fish, not per frame, so the wake does not
+	# flicker side to side. Keyed on the fight's own start time.
+	var side := 1.0 if SimUtil.hash2(int(sim.fight_time * 0.0) + sim.pumps, 71) > 0.5 else -1.0
+	var lead := 1.0 if sim.tell > 0.0 else 1.9
+	_wake.position = Vector3(lure.x + side * 0.55, 0.03, lure.z + 0.2)
+	_wake.rotation_degrees = Vector3(0.0, side * 34.0, 0.0)
+	_wake.scale = Vector3(1.0, 1.0, lead)
 
 
 ## Where the lure is, in world space. One function so the float, the line and
@@ -728,7 +822,31 @@ func _lure_position() -> Vector3:
 			var y := lerpf(_rod_tip.y, 0.0, k) + sin(k * PI) * (1.4 + sim.cast_distance * 0.10)
 			return Vector3(0.0, y, z)
 		Sim.FIGHTING:
-			return Vector3(0.0, 0.0, maxf(0.6, sim.fish_distance))
+			# The float carries the three behaviours, because it is the only
+			# thing on the water and the player is already looking at it.
+			#
+			#   holding    it sits, pulled under by the load on the rod
+			#   running    it shears sideways and skates
+			#   surfacing  it thrashes - fast, wide, and out of the water
+			#
+			# All three keyed on the sim's clock rather than randf, so the same
+			# second of the same fight draws identically every time and two
+			# screenshots a week apart are comparable.
+			var z := maxf(0.6, sim.fish_distance)
+			var t := sim.fight_time
+			match sim.behaviour:
+				Sim.B_SURFACING:
+					return Vector3(
+						sin(t * 21.0) * 0.42,
+						0.10 + absf(sin(t * 17.0)) * 0.16,
+						z + cos(t * 15.0) * 0.22
+					)
+				Sim.B_RUNNING:
+					return Vector3(sin(t * 2.1) * 0.9, -0.02, z)
+				_:
+					# Pulled under by however hard the rod is bent. A slack line
+					# lets it sit up; a hard pump drags it down and forward.
+					return Vector3(0.0, -sim.load * 0.14, z)
 		_:
 			return Vector3(0.0, 0.0, sim.cast_distance)
 
@@ -803,6 +921,11 @@ func _write_readout() -> void:
 		Sim.BITING:
 			line = "NOW"
 		Sim.FIGHTING:
+			# Distance only. No behaviour name, no tension number, no "GIVE
+			# LINE!" prompt - the water is saying all of that, and a caption
+			# that says it too means the player reads the caption forever and
+			# never learns to read the water. This is the one restraint the
+			# whole mechanic depends on.
 			line = "%.1f m" % sim.fish_distance
 		Sim.HOLDING:
 			var row := Species.by_id(sim.fish_id)

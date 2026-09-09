@@ -41,7 +41,7 @@ func _initialize() -> void:
 
 	_check_a_whole_fish_can_be_caught_through_the_real_scene(main)
 	_check_the_line_always_comes_back(main)
-	_check_the_gauge_draws_the_rules(main)
+	_check_the_rod_is_the_gauge(main)
 	_check_the_controls_are_anchored(main)
 	_check_the_lure_is_where_the_line_ends(main)
 
@@ -106,18 +106,40 @@ func _check_the_line_always_comes_back(main) -> void:
 ## source of truth that will drift - usually within one session. Coreward's shop
 ## solved the same problem by reparenting the real ship instead of building a
 ## preview of it.
-func _check_the_gauge_draws_the_rules(main) -> void:
-	_t.begin("smoke > the gauge draws the same band the rules use")
+func _check_the_rod_is_the_gauge(main) -> void:
+	_t.begin("smoke > the rod is the gauge, and there is no other one")
 	main.freeze(1)
 	if not _drive_until(main, Sim.FIGHTING, 180.0):
-		_t.ok(false, "no fish was hooked to check the gauge against")
+		_t.ok(false, "no fish was hooked to check the rod against")
 		return
-	var b: Array = main.sim.band()
-	var w: float = Species.by_id(main.sim.fish_id)["band"]
-	_t.approx(b[0], Tuning.band_lo(w), 1e-6, "the band the HUD is handed is not the real one")
-	_t.approx(b[1], Tuning.band_hi(w), 1e-6, "the band the HUD is handed is not the real one")
-	_t.eq(main.sim.in_band(), main.sim.tension >= b[0] and main.sim.tension <= b[1],
-		"in_band disagrees with the band it reports")
+
+	# There must be no HUD gauge. Gideon's note on the first fight was that his
+	# thumb covered the meter he was reading, and the fix was to delete it rather
+	# than move it - so this asserts the ABSENCE, which is the only way a deleted
+	# thing stays deleted.
+	for child in main._ui.get_children():
+		_t.ok((child as Node).name != "Gauge",
+			"a HUD gauge is back - the rod is supposed to be the only instrument")
+
+	# The rod's bend has to BE the load, not a copy of it kept in sync.
+	# `main` is untyped, so everything read off it is a Variant and `:=` cannot
+	# infer from one. Annotate the locals - the parse error names the variable,
+	# never the property access that caused it.
+	var bend: float = main.rod_bend_degrees()
+	_t.gt(bend, 0.0, "the rod does not bend at all during a fight")
+	var live_load: float = main.sim.load
+	var full_bend: float = main.ROD_BEND
+	_t.approx(bend, live_load * full_bend, 3.5,
+		"the rod's bend is not the load the rules are using")
+
+	# And the line has to leave from the tip of the BENT rod, not from where the
+	# tip would be if it were straight. The tip moves several centimetres under
+	# load, and a line hanging in the air beside the rod is the visible symptom
+	# of a tip computed once and cached.
+	var tip: Vector3 = main._rod_tip
+	var seg_count: int = main.ROD_SEGMENTS
+	_t.gt(float(seg_count), 1.0, "the rod is a single stick again, so it tilts rather than bends")
+	_t.gt(tip.z, 0.0, "the rod tip is behind the boat")
 
 
 ## The controls must be ANCHORED to the viewport, never placed at a literal
@@ -134,32 +156,28 @@ func _check_the_gauge_draws_the_rules(main) -> void:
 ## **A headless run uses the base size, where the wrong layout and the right one
 ## are identical** - so no screenshot or coordinate check taken here could ever
 ## catch it. What CAN be checked is the property that makes it impossible.
+## The second fight has exactly ONE touch surface and it covers the whole screen,
+## which sidesteps the stretch-mode fault entirely rather than defending against
+## it - a full-rect control is correct at every aspect by construction. What is
+## still worth asserting is that it stayed full-rect, and that the two labels
+## anchored to real edges did not drift back to literal coordinates.
 func _check_the_controls_are_anchored(main) -> void:
 	_t.begin("smoke > the controls are anchored, not placed")
-	var g: Control = main._gauge
-	_t.eq(g.anchor_bottom, 1.0,
-		"the gauge is not anchored to the bottom of the viewport - it will drift on a tall screen")
-	_t.eq(g.anchor_top, 1.0,
-		"the gauge is anchored to the TOP, so its distance from the bottom follows the aspect ratio")
-	_t.eq(g.anchor_right, 1.0, "the gauge is not anchored to the right edge")
-	_t.lt(g.offset_bottom, 0.0,
-		"the gauge is offset downward from its anchor and will sit off the bottom of the screen")
-	_t.lt(g.offset_right, 0.0, "the gauge is offset off the right edge of the screen")
-	_t.ok(g.gui_input.get_connections().size() > 0,
-		"the gauge does not handle its own input, so its hit box is a second source of truth")
-	_t.eq(g.mouse_filter, Control.MOUSE_FILTER_STOP,
-		"the gauge does not consume its own touches, so one gesture drives two things")
-
 	var cast_area: Control = main._cast_area
+	_t.eq(cast_area.anchor_right, 1.0, "the touch surface does not reach the right edge")
+	_t.eq(cast_area.anchor_bottom, 1.0, "the touch surface does not reach the bottom edge")
 	_t.eq(cast_area.mouse_filter, Control.MOUSE_FILTER_STOP,
-		"the cast area does not consume its touches")
+		"the touch surface does not consume its touches")
 	_t.ok(cast_area.gui_input.get_connections().size() > 0,
-		"the cast area does not handle its own input")
-	# Child order is what makes the gauge win inside its own rectangle. If the
-	# cast area is drawn later it swallows every touch and the fight becomes
-	# unplayable, which no coordinate check would show.
-	_t.lt(float(cast_area.get_index()), float(g.get_index()),
-		"the cast area sits above the gauge and will swallow the fight's touches")
+		"the touch surface does not handle its own input, so its hit box is a second source of truth")
+
+	# The stamp sits against the real bottom edge, which is the one place the
+	# `aspect = "expand"` fault could still bite.
+	var stamp: Control = main._stamp
+	_t.eq(stamp.anchor_top, 1.0,
+		"the build stamp is anchored to the TOP, so it follows the aspect ratio")
+	_t.lt(stamp.offset_top, 0.0,
+		"the build stamp is offset downward from its anchor and will sit off screen")
 
 
 ## The float and the end of the line must be the same point.

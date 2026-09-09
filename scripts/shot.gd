@@ -1,4 +1,4 @@
-extends SceneTree
+﻿extends SceneTree
 
 ## Take a screenshot of the real game at a chosen moment.
 ##
@@ -43,7 +43,7 @@ func _initialize() -> void:
 
 	var step := 1.0 / 60.0
 	for i in int(round(_seconds / step)):
-		Policies.act(Policies.ANGLER, _main.sim, step)
+		Policies.act(Policies.HUMAN, _main.sim, step)
 		_main.advance(step, step)
 
 

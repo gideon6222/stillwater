@@ -36,25 +36,48 @@ passing: the answer is not "they score less", it is "they cannot continue".
 
 ## The fight, and why it is built this way
 
-**The band is FIXED and the fish pushes tension around it.** Staying inside means giving line
-when it surges and taking it back when it rests. A band centred on the fish would need one
-constant thumb position and would not be a mechanic at all — that was the first model, and it
-was discarded on paper before it was written.
+**This is the SECOND fight.** The first was a threshold model — hold the tension inside a band,
+with the band drawn on a control on the right-hand side — and Gideon killed it in one sentence:
+*"it is too easy and I don't like that my thumb will be blocking the gauge I am looking at."*
+Both faults had one root, and it is worth keeping:
 
-**Rods change the WIDTH of the band and nothing else.** Not a damage number. That is legible in
-ten seconds of use, and it means buying a rod is felt on every species at once. A fish is hard
-because its surge is wide and its period short — never because its band is narrow, which is the
-rod's job.
+- **A threshold fight settles into ONE correct sustained input.** Find the thumb position that
+  holds the needle in the band and the mechanic is over; there is nothing left but not moving.
+- **A readout that must be watched continuously cannot live under the thumb that sets it.**
+  Wrecking Crew's crane dial got away with exactly that arrangement because you *glance* at a
+  dial. A tension meter is read every frame.
+
+**So there is no gauge, and there must not be one.** The rod's bend is the tension, the float
+and its wake are the fish, and the thumb drags anywhere on the lower half of the screen — a
+relative drag with no fixed track, so nothing on screen can be covered.
+
+**Line is gained on a PUMP, never on a value.** A lift above `PUMP_HIGH` then a drop below
+`PUMP_LOW`, and the gain lands on the down stroke. Holding any constant load — high, low or
+perfect — gains exactly nothing. `test_a_steady_hand_gains_no_line_at_any_load` asserts that at
+six held values and is the one test that would catch a silent reversion to a threshold fight.
+
+**Three behaviours, three different answers, each telegraphed ~0.34 s ahead:**
+
+| the fish | you must | getting it wrong |
+|---|---|---|
+| holds | pump | a steady hold gains nothing; slack works the hook loose |
+| runs | give line | the line parts, and **fastest at the very start of the run** |
+| surfaces | hold steady, mid-load | pumping or slacking throws the hook |
+
+**A run hits hardest at its start** (`RUN_SURGE`, decaying over `RUN_SURGE_DECAY`). That is the
+single change that made this a game of awareness rather than reaction: being a tenth of a second
+late costs several times what being late later does, so reading the tell and dropping the rod
+*before* the run beats any amount of reaction speed. Before it existed, more runs only made
+fights longer — the bass went from 96% landed to 54% when it went in.
+
+**The wear clock means doing nothing also loses.** ~46 s and the hook is out regardless.
+
+**Rods change the strain threshold and nothing else** — not a damage number. A fish is hard
+because of what it *does* and how often, never because its tolerances are tighter. Tolerances
+belong to the rod, so a rod purchase is felt on every species at once.
 
 **The line is arithmetic, never a physics body.** Wrecking Crew earned this with a wrecking ball
-on a `PinJoint3D`: the moment an outcome lives in the physics server it is at the mercy of the
-tick rate, and a whole-run golden becomes impossible. Rigid bodies are for things that decide
-nothing.
-
-**The gauge draws the state, not the input.** Band, live tension, and where the thumb is asking
-for, on one track. The gap between the last two is the rod's give. Wrecking Crew's crane dial is
-the precedent: a control that shows the state lets the player read their own aim without looking
-away from it.
+on a `PinJoint3D`.
 
 ## Balance, measured 2026-09-09
 
@@ -62,23 +85,42 @@ Six seeds, ninety-second sessions, from `test/run_probe.gd`:
 
 | policy | caught | lost | what it proves |
 |---|---|---|---|
-| `idle_hands` | 0.00 | 8.00 | the fight is a mechanic, not decoration |
-| `masher` | 0.00 | 9.83 | pulling flat out is a real mistake, and a fast one |
-| `timid` | 0.00 | 3.67 | the band has a bottom; failing slowly is still failing |
-| `angler` | **6.83** | **0.00** | it is winnable by reading the gauge |
+| `idle_hands` | 0.00 | 8.33 | the fight is a mechanic, not decoration |
+| `masher` | 0.00 | 10.00 | holding on flat out is a fast way to lose |
+| `hauler` | 3.83 | 3.83 | pumping while ignoring the water halves your catch |
+| `panicker` | 0.00 | 4.50 | giving line at every sign never lands anything |
+| `angler` | 6.33 | 0.00 | perfect play wins — see the warning below |
+| `human` | **5.33** | **1.67** | a plausible player loses about a quarter of what they hook |
 
-Fight lengths from a full 22 m cast: bluegill 7.9 s, perch 9.6 s, bass 17.5 s. At the bot's
-actual cast distance (12.6 m) those are roughly 4.5 s and 10 s.
+Per species, landed by `human` from a worst-case full-length cast:
 
-**The number to watch is the angler losing zero.** A perfect proportional controller is not a
-thumb, so this is not necessarily a difficulty problem — but if Gideon reports the fight is too
-easy, that column is where it was already visible, and the lever is `surge` and `period` per
-species rather than the band.
+| species | landed | seconds | pumps |
+|---|---|---|---|
+| Bluegill | 92% | 8.3 | 12.4 |
+| Yellow Perch | 75% | 10.8 | 15.7 |
+| Largemouth Bass | 54% | 15.9 | 21.5 |
+
+**Read `human`, never `angler`.** `angler` is a zero-latency, perfect-information controller and
+it will beat any mechanic that is fair — its score says nothing about difficulty. That is not a
+guess: the first fight's probe showed `angler` at 6.83 caught / 0 lost, it was written down here
+as "the number to watch", the build shipped, and the first thing Gideon said was that it was too
+easy. **The instrument was wrong, not the reading.**
+
+`human` adds a 300 ms reaction, a tell it misreads one time in six, and a thumb that wobbles.
+The first version of it was stateless and scored *identically* to `angler` — because a stateless
+bot corrects itself the instant the world changes, so a misread costs it only the tell window. A
+person keeps doing the wrong thing until they notice. Belief has to lag reality by a reaction
+time, and once it did the same build went from 0% losses to 24%.
+
+**Tune the game until `human` struggles. Never tune `human` until the game looks hard.**
 
 ## Open, in rough priority order
 
-1. **Does the fight feel good?** Everything else is downstream of ninety seconds with a thumb on
-   the gauge. Nothing else should be built until that is answered.
+1. **Does the second fight feel good?** Everything else is downstream of ninety seconds with a
+   thumb on the screen and eyes on the rod. Nothing else should be built until that is answered.
+   The specific things to ask about, because "it looks fine" will not cover them: whether the
+   run warning is readable in the water without being told what it means, and whether the pump
+   rhythm is satisfying or fiddly.
 2. The boat is three boxes and the fish is a sphere with two prisms. Both are deliberate for M1
    — see the asset rule — but the fish generator (spine, swept rib profile, fin set) is the next
    real piece of art work, because species is data and the wrong ones in Act III are the same
@@ -111,5 +153,12 @@ species rather than the band.
   player as a crash.
 - **Nothing in the HUD may be positioned against a literal screen size**, and every interactive
   control owns its own input through `_gui_input`.
+- **There is no tension gauge, and adding one back undoes the whole second fight.** The rod is
+  the instrument. `run_smoke.gd` asserts the absence of a control named `Gauge`, because that is
+  the only way a deleted thing stays deleted.
+- **No caption may name what the fish is doing.** No "GIVE LINE!", no behaviour label, no
+  tension number. The water is already saying it, and a caption that says it too means the
+  player reads the caption forever and never learns to read the water.
+- **Balance is read off `human`, not `angler`.** See the warning in the balance section.
 - **The rod tip is derived from the rod's transform**, never typed twice. A hand-copied tip
   drifts the moment the rod is nudged, and the symptom is a line hanging in the air beside it.
