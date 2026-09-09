@@ -52,6 +52,7 @@ func _initialize() -> void:
 	_check_the_map_travels_and_the_clock_turns(main)
 
 	_check_the_music_goes_wrong_as_the_water_gets_older(main)
+	_check_the_game_actually_writes_and_reads_its_save(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -539,3 +540,53 @@ func _check_the_music_goes_wrong_as_the_water_gets_older(main) -> void:
 	var back: Dictionary = audio.mix_snapshot()
 	_t.gt(float(back["bed_bells"]), bells[bells.size() - 1] + 15.0,
 		"the bells do not come back in the shallows - the arc is one-way")
+
+
+## THE SAVE HAS TO GO THROUGH THE FILE, not just through the dictionary.
+##
+## `test_tuning.gd` proves the round trip is correct arithmetic. It cannot see
+## whether anything ever CALLS it, whether the path is writable, or whether the
+## JSON survives being JSON - and the way a save fails in practice is that it was
+## never written at all. The same lesson as `reel_in`: a way out that only the
+## simulation knows about is not a way out.
+func _check_the_game_actually_writes_and_reads_its_save(main) -> void:
+	_t.begin("smoke > the game writes its save and reads it back")
+	main.freeze(1)
+
+	main.sim.econ.money = 4321
+	main.sim.econ.line = 2
+	main.sim.econ.has_motor = true
+	main.sim.day = 9
+	main.sim.hour = "night"
+	main.sim.logged["bluegill"] = 0.44
+	main.sim.travel_to("road")
+	main._save_game()
+
+	var path: String = main.SAVE_PATH
+	_t.ok(FileAccess.file_exists(path), "nothing was written to %s" % path)
+
+	# Through the real file and the real parser, because a Dictionary that
+	# round-trips in memory can still be something JSON will not carry.
+	var f := FileAccess.open(path, FileAccess.READ)
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	f.close()
+	_t.eq(typeof(parsed), TYPE_DICTIONARY, "what was written back is not JSON")
+
+	var fresh := Sim.new(1)
+	_t.ok(Save.apply(fresh, parsed), "the file on disk did not load")
+	_t.eq(fresh.econ.money, 4321, "the money did not survive the file")
+	_t.eq(fresh.econ.line, 2, "the line did not survive the file")
+	_t.eq(fresh.day, 9, "the day did not survive the file")
+	_t.eq(fresh.hour, "night", "the hour did not survive the file")
+	_t.eq(fresh.spot, "road", "the boat did not survive the file")
+	_t.gt(float(fresh.logged.get("bluegill", 0.0)), 0.4,
+		"the logbook record did not survive the file")
+
+	# Landing a fish must ASK for a write, or the only save a player ever gets is
+	# the one on the way out - and a phone kills a backgrounded app without
+	# running any exit handler.
+	main._save_due = 0.0
+	main.sim.landed.emit("bluegill", 0.2)
+	_t.gt(main._save_due, 0.0, "landing a fish does not ask for a save")
+
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

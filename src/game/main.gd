@@ -46,6 +46,7 @@ var _water_mat: ShaderMaterial
 var _dread := 0.0
 var _sky_mat: ProceduralSkyMaterial
 var _reeds: Node3D
+var _save_due := 0.0
 
 var _charging := false
 
@@ -713,6 +714,8 @@ func _build_hud() -> void:
 		b.pressed.connect(func() -> void: _open(screen))
 		_dock.add_child(b)
 
+	_load_game()
+
 	_audio = Audio.new()
 	_audio.name = "Audio"
 	add_child(_audio)
@@ -723,7 +726,15 @@ func _build_hud() -> void:
 	_menus.name = "Menus"
 	add_child(_menus)
 	_menus.setup(sim)
-	_menus.changed.connect(func() -> void: _audio.play("coin", -6.0))
+	_menus.changed.connect(func() -> void:
+		_audio.play("coin", -6.0)
+		_want_save())
+
+	# Anything that changes the boat asks for a write. Landing a fish is the one
+	# a player would be most upset to lose, and it is also the most frequent, so
+	# the request is COALESCED rather than written immediately - see `_want_save`.
+	sim.landed.connect(func(_id: String, _w: float) -> void: _want_save())
+	sim.object_found.connect(func(_id: String) -> void: _want_save())
 	_menus.changed.connect(_sync)
 	_menus.closed.connect(_sync)
 
@@ -893,6 +904,10 @@ func _process(delta: float) -> void:
 
 func _tick(dt: float) -> void:
 	_sync_mood(dt)
+	if _save_due > 0.0:
+		_save_due -= dt
+		if _save_due <= 0.0:
+			_save_game()
 	if _menus != null:
 		_menus.tick(dt)
 	if _audio != null:
@@ -1291,3 +1306,54 @@ func _sync_mood(dt: float) -> void:
 			lerpf(gl, clampf(1.0 / float(look["chop"]), 0.0, 1.0), k))
 		var bm: float = _water_mat.get_shader_parameter("beam")
 		_water_mat.set_shader_parameter("beam", lerpf(bm, float(look["specular"]), k))
+
+
+# --- keeping it -----------------------------------------------------------
+
+const SAVE_PATH := "user://stillwater.json"
+
+## How long to wait before actually writing. Landing three fish in a minute
+## should be one write, not three - but the delay is short, because **a save
+## that only happens on quit is a save that loses the session** whenever the OS
+## kills a backgrounded app, which on a phone it does without warning and
+## without running any exit handler.
+const SAVE_DELAY := 1.5
+
+
+func _want_save() -> void:
+	_save_due = SAVE_DELAY
+
+
+func _save_game() -> void:
+	_save_due = 0.0
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(Save.to_dict(sim)))
+	f.close()
+
+
+## Read the save if there is one. Anything wrong with it - missing, truncated,
+## not JSON, written by a build that no longer exists - leaves a new game
+## running, silently. **A boot that hard-fails on an old save is the worst bug a
+## game can ship**: the player loses everything AND cannot get back in.
+func _load_game() -> void:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		return
+	var text := f.get_as_text()
+	f.close()
+	var parsed: Variant = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return
+	Save.apply(sim, parsed)
+
+
+## The phone can take the app away at any moment, so write on the way out too -
+## belt and braces over the coalesced write, not instead of it.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
+		if sim != null and _booted:
+			_save_game()

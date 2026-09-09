@@ -582,3 +582,140 @@ func test_every_hour_and_weather_produces_a_usable_picture(t: TestHarness) -> vo
 					var c: Color = look[key]
 					t.gt(c.r + c.g + c.b, -0.001, "%s has a negative %s" % [where, key])
 					t.lt(maxf(c.r, maxf(c.g, c.b)), 1.001, "%s blows out %s" % [where, key])
+
+
+# --- the save -------------------------------------------------------------
+
+## A PLAYED SESSION SURVIVES THE ROUND TRIP.
+##
+## Everything a player would be upset to lose: the money, the ladders, the
+## logbook, the box, the clock and where the boat is.
+func test_a_played_session_comes_back_exactly(t: TestHarness) -> void:
+	var a := Sim.new(7)
+	a.econ.money = 2000
+	a.econ.line = 3
+	a.econ.rod = 2
+	a.econ.reel = 1
+	a.econ.livewell = 1
+	a.econ.has_motor = true
+	a.econ.has_sounder = true
+	a.econ.buy_bait("minnow")
+	a.econ.bait = "minnow"
+	# Set to the exact figure AFTER the shopping, because `buy_bait` spends - and
+	# it also REFUSES when the purse is empty, so buying before funding left the
+	# session with no minnows and the save correctly falling back to worms. Two
+	# rounds of this test failing on its own setup rather than on the save.
+	a.econ.money = 1234
+	a.econ.keep("bluegill", 0.22, false)
+	a.econ.keep("perch", 0.41, false)
+	a.logged["bluegill"] = 0.31
+	a.logged["carp"] = 8.4
+	a.found["boot"] = true
+	a.found["plate"] = true
+	a.day = 5
+	a.hour = "dusk"
+	a.weather = "fog"
+	a.spot = "road"
+	a.caught = 19
+	a.lost_count = 6
+	a.casts = 41
+	a.total_weight = 55.25
+
+	var b := Sim.new(1)
+	t.ok(Save.apply(b, Save.to_dict(a)), "the save did not load at all")
+
+	t.eq(b.econ.money, 1234, "the money did not come back")
+	t.eq(b.econ.line, 3, "the line did not come back")
+	t.eq(b.econ.rod, 2, "the rod did not come back")
+	t.eq(b.econ.reel, 1, "the reel did not come back")
+	t.eq(b.econ.livewell, 1, "the livewell did not come back")
+	t.ok(b.econ.has_motor, "the motor did not come back")
+	t.ok(b.econ.has_sounder, "the sounder did not come back")
+	t.ok(not b.econ.has_lamp, "a lamp appeared that was never bought")
+	t.eq(b.econ.bait, "minnow", "the bait on the hook did not come back")
+	t.eq(b.econ.held.size(), 2, "the livewell did not come back")
+	t.eq(b.day, 5, "the day did not come back")
+	t.eq(b.hour, "dusk", "the hour did not come back")
+	t.eq(b.weather, "fog", "the weather did not come back")
+	t.eq(b.spot, "road", "the boat came back somewhere else")
+	t.eq(b.caught, 19, "the tally did not come back")
+	t.eq(b.logged.size(), 2, "the logbook did not come back")
+	t.eq(b.found.size(), 2, "what came off the bottom did not come back")
+	# The records are WEIGHTS. Truncating them to counts is the bug that kept
+	# every sub-kilo fish off its own page; a save that rounds them re-creates it.
+	t.gt(float(b.logged["bluegill"]), 0.30, "the record weight was rounded away")
+
+
+## THE CAST IS NOT SAVED, AND THAT IS THE RULE.
+##
+## Quitting mid-fight loses the fish. Saving one would mean restoring a state
+## machine mid-transition, and every bug in that only appears to players who quit
+## at exactly the wrong moment - which is to say a bug nobody can reproduce.
+func test_a_fish_on_the_line_is_not_saved(t: TestHarness) -> void:
+	var a := Sim.new(3)
+	a.state = Sim.FIGHTING
+	a.fish_id = "pike"
+	a.fish_weight = 4.5
+	a.tension = 0.61
+	a.cast_distance = 18.0
+
+	var b := Sim.new(1)
+	Save.apply(b, Save.to_dict(a))
+	t.eq(b.state, Sim.IDLE, "the game came back mid-fight")
+	t.eq(b.fish_id, "", "a fish came back on the line")
+	t.eq(b.cast_distance, 0.0, "the line came back out")
+
+
+## NOTHING IN A BROKEN SAVE MAY THROW.
+##
+## A save is data from a build that no longer exists. A boot that hard-fails on
+## one is the worst bug a game can ship - the player loses everything AND cannot
+## get back in - so every one of these has to land on a playable boat.
+func test_no_save_however_broken_can_stop_the_game_booting(t: TestHarness) -> void:
+	var broken := [
+		{},                                              # not a save at all
+		{"version": 1},                                  # a save of nothing
+		{"version": 99, "money": 10},                    # from the future
+		{"version": 1, "money": -500, "line": 99, "rod": -3},
+		{"version": 1, "logged": {"a_fish_that_never_existed": 3.0}},
+		{"version": 1, "found": ["nothing_by_this_name"]},
+		{"version": 1, "held": ["not even a dictionary", {"id": "ghost"}]},
+		{"version": 1, "hour": "half past four", "weather": "raining frogs"},
+		{"version": 1, "bait": "gold", "lures": ["worm", "nonsense"]},
+		{"version": 1, "money": "lots", "day": "tuesday", "caught": []},
+		# The one that matters most: somewhere the loaded gear cannot fish.
+		{"version": 1, "spot": "spring", "line": 0},
+		{"version": 1, "spot": "quarry", "line": 5},     # deep water, no motor
+		{"version": 1, "spot": "a place that is not on the lake"},
+	]
+	for data in broken:
+		var s := Sim.new(1)
+		Save.apply(s, data)
+		t.ok(s.spot != "", "a broken save left the boat nowhere: %s" % data)
+		t.ok(World.line_reaches_water(s.spot, s.econ.line),
+			"a broken save left the boat where its line cannot fish: %s" % data)
+		t.ok(not bool(World.spot_by_id(s.spot)["needs_motor"]) or s.econ.has_motor,
+			"a broken save left the boat off the bay with no motor: %s" % data)
+		t.gt(float(s.econ.money), -0.001, "a broken save left the player in debt: %s" % data)
+		t.lt(float(s.econ.line), float(Gear.LINE.size()), "a broken save bought line that does not exist")
+		t.ok(s.hour in World.HOURS, "a broken save left the clock at '%s'" % s.hour)
+		# And the boat has to actually WORK afterwards, not merely exist.
+		s.hold_cast()
+		s.advance(0.1)
+		s.release_cast()
+		for i in 600:
+			s.advance(1.0 / 60.0)
+		t.ok(s.state != Sim.CHARGING, "the game will not cast after loading: %s" % data)
+
+
+## A save may never put more in the box than the box holds - including one
+## written by a build whose livewell was bigger than this one's.
+func test_a_save_cannot_overfill_the_livewell(t: TestHarness) -> void:
+	var held := []
+	for i in 40:
+		held.append({"id": "carp", "weight": 6.0, "wrong": false})
+	var s := Sim.new(1)
+	Save.apply(s, {"version": 1, "livewell": 0, "held": held})
+	t.lt(s.econ.load_kg(), s.econ.capacity() + 0.001,
+		"a save loaded %.1f kg into a %.1f kg livewell" % [s.econ.load_kg(), s.econ.capacity()])
+	t.gt(float(s.econ.held.size()), 0.0, "the whole livewell was thrown away")
