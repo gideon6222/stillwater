@@ -117,6 +117,9 @@ func _initialize() -> void:
 	if _until in ROOMS:
 		_main.sim.econ.money = 900
 		_main.sim.econ.has_motor = true
+		# Deep enough that the book has something in it - a screenshot of an
+		# empty logbook says nothing about the logbook.
+		_main.sim.deepest_ever = maxf(_main.sim.deepest_ever, 60.0)
 		# Back to the boat first. `_open` refuses from anywhere else, on purpose -
 		# so a screenshot that just calls it after a minute of play photographs
 		# the water and looks like the room is broken.

@@ -147,6 +147,13 @@ OFFERING, which is found and never sold. A player who ignores the story caps out
 at 40 m with a full wallet — the answer to "what if they ignore this?" is not
 "they score less", it is "they cannot continue".
 
+**And the gate opens itself.** Deep water with the wrong bait still gives up
+OBJECTS — that is what stops it being a dead end. The loop below 80 m is: pull
+up pieces of a drowned town until one of them is an offering, spend it on one
+deep fish, repeat. The shallowest offering (a wristwatch, 28 m) sits well inside
+water ordinary bait can already reach, so the gate can always be opened before
+it is met. Asserted, both halves.
+
 **The sounder buys no fishing advantage at all.** It draws what is under the
 hull. It is the most expensive thing in the shed because it is the best
 storytelling instrument in the game.
@@ -170,7 +177,12 @@ Told entirely through what comes up on the line, dated, from a depth.
 | 110–140 m | A carved stone | Older than the quarry that cut around it |
 
 **The five keepers.** The logbook you write in has been written in before, in
-five hands, and the last one is yours. OPEN.
+five hands, and the last one is yours: Ruth Alder (1994), Peter Vance (1958),
+Edith Moss (1931), Samuel Crake (1871). Entries unlock on **the deepest cast
+ever made** — the same one number the score and the picture use, so there is no
+second progression. Read in book order that is most-recent first, working back
+toward the keeper who was here before the water was. Each hand fades with its
+age. **DONE.**
 
 **The blank page ending.** The Old Fish is at the Spring, which has no date. OPEN.
 
@@ -308,7 +320,7 @@ it; every beat's condition is reachable; and the intro never reappears once done
 
 ---
 
-### 11.3 The keeper's logbook **[next]**
+### 11.3 The keeper's logbook **[done]**
 
 *What.* The story's spine. Entries in five hands, unlocked by DEPTH.
 

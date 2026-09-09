@@ -156,12 +156,37 @@ static func bait_by_id(id: String) -> Dictionary:
 
 ## How much more likely this bait makes this species. Neutral is 1.0, favoured is
 ## FAVOUR_BONUS, and a bait below its working depth is worthless.
+## Below this, ORDINARY BAIT CATCHES NOTHING. Only an offering will do, and an
+## offering is found rather than sold.
+##
+## This is the pillar the whole economy hangs off - "money cannot buy the
+## bottom" - and until now it was written in three design documents and
+## implemented nowhere. Worms worked perfectly well at a hundred and forty
+## metres. A rule stated everywhere and enforced nowhere is worse than no rule:
+## every other decision had been balanced around it.
+const OFFERING_DEPTH := 80.0
+const OFFERING := "offering"
+
+
 static func bait_weight(bait_id: String, species_id: String, depth: float) -> float:
 	var b := bait_by_id(bait_id)
 	if b.has("min_depth") and depth < float(b["min_depth"]):
 		return 0.0
+	# The deep takes an offering or it takes nothing. It still gives up OBJECTS,
+	# which is what stops this being a dead end - see the note in `sim._wait`.
+	if depth >= OFFERING_DEPTH and bait_id != OFFERING:
+		return 0.0
 	var favours: Array = b["favours"]
 	return FAVOUR_BONUS if species_id in favours else 1.0
+
+
+## Is this bait any use at this depth at all? The shed and the boat both ask, so
+## the player can be told BEFORE they spend an hour finding out.
+static func bait_works_at(bait_id: String, depth: float) -> bool:
+	var b := bait_by_id(bait_id)
+	if b.has("min_depth") and depth < float(b["min_depth"]):
+		return false
+	return depth < OFFERING_DEPTH or bait_id == OFFERING
 
 
 ## The next thing worth buying, given what is owned. Used by the shed to order

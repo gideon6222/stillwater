@@ -78,6 +78,14 @@ var sound_muted: bool = false
 ## can carry it; no rule reads it.
 var intro_done: bool = false
 
+## THE DEEPEST THE LINE HAS EVER BEEN, over the whole save.
+##
+## One float, and it is the only unlock in the game. The keeper's entries are
+## keyed to it because depth is time: the player does not complete objectives to
+## earn story, they look further back. It is a high-water mark and never falls,
+## so a trip to the shallows cannot take the book away again.
+var deepest_ever: float = 0.0
+
 ## Species landed at least once, and objects found at least once. The logbook is
 ## the collection, and a collection is the one reward whose value does not decay
 ## the way money does: every amount of money you earn makes the last amount
@@ -287,6 +295,7 @@ func advance(dt: float) -> void:
 			# are the same number in the reeds and nowhere else, and the difference
 			# is the whole progression: better line, deeper lure, older water.
 			var target := fishing_depth()
+			deepest_ever = maxf(deepest_ever, target)
 			lure_depth = minf(lure_depth + Tuning.SINK_RATE * Tuning.sink_speed(target) * dt, target)
 			if lure_depth >= target - 0.001:
 				_enter(WAITING)
@@ -419,7 +428,16 @@ func _wait(dt: float) -> void:
 
 	var s := Species.pick(lure_depth, _rng.next(), hour, econ.bait)
 	if s.is_empty():
-		_arm_bite()
+		# NOTHING WILL TAKE THIS BAIT HERE - which below eighty metres means the
+		# player is fishing the deep with worms. They get the bottom instead of a
+		# fish, and that is the whole gate: the deep pays in objects until one of
+		# those objects is an offering, and then it pays in fish.
+		#
+		# Hooking an object rather than re-arming is what stops it being a dead
+		# end. A player who waits and waits and gets nothing concludes the game
+		# is broken; a player who keeps pulling up pieces of a drowned town
+		# concludes, correctly, that this water wants something else.
+		_hook_object()
 		return
 	fish_id = s["id"]
 	fish_weight = lerpf(s["weight_lo"], s["weight_hi"], _rng.next())
@@ -702,6 +720,12 @@ func _hook_object() -> void:
 	fish_id = ""
 	fish_weight = 0.0
 	found[o["id"]] = true
+	# AN OFFERING GOES IN THE BAIT BOX. It is the only bait in the game that
+	# cannot be bought, and this is the only way to get one - which is what makes
+	# the bottom of the lake something you earn by paying attention rather than
+	# by grinding.
+	if o["kind"] == Objects.OFFERING:
+		econ.bait_left[Gear.OFFERING] = int(econ.bait_left.get(Gear.OFFERING, 0)) + 1
 	if o["kind"] == Objects.JUNK:
 		econ.money += int(o["value"])
 	econ.spend_bait()

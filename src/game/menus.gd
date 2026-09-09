@@ -376,8 +376,12 @@ func _fill_shed() -> void:
 	_heading("bait")
 	for b in Gear.BAIT:
 		var id: String = b["id"]
-		if int(b["price"]) < 0:
-			continue        # offerings are found, never sold. See objects.gd.
+		if int(b["price"]) < 0 and not sim.econ.has_bait(id):
+			# Offerings are found, never sold - so the shelf is empty until the
+			# lake has given you one, and then it is simply there. Hiding it
+			# entirely even when held would mean the player could not see the one
+			# thing that unlocks the deep.
+			continue
 		var held := ""
 		if bool(b["reusable"]):
 			held = "yours" if id in econ.owned_lures else ""
@@ -385,6 +389,10 @@ func _fill_shed() -> void:
 			held = "%d left" % int(econ.bait_left.get(id, 0))
 		var sub := "%s%s" % ["favours " + _favours(b), "" if held == "" else "   -   " + held]
 		var chosen := econ.bait == id
+		# Say plainly where it stops working. The player should learn the rule
+		# from the shelf, not from an hour of nothing biting.
+		if not Gear.bait_works_at(id, sim.deepest_here()):
+			sub = "%s   -   no use in %s of water" % [sub, SimUtil.fmt_m(sim.deepest_here())]
 		# The right column says what tapping WILL do, so it reads as a verb and
 		# not as a price you are about to be charged twice for.
 		var right := str(b["price"])
@@ -537,7 +545,51 @@ func _fill_map() -> void:
 ## rules rather than hidden, because an empty line you can see is a question and
 ## a hidden one is nothing at all. The objects carry their dates, and the dates
 ## are the reveal - the game never says what they mean.
+## THE BOOK COMES FIRST, above the catch.
+##
+## The logbook is the story, and the species records are what the player is
+## adding to it. Putting the fish first would make the book a fishing tally with
+## some text underneath; putting the hands first makes the tally the fifth entry
+## in something much older, which is what it is.
+func _fill_book() -> void:
+	var met := Keepers.hands_met(sim.deepest_ever)
+	_note("%d of %d hands. The last one is yours." % [met, Keepers.total_hands()])
+
+	var entries := Keepers.unlocked(sim.deepest_ever)
+	if entries.is_empty():
+		_note("The pages before yours are still shut.", INK_DIM)
+	var hand := ""
+	for e in entries:
+		var who: String = e["hand"]
+		if who != hand:
+			hand = who
+			_heading("%s, %d" % [who, int(e["year"])])
+		var l := Label.new()
+		l.text = str(e["text"])
+		l.add_theme_font_size_override("font_size", 28)
+		# Each hand a shade different, and the older it is the more it has faded.
+		# Handwriting, without needing a font per keeper.
+		var age := clampf((float(e["at"]) - 1.0) / 140.0, 0.0, 1.0)
+		l.add_theme_color_override("font_color", INK.lerp(INK_DIM, age * 0.75))
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_list.add_child(l)
+
+	var next_at := -1.0
+	for e in Keepers.ENTRIES:
+		var at: float = e["at"]
+		if at > sim.deepest_ever + 0.001:
+			next_at = at
+			break
+	if next_at > 0.0:
+		# The one honest instruction the book ever gives, and it is still not an
+		# objective - it is a depth, and the player already knows what depth is.
+		_note("The next page is shut. Your line has been %s down." %
+			SimUtil.fmt_m(sim.deepest_ever), INK_DIM)
+
+
 func _fill_log() -> void:
+	_fill_book()
+	_heading("what you have caught")
 	# `sim.logged` maps species id -> the HEAVIEST one landed, so this is a record
 	# book and not a tally. Two things follow, and the second one shipped wrong:
 	# presence is `has`, never `> 0`, because `int(0.14)` is zero and a bluegill

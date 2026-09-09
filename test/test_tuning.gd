@@ -719,3 +719,198 @@ func test_a_save_cannot_overfill_the_livewell(t: TestHarness) -> void:
 	t.lt(s.econ.load_kg(), s.econ.capacity() + 0.001,
 		"a save loaded %.1f kg into a %.1f kg livewell" % [s.econ.load_kg(), s.econ.capacity()])
 	t.gt(float(s.econ.held.size()), 0.0, "the whole livewell was thrown away")
+
+
+# --- the offering gate ------------------------------------------------------
+
+## MONEY CANNOT BUY THE BOTTOM.
+##
+## The pillar the whole economy hangs off, and it was written in three design
+## documents and implemented nowhere - worms worked perfectly well at a hundred
+## and forty metres. The test suite did not catch it because nothing in it ever
+## fished deep water with a named bait, which is the same failure one level up.
+func test_ordinary_bait_catches_nothing_in_the_deep(t: TestHarness) -> void:
+	for id in ["worm", "corn", "minnow", "cut", "spoon", "glow"]:
+		for depth in [80.0, 110.0, 140.0, 152.0]:
+			var any := 0.0
+			for row in Species.at_depth(depth, "morning"):
+				any += Gear.bait_weight(id, row["id"], depth)
+			t.eq(any, 0.0,
+				"%s still catches things at %.0f m - the deep is not gated" % [id, depth])
+
+	# And the offering does, or the gate is a wall.
+	for depth in [80.0, 110.0, 140.0]:
+		var reachable := 0.0
+		for row in Species.at_depth(depth, "morning"):
+			reachable += Gear.bait_weight("offering", row["id"], depth)
+		t.gt(reachable, 0.0, "an offering catches nothing at %.0f m either" % depth)
+
+
+## THE GATE HAS TO BE OPENABLE, and openable BEFORE it is met.
+##
+## At least one offering must live in water an ordinary bait can already reach,
+## or the player arrives at eighty metres holding the wrong thing with no way to
+## ever hold the right one.
+func test_an_offering_can_be_found_before_it_is_needed(t: TestHarness) -> void:
+	var shallowest := 999.0
+	for o in Objects.offerings():
+		shallowest = minf(shallowest, float(o["min"]))
+	t.lt(shallowest, Gear.OFFERING_DEPTH,
+		"every offering is below %.0f m, so the only way to get one is to already be past the gate"
+			% Gear.OFFERING_DEPTH)
+
+
+## FINDING ONE GIVES YOU ONE. It is the only bait in the game that cannot be
+## bought, so hooking it has to be what puts it in the box.
+func test_hooking_an_offering_puts_it_in_the_bait_box(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	var before := int(s.econ.bait_left.get("offering", 0))
+	var found := false
+	# Fish the water an offering lives in until one comes up.
+	for i in 4000:
+		s.lure_depth = 34.0
+		s._hook_object()
+		if s.last_object != "" and Objects.by_id(s.last_object)["kind"] == Objects.OFFERING:
+			found = true
+			break
+	t.ok(found, "no offering came up in four thousand objects at 34 m")
+	t.gt(float(int(s.econ.bait_left.get("offering", 0))), float(before),
+		"an offering was found and never reached the bait box")
+	t.ok(s.econ.has_bait("offering"), "the offering is in the box but cannot be fished with")
+
+
+## AND THE DEEP IS NEVER A DEAD END.
+##
+## Fishing eighty metres with worms must still produce SOMETHING. A player who
+## waits and gets nothing concludes the game is broken; a player who keeps
+## pulling up pieces of a drowned town concludes, correctly, that this water
+## wants something else.
+func test_the_deep_still_gives_up_objects_to_the_wrong_bait(t: TestHarness) -> void:
+	var s := Sim.new(3)
+	s.econ.line = 4
+	s.econ.has_motor = true
+	s.econ.bait = "worm"
+	t.ok(s.travel_to("quarry"), "could not reach the quarry to test it")
+	s.cast_charge = 1.0
+	s.lure_depth = s.fishing_depth()
+	t.gt(s.lure_depth, Gear.OFFERING_DEPTH - 0.01, "the quarry is not actually deep water")
+
+	var objects := 0
+	for i in 240:
+		s.state = Sim.WAITING
+		s.state_time = 0.0
+		s.bite_in = 0.0
+		s.last_object = ""
+		for j in 900:
+			s.advance(1.0 / 60.0)
+			if s.last_object != "":
+				objects += 1
+				break
+			if s.state == Sim.NIBBLING or s.state == Sim.FIGHTING:
+				break
+		if objects > 30:
+			break
+	t.gt(float(objects), 20.0,
+		"only %d objects came up in the quarry on worms - the deep is a dead end" % objects)
+
+
+# --- the keeper's logbook ---------------------------------------------------
+
+## EVERY PAGE CAN BE REACHED.
+##
+## The book is keyed to the deepest cast ever made, so an entry placed below the
+## deepest water in the game is a page that exists and can never be read. The
+## intro promises the player that somebody has written in this book before them;
+## a promise the game cannot keep is worse than one it never made.
+func test_every_page_of_the_book_can_be_reached(t: TestHarness) -> void:
+	var deepest := 0.0
+	for d in World.all_reachable_depths(24):
+		deepest = maxf(deepest, d)
+	for e in Keepers.ENTRIES:
+		t.lt(float(e["at"]), deepest + 0.001,
+			"%s's entry at %.0f m is below the deepest water in the game (%.0f m)" % [
+				e["hand"], float(e["at"]), deepest])
+		t.ok(str(e["text"]).length() > 40, "%s wrote almost nothing" % e["hand"])
+
+
+## THE BOOK OPENS FROM THE FIRST CAST, and never all at once.
+##
+## The first entry has to be inside the water a brand new player can reach, or
+## the promise the intro just made goes unhonoured for an hour. And the last has
+## to be deep, or there is nothing left to find.
+func test_the_book_opens_early_and_finishes_late(t: TestHarness) -> void:
+	var first := 9999.0
+	var last := 0.0
+	for e in Keepers.ENTRIES:
+		first = minf(first, float(e["at"]))
+		last = maxf(last, float(e["at"]))
+	t.lt(first, 4.0, "the first page needs %.0f m - a new player cannot open the book" % first)
+	t.gt(last, 100.0, "the whole book is readable from shallow water")
+
+	# And it arrives in pieces rather than in one lump.
+	var seen := 0
+	var steps := 0
+	for i in 15:
+		var depth := float(i) * 10.0
+		var n := Keepers.unlocked(depth).size()
+		if n > seen:
+			steps += 1
+			seen = n
+	t.gt(float(steps), 5.0, "the book unlocks in only %d jumps - it is a wall, not a book" % steps)
+
+
+## FIVE HANDS, AND THE LAST IS YOURS.
+func test_the_book_is_in_five_hands(t: TestHarness) -> void:
+	t.eq(Keepers.total_hands(), 5, "the book is not in five hands")
+	t.eq(Keepers.hands_met(0.0), 1, "a player who has never cast is not the only hand yet")
+	var deepest := 0.0
+	for d in World.all_reachable_depths(24):
+		deepest = maxf(deepest, d)
+	t.eq(Keepers.hands_met(deepest), 5,
+		"fishing the deepest water in the game does not meet all five keepers")
+
+	# TWO claims, not one, and the first version conflated them into a wrong test.
+	#
+	# WITHIN a hand the years run FORWARD, because a person writes across their
+	# own years. BETWEEN hands they run BACKWARD, because deeper is older. Ruth
+	# writes 1994 to 1996 and then Peter starts in 1958.
+	var hand := ""
+	var last_in_hand := 0
+	var last_hand_start := 99999
+	for e in Keepers.ENTRIES:
+		var who: String = e["hand"]
+		var year := int(e["year"])
+		if who != hand:
+			t.lt(float(year), float(last_hand_start),
+				"%s starts in %d, which is not older than the hand before them" % [who, year])
+			hand = who
+			last_hand_start = year
+		else:
+			t.gt(float(year), float(last_in_hand) - 0.001,
+				"%s writes backwards through their own tenure" % who)
+		last_in_hand = year
+
+
+## THE DEEPEST CAST IS REMEMBERED, and never falls.
+func test_the_deepest_cast_is_a_high_water_mark(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	s.econ.line = 3
+	s.econ.has_motor = true
+	s.travel_to("steeple")
+	t.eq(s.deepest_ever, 0.0, "a fresh boat has already been somewhere")
+
+	s.cast_charge = 1.0
+	s.state = Sim.SINKING
+	for i in 900:
+		s.advance(1.0 / 60.0)
+	var deep := s.deepest_ever
+	t.gt(deep, 40.0, "a full cast at the steeple was not recorded as deep water")
+
+	# Back to the shallows, and the book must not shut again.
+	s.state = Sim.IDLE
+	s.travel_to("reed_bay")
+	s.cast_charge = 0.2
+	s.state = Sim.SINKING
+	for i in 600:
+		s.advance(1.0 / 60.0)
+	t.eq(s.deepest_ever, deep, "going back to the shallows took pages out of the book")
