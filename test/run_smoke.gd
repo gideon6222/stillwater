@@ -66,6 +66,7 @@ func _initialize() -> void:
 	_check_the_first_morning_teaches_and_ends(main)
 	_check_a_wrong_fish_is_drawn_wrong(main)
 	_check_the_walk_to_the_boat_always_arrives(main)
+	_check_every_room_looks_like_the_thing_it_is(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -1058,3 +1059,48 @@ func _check_the_walk_to_the_boat_always_arrives(main) -> void:
 		for shot in shots:
 			_t.ok(shot.has("at") and shot.has("look"), "a shot has no camera position")
 			_t.gt(float(shot.get("for", 0.0)), 0.05, "a shot is too short to see")
+
+
+## EVERY ROOM LOOKS LIKE THE THING IT IS NAMED AFTER.
+##
+## The logbook is paper, the shed is a counter, the kit is a tackle box. What
+## can actually be asserted is not whether they look nice - that is taste - but
+## that each one is a DIFFERENT object and that its ink is legible on its own
+## ground. Cream text on cream paper is the failure this catches, and it is one
+## edit away at all times.
+func _check_every_room_looks_like_the_thing_it_is(main) -> void:
+	_t.begin("smoke > every room looks like the thing it is named after")
+	main.freeze(1)
+	var menus = main._menus
+
+	var skins: Dictionary = {}
+	for screen in [Menus.SHED, Menus.MAP, Menus.LOG, Menus.KIT]:
+		menus.open(screen)
+		var skin: String = menus._skin
+		_t.ok(not skins.has(skin) or screen == Menus.MAP,
+			"%s reuses the '%s' skin - the rooms are not different objects" % [screen, skin])
+		skins[skin] = screen
+
+		# Ink has to be readable on the ground it is written on.
+		var ink: Color = menus._ink()
+		# COMPOSITED. A row's own colour can be translucent - the book's are a
+		# 10% wash over paper - so reading the raw value measures a colour that
+		# is never actually drawn, which is how this test first failed on a room
+		# that is perfectly legible.
+		var row: Color = menus._row_bg(true)
+		var base: Color = menus._ground()
+		var ground := base.lerp(Color(row.r, row.g, row.b), row.a)
+		var lift: float = absf(_luma(ink) - _luma(ground))
+		_t.gt(lift, 0.28,
+			"'%s' writes %.2f-luma ink on %.2f-luma ground - that is unreadable" % [
+				screen, _luma(ink), _luma(ground)])
+
+		# And the way out is styled for the room rather than left charcoal.
+		_t.ok(menus._back.text != "", "the way out of '%s' has no label" % screen)
+		menus.close()
+
+	_t.gt(float(skins.size()), 3.0, "there are fewer than four distinct room skins")
+
+
+func _luma(c: Color) -> float:
+	return c.r * 0.299 + c.g * 0.587 + c.b * 0.114

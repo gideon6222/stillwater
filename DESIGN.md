@@ -409,7 +409,7 @@ The Old Fish at the Spring, the blank page, and NG+ where the lake remembers.
 
 ---
 
-### 11.8 Rooms as objects **[part done]**
+### 11.8 Rooms as objects **[done, bar page turns]**
 
 *What.* Gideon: "I want the menus to feel more interactive, like a physical book
 with pages that turn, a store front, a lunch box with items, not just text
@@ -428,16 +428,35 @@ that has spent a lot of effort having one of its own.
 *Still to do on the book:* actual page TURNS instead of one scroll — split the
 entries into spreads with a corner to tap, and a turn that animates.
 
-*The shed — NEXT.* A counter rather than a list: each item on a shelf slat with
-its price on a card, the livewell weighed in on a hook, and the gear ladders as
-things standing on shelves rather than rows of text.
+*The shed — DONE.* Varnished planks running across, each with a lit top edge and
+a shadow under it, grain strokes, and a worn band along the near edge where a
+hundred years of forearms have rested. Items sit on lighter shelf slats. **The
+price is a card** propped against each one, with its own drop shadow — it is the
+one thing on a shopfront that is always written down rather than known, and
+giving it its own bit of stock is most of what makes a row read as a shelf.
+The way out says "Back to the water".
 
-*The kit — NEXT.* A lidded tackle box seen from above, with compartments: bait
-in the trays, line spools in the lid, and the settings written inside the lid
-the way a real one has a list taped in it.
+*The kit — DONE.* Painted metal seen from above: a lid seam with hinge knuckles
+across the top, rivets in the corners, paint worn off down both edges, and rows
+as SUNK trays — light edge at the bottom rather than the top, which is what
+makes a rectangle read as a recess instead of a button. The way out says "Shut
+the lid".
 
-*The rule for all three:* the room should look like the object it is named
-after, and every one of them is drawn, not imported — see the note on paper.
+*How they share it.* Not by copying the book — a room declares a SKIN and the
+ground, the row styling, the ink, the headings and the way out all read it. Four
+skins, one code path. Copying would have been three special cases that drift.
+
+*Test.* Each room is a DIFFERENT skin, and its ink is legible on its own ground
+— composited, since a row colour can be translucent. Cream on cream is one edit
+away at all times and is exactly what this catches.
+
+*Still to do:* real page TURNS for the book — split the entries into spreads
+with a corner to tap.
+
+*The rule for all of them:* the room should look like the object it is named
+after, and every one is drawn, not imported — a photograph of paper or wood
+would drag its own lighting into a game that has worked hard to have one of its
+own.
 
 ---
 

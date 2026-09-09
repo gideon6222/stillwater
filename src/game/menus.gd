@@ -111,20 +111,20 @@ func refresh() -> void:
 	match _screen:
 		SHED:
 			_title.text = "The Bait Shed"
+			_set_skin(SKIN_COUNTER)
 			_fill_shed()
-			_paper(false)
 		MAP:
 			_title.text = "The Lake"
+			_set_skin(SKIN_PANEL)
 			_fill_map()
-			_paper(false)
 		LOG:
 			_title.text = "The Logbook"
+			_set_skin(SKIN_PAPER)
 			_fill_log()
-			_paper(true)
 		KIT:
 			_title.text = "Your Kit"
+			_set_skin(SKIN_BOX)
 			_fill_kit()
-			_paper(false)
 
 
 func tick(dt: float) -> void:
@@ -225,19 +225,30 @@ func _button(text: String, enabled: bool) -> Button:
 	b.disabled = not enabled
 	b.focus_mode = Control.FOCUS_NONE
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = PANEL if enabled else Color(0.11, 0.115, 0.12)
-	normal.set_corner_radius_all(6)
+	normal.bg_color = _row_bg(enabled)
+	normal.set_corner_radius_all(2 if _skin == SKIN_COUNTER else 6)
 	normal.set_content_margin_all(18)
+	if _skin == SKIN_COUNTER:
+		# A slat has a lit top edge and a shadow under it. Two borders is what
+		# makes a rectangle read as a board rather than as a button.
+		normal.border_width_top = 2
+		normal.border_width_bottom = 3
+		normal.border_color = Color(0.06, 0.04, 0.02, 0.55)
+	elif _skin == SKIN_BOX:
+		# A tray is SUNK, so the light edge is at the bottom.
+		normal.border_width_bottom = 2
+		normal.border_width_top = 1
+		normal.border_color = BOX_RIM
 	b.add_theme_stylebox_override("normal", normal)
 	var press := normal.duplicate() as StyleBoxFlat
 	press.bg_color = Color(0.20, 0.22, 0.22)
 	b.add_theme_stylebox_override("pressed", press)
 	b.add_theme_stylebox_override("hover", normal)
 	b.add_theme_stylebox_override("disabled", normal)
-	b.add_theme_color_override("font_color", INK if enabled else DEAD)
+	b.add_theme_color_override("font_color", _ink() if enabled else DEAD)
 	b.add_theme_color_override("font_disabled_color", DEAD)
-	b.add_theme_color_override("font_pressed_color", INK)
-	b.add_theme_color_override("font_hover_color", INK)
+	b.add_theme_color_override("font_pressed_color", _ink())
+	b.add_theme_color_override("font_hover_color", _ink())
 	return b
 
 
@@ -277,14 +288,14 @@ func _row(left: String, right: String, sub: String, enabled: bool,
 	var l := Label.new()
 	l.text = left
 	l.add_theme_font_size_override("font_size", 36)
-	l.add_theme_color_override("font_color", INK if (enabled or reading) else DEAD)
+	l.add_theme_color_override("font_color", _ink() if (enabled or reading) else DEAD)
 	names.add_child(l)
 
 	if sub != "":
 		var s := Label.new()
 		s.text = sub
 		s.add_theme_font_size_override("font_size", 26)
-		s.add_theme_color_override("font_color", INK_DIM if (enabled or reading) else DEAD)
+		s.add_theme_color_override("font_color", _ink_dim() if (enabled or reading) else DEAD)
 		s.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		names.add_child(s)
@@ -292,8 +303,31 @@ func _row(left: String, right: String, sub: String, enabled: bool,
 	var r := Label.new()
 	r.text = right
 	r.add_theme_font_size_override("font_size", 34)
-	r.add_theme_color_override("font_color", right_colour if (enabled or reading) else DEAD)
 	r.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	if _skin == SKIN_COUNTER and right != "":
+		# THE PRICE IS A CARD, propped against the item. It is the one thing on a
+		# shopfront that is always written down rather than known, and giving it
+		# its own bit of stock is most of what makes a row read as a shelf.
+		var card := PanelContainer.new()
+		var cs := StyleBoxFlat.new()
+		cs.bg_color = CARD
+		cs.set_corner_radius_all(3)
+		cs.content_margin_left = 16
+		cs.content_margin_right = 16
+		cs.content_margin_top = 6
+		cs.content_margin_bottom = 6
+		cs.shadow_color = Color(0, 0, 0, 0.35)
+		cs.shadow_size = 4
+		cs.shadow_offset = Vector2(2, 3)
+		card.add_theme_stylebox_override("panel", cs)
+		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		r.add_theme_color_override("font_color",
+			Color(0.24, 0.17, 0.09) if (enabled or reading) else Color(0.24, 0.17, 0.09, 0.4))
+		card.add_child(r)
+		box.add_child(card)
+		return b
+	r.add_theme_color_override("font_color", right_colour if (enabled or reading) else DEAD)
 	box.add_child(r)
 	return b
 
@@ -301,11 +335,11 @@ func _row(left: String, right: String, sub: String, enabled: bool,
 ## A heading, and on paper it gets a ruled line under it - which is what turns a
 ## list of sections into a page somebody has laid out by hand.
 func _heading(text: String) -> void:
-	var on_paper := _screen == LOG
+	var on_paper := _skin == SKIN_PAPER
 	var l := Label.new()
 	l.text = text.to_upper()
 	l.add_theme_font_size_override("font_size", 24)
-	l.add_theme_color_override("font_color", PAPER_INK_DIM if on_paper else INK_DIM)
+	l.add_theme_color_override("font_color", _ink_dim())
 	l.custom_minimum_size = Vector2(0, 62)
 	l.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	_list.add_child(l)
@@ -322,7 +356,7 @@ func _heading(text: String) -> void:
 ## the end of.
 func _blank() -> void:
 	var r := ColorRect.new()
-	r.color = PAPER_RULE if _screen == LOG else RULE
+	r.color = PAPER_RULE if _skin == SKIN_PAPER else RULE
 	r.custom_minimum_size = Vector2(0, 2)
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_top", 15)
@@ -339,8 +373,8 @@ func _note(text: String, colour: Color = INK_DIM) -> void:
 	l.add_theme_font_size_override("font_size", 28)
 	# On the page, a note takes the default INK_DIM as "ink" rather than as
 	# "cream" - otherwise every caller would have to know which room it is in.
-	if _screen == LOG and colour == INK_DIM:
-		colour = PAPER_INK_DIM
+	if colour == INK_DIM:
+		colour = _ink_dim()
 	l.add_theme_color_override("font_color", colour)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_list.add_child(l)
@@ -737,36 +771,143 @@ var _pager: HBoxContainer
 var _back: Button
 
 
+## WHICH OBJECT THIS ROOM IS.
+##
+## The book was the first room to stop being a list, and doing the shed and the
+## kit the same way by copying it would have been three special cases that drift
+## apart. So a room declares a SKIN and everything - the ground, the row styling,
+## the heading colour, the way out - reads it.
+##
+## The rule the three share: **the room should look like the object it is named
+## after.** A logbook is paper. A bait shed is a counter with things on shelves.
+## A kit is a tackle box with compartments.
+const SKIN_PANEL := "panel"
+const SKIN_PAPER := "paper"
+const SKIN_COUNTER := "counter"
+const SKIN_BOX := "box"
+
+var _skin := SKIN_PANEL
+
+## Counter: old varnished wood, light lettering, pale price cards.
+const WOOD_DARK := Color(0.223, 0.157, 0.098)
+const WOOD_SLAT := Color(0.318, 0.231, 0.145)
+const WOOD_INK := Color(0.937, 0.898, 0.808)
+const WOOD_INK_DIM := Color(0.937, 0.898, 0.808, 0.55)
+const CARD := Color(0.855, 0.816, 0.706)
+
+## Box: painted metal, gone at the corners, with sunk compartments.
+const BOX_METAL := Color(0.180, 0.216, 0.204)
+const BOX_TRAY := Color(0.113, 0.137, 0.129)
+const BOX_RIM := Color(0.376, 0.416, 0.384)
+const BOX_INK := Color(0.898, 0.910, 0.878)
+const BOX_INK_DIM := Color(0.898, 0.910, 0.878, 0.55)
+
+
+## The ink this skin writes in.
+func _ink() -> Color:
+	match _skin:
+		SKIN_PAPER: return PAPER_INK
+		SKIN_COUNTER: return WOOD_INK
+		SKIN_BOX: return BOX_INK
+	return INK
+
+
+func _ink_dim() -> Color:
+	match _skin:
+		SKIN_PAPER: return PAPER_INK_DIM
+		SKIN_COUNTER: return WOOD_INK_DIM
+		SKIN_BOX: return BOX_INK_DIM
+	return INK_DIM
+
+
+## The base colour of the room's ground, under everything.
+##
+## Exposed because a row's own colour can be translucent - the book's rows are
+## a 10% wash over paper - so anything reasoning about contrast has to composite
+## them rather than read the raw value.
+func _ground() -> Color:
+	match _skin:
+		SKIN_PAPER: return PAPER_WARM
+		SKIN_COUNTER: return WOOD_DARK
+		SKIN_BOX: return BOX_METAL
+	return PAPER
+
+
+## The ground a row sits on, and its pressed state.
+func _row_bg(enabled: bool) -> Color:
+	match _skin:
+		SKIN_PAPER:
+			return Color(0.34, 0.28, 0.20, 0.10 if enabled else 0.05)
+		SKIN_COUNTER:
+			# A shelf slat: lighter than the counter behind it, so each item
+			# looks like it is standing ON something.
+			return WOOD_SLAT if enabled else WOOD_SLAT.darkened(0.30)
+		SKIN_BOX:
+			return BOX_TRAY if enabled else BOX_TRAY.darkened(0.25)
+	return PANEL if enabled else Color(0.11, 0.115, 0.12)
+
+
+func _set_skin(kind: String) -> void:
+	_skin = kind
+	_paper(kind == SKIN_PAPER)
+
+
 ## Turn the room's ground into a sheet of paper, or back into a panel.
 func _paper(on: bool) -> void:
 	if _paper_bg != null:
-		_paper_bg.visible = on
+		# Visible for every skin that draws a ground - only the plain PANEL has
+		# none. The flag is `on` for paper for historical reasons; what it really
+		# asks is "does this room draw itself".
+		_paper_bg.visible = _skin != SKIN_PANEL
+		_paper_bg.queue_redraw()
 	# The way out has to belong to the room it is in. A charcoal panel across the
 	# foot of a page of paper is the one thing that says "this is a menu" after
 	# all the work to say it is a book.
 	if _back != null:
+		# The way out belongs to the room it is in, for every skin. A charcoal
+		# panel across the foot of a page - or a counter, or a tackle box - is
+		# the single thing that says "this is a menu" after all the work to say
+		# it is an object.
 		var box := StyleBoxFlat.new()
-		box.bg_color = Color(0.34, 0.28, 0.20, 0.16) if on else PANEL
 		box.set_corner_radius_all(6)
 		box.set_content_margin_all(18)
-		if on:
-			box.border_color = Color(0.30, 0.25, 0.18, 0.40)
-			box.set_border_width_all(2)
+		var words := "Back to the boat"
+		match _skin:
+			SKIN_PAPER:
+				box.bg_color = Color(0.34, 0.28, 0.20, 0.16)
+				box.border_color = Color(0.30, 0.25, 0.18, 0.40)
+				box.set_border_width_all(2)
+				words = "Shut the book"
+			SKIN_COUNTER:
+				box.bg_color = WOOD_SLAT.darkened(0.15)
+				box.border_color = Color(0.06, 0.04, 0.02, 0.55)
+				box.border_width_top = 2
+				box.border_width_bottom = 3
+				words = "Back to the water"
+			SKIN_BOX:
+				box.bg_color = BOX_TRAY
+				box.border_color = BOX_RIM
+				box.border_width_bottom = 2
+				words = "Shut the lid"
+			_:
+				box.bg_color = PANEL
 		_back.add_theme_stylebox_override("normal", box)
 		_back.add_theme_stylebox_override("hover", box)
 		_back.add_theme_stylebox_override("disabled", box)
 		var press := box.duplicate() as StyleBoxFlat
-		press.bg_color = Color(0.34, 0.28, 0.20, 0.34) if on else Color(0.20, 0.22, 0.22)
+		press.bg_color = box.bg_color.lightened(0.18)
 		_back.add_theme_stylebox_override("pressed", press)
-		_back.add_theme_color_override("font_color", PAPER_INK if on else INK)
-		_back.add_theme_color_override("font_disabled_color", PAPER_INK if on else DEAD)
-		_back.add_theme_color_override("font_pressed_color", PAPER_INK if on else INK)
-		_back.add_theme_color_override("font_hover_color", PAPER_INK if on else INK)
-		_back.text = "Shut the book" if on else "Back to the boat"
+		for slot in ["font_color", "font_disabled_color", "font_pressed_color", "font_hover_color"]:
+			_back.add_theme_color_override(slot, _ink())
+		_back.text = words
 	# The type has to change colour with the ground, or it is ink on a shadow.
-	_title.add_theme_color_override("font_color", PAPER_INK if on else INK)
-	_purse.add_theme_color_override("font_color",
-		Color(0.42, 0.31, 0.12) if on else COIN)
+	_title.add_theme_color_override("font_color", _ink())
+	var purse := COIN
+	if _skin == SKIN_PAPER:
+		purse = Color(0.42, 0.31, 0.12)
+	elif _skin == SKIN_COUNTER:
+		purse = Color(0.94, 0.80, 0.44)
+	_purse.add_theme_color_override("font_color", purse)
 
 
 func _build_paper() -> void:
@@ -779,11 +920,79 @@ func _build_paper() -> void:
 	# siblings in order.
 	_root.add_child(_paper_bg)
 	_root.move_child(_paper_bg, 1)
-	_paper_bg.draw.connect(_draw_paper)
+	_paper_bg.draw.connect(_draw_ground)
 
 
 ## The sheet: a warm ground, a darker gutter down the binding edge, stitching,
 ## and a soft edge shadow so it reads as a page rather than as a fill.
+func _draw_ground() -> void:
+	match _skin:
+		SKIN_PAPER: _draw_paper()
+		SKIN_COUNTER: _draw_counter()
+		SKIN_BOX: _draw_box()
+
+
+## THE COUNTER. Old varnished planks running across, worn pale where a hundred
+## years of forearms have rested on the edge nearest the customer.
+func _draw_counter() -> void:
+	var w := _paper_bg.size.x
+	var h := _paper_bg.size.y
+	_paper_bg.draw_rect(Rect2(0, 0, w, h), WOOD_DARK)
+
+	# Planks, with a dark seam and a light top edge on each - which is the whole
+	# trick for making a flat fill read as boards.
+	var plank := h / 9.0
+	for i in 10:
+		var y := plank * float(i)
+		var shade := 0.90 + SimUtil.hash2(i, 7) * 0.22
+		_paper_bg.draw_rect(Rect2(0, y, w, plank - 2.0),
+			Color(WOOD_DARK.r * shade, WOOD_DARK.g * shade, WOOD_DARK.b * shade))
+		_paper_bg.draw_rect(Rect2(0, y, w, 1.5), Color(0.44, 0.33, 0.21, 0.5))
+		_paper_bg.draw_rect(Rect2(0, y + plank - 2.0, w, 2.0), Color(0.05, 0.03, 0.02, 0.55))
+		# Grain: a few long strokes per plank.
+		for g in 5:
+			var gy := y + plank * (0.18 + 0.62 * SimUtil.hash2(i * 7 + g, 13))
+			var gx := w * SimUtil.hash2(i * 5 + g, 17) * 0.6
+			_paper_bg.draw_rect(Rect2(gx, gy, w * (0.18 + 0.3 * SimUtil.hash2(g, 3)), 1.0),
+				Color(0.10, 0.06, 0.03, 0.22))
+
+	# The worn edge along the bottom, where people lean.
+	for i in 16:
+		var t := float(i) / 15.0
+		_paper_bg.draw_rect(Rect2(0, h - 90.0 * t, w, 6.0),
+			Color(0.52, 0.41, 0.28, 0.05 * (1.0 - t)))
+
+
+## THE TACKLE BOX, from above: painted metal with the paint gone at the corners,
+## and a seam across the top where the lid closes.
+func _draw_box() -> void:
+	var w := _paper_bg.size.x
+	var h := _paper_bg.size.y
+	_paper_bg.draw_rect(Rect2(0, 0, w, h), BOX_METAL)
+
+	# The lid seam, and the hinge knuckles along it.
+	# Below the title rule, not through it.
+	var seam := h * 0.105
+	_paper_bg.draw_rect(Rect2(0, seam, w, 3.0), Color(0.06, 0.08, 0.07, 0.85))
+	_paper_bg.draw_rect(Rect2(0, seam + 3.0, w, 2.0), Color(0.50, 0.55, 0.51, 0.30))
+	for i in 5:
+		var hx := w * (0.12 + 0.19 * float(i))
+		_paper_bg.draw_rect(Rect2(hx, seam - 9.0, 46.0, 20.0), BOX_RIM.darkened(0.2))
+
+	# Rivets in the corners.
+	for c in [Vector2(30, 26), Vector2(w - 30, 26), Vector2(30, h - 26), Vector2(w - 30, h - 26)]:
+		_paper_bg.draw_circle(c, 9.0, BOX_RIM)
+		_paper_bg.draw_circle(c, 4.0, BOX_METAL.darkened(0.3))
+
+	# Paint worn off the edges, which is what stops it looking like a swatch.
+	for i in 20:
+		var t := float(i) / 19.0
+		var a := 0.05 * (1.0 - t)
+		_paper_bg.draw_rect(Rect2(0, 0, 5.0 + 40.0 * t, h), Color(0.55, 0.58, 0.54, a))
+		_paper_bg.draw_rect(Rect2(w - 5.0 - 40.0 * t, 0, 5.0 + 40.0 * t, h),
+			Color(0.55, 0.58, 0.54, a))
+
+
 func _draw_paper() -> void:
 	var w := _paper_bg.size.x
 	var h := _paper_bg.size.y
