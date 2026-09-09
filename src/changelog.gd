@@ -12,15 +12,19 @@ extends RefCounted
 ## refactored; one line each; newest first. Add this from day one. On an
 ## earlier game it arrived far too late to be as useful as it should have been.
 
-const VERSION := "0.1.0"
+const VERSION := "0.2.0"
 
 const RELEASES := [
 	{
-		"version": "0.1.0",
+		"version": "0.2.0",
 		"date": "2026-09-09",
-		"title": "An empty lake",
+		"title": "You can fish",
 		"notes": [
-			"The project exists and the gate is green. Nothing to fish for yet.",
+			"Hold anywhere to load the rod, let go to cast. Longer hold, longer cast.",
+			"Tap the moment it takes - you get less than half a second.",
+			"Drag the gauge on the right to fight it. Keep the line in the green band.",
+			"Pull too hard and the line parts; too little and it throws the hook.",
+			"Bluegill, yellow perch and largemouth bass, in a reed bay at dawn.",
 		],
 	},
 ]

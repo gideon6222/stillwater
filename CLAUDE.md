@@ -1,15 +1,18 @@
-# Godot phone-game template
+# Stillwater
 
-The proving stack for Gideon's native Android games: a Godot 4 project with headless
-tests, a whole-run golden, a size guard, CI, and an APK that installs on the phone.
+A fishing game for Android, built in Godot 4 on the phone-game stack: a pure simulation core,
+headless tests, a whole-run golden, a size guard, CI, and an APK that installs on the phone.
 
-**This is not a game.** It is the thing a game is copied from. It contains just enough
-playable content — a track, something to dodge, something to collect — for the tests to
-have something real to assert about.
+It starts on a calm lake at dawn and becomes deeply unsettling. **Depth is time** — the lake
+does not go down, it goes back — and the line upgrade IS the story progression, which is the
+idea everything else hangs off.
 
-**Read `C:\dev\gamedev-notes` first** — `SKILL.md` (process), `CRAFT.md` (design lessons,
-all of which apply here; they are about games, not about JavaScript), `PIPELINE.md` (the
-web stack and the shared principles), `ASSETS.md`, `PLAYTESTS.md`.
+**Read `NOTES.md` in this repo before writing game code.** It has the design constraints the
+code has to honour, the measured balance, and the invariants specific to this game.
+
+**Read `C:\dev\gamedev-notes` too** — `SKILL.md` (process), `CRAFT.md` (design lessons, all of
+which apply here), `PIPELINE.md` (the stack and the measured limits), `ASSETS.md`,
+`PLAYTESTS.md`.
 
 ---
 
@@ -39,7 +42,7 @@ $godot = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Mi
 & $godot --headless --path . --import                                   # after adding files
 & $godot --headless --path . --script res://test/run_tests.gd           # pure tests, ~1s
 & $godot --headless --path . --script res://test/run_smoke.gd           # boots the real scene
-& $godot --headless --path . --export-debug "Android" build/godot-template.apk
+& $godot --headless --path . --export-debug "Android" build/stillwater.apk
 & $godot --headless --path . --script res://scripts/check_size.gd       # size guard
 & $godot --path .                                                        # open the editor
 ```
@@ -51,7 +54,8 @@ something to read.
 
 | File | What it is |
 |---|---|
-| `src/sim/sim.gd` | **The whole game, with no renderer in it.** |
+| `src/sim/sim.gd` | **The whole game, with no renderer in it.** The cast and fight state machine |
+| `src/sim/species.gd` | What lives in the water, as DATA. A species is a row, never a class |
 | `src/sim/tuning.gd` | Every number that shapes how it feels, plus the derived arithmetic |
 | `src/sim/util.gd` | `smooth`, `hash2`, `fmt` — pure, and the hash is load-bearing |
 | `src/sim/rng.gd` | A seeded stream for values that decide *when* something happens |
@@ -61,28 +65,15 @@ something to read.
 | `src/changelog.gd` | `VERSION` and the player-facing history |
 | `test/policies.gd` | Scripted players. **The definition of "playing well"** |
 | `test/run_tests.gd` | Pure tests. No node, no viewport, no GPU |
-| `test/run_smoke.gd` | Boots the real scene and plays it |
-| `test/run_probe.gd` | Balance readings over several levels. Prints; never fails |
+| `test/run_smoke.gd` | Boots the real scene and catches a fish through it |
+| `test/run_probe.gd` | Balance readings over several seeds. Prints; never fails |
+| `test/record_golden.gd` | Regenerates the golden. **Read the diff before pasting it in** |
 | `test/harness.gd` | The assertions. Deliberately small — see NOTES.md |
 | `scripts/shot.gd` | Screenshot of the real game, at the PHONE's aspect ratio |
 | `scripts/check_size.gd` | APK size guard, fails in both directions |
 | `scripts/stamp.ps1` | Writes the build stamp from git |
 
-## Copying this to start a game
-
-```powershell
-Copy-Item -Recurse C:\dev\godot-template C:\dev\<game>
-Remove-Item -Recurse -Force C:\dev\<game>\.git, C:\dev\<game>\.godot, C:\dev\<game>\android, C:\dev\<game>\build
-```
-
-Then `git init`, and rename in five places: `project.godot` (`config/name`,
-`config/description`), `export_presets.cfg` (`package/unique_name`, `package/name`, and BOTH
-`export_path` lines), `README.md`, `CLAUDE.md`, and `scripts/check_size.gd` (the APK path).
-Reset `src/changelog.gd` to 0.1.0 with a fresh entry. Ask Gideon to create an empty public
-repo and push into it; he does that part.
-
-**Do not grow this repo into a game.** Copy it and grow the copy, or the next game starts
-from something already shaped by the last one.
+## Signing
 
 **Set `ANDROID_DEBUG_KEYSTORE_B64` as a repository secret** from
 `C:\dev\toolchain\debug.keystore`, base64-encoded, before the second build matters. CI
@@ -116,10 +107,17 @@ to update the app in place.
   perfectly and nothing is drawn. `run_smoke.gd` compares the count against the model.
 - **Freeze before advancing** in any harness, or results move with the speed of the
   machine.
-- **A finished level must start the next one.** `level_finished` has to be connected to
-  something that clears `over`. A game built from an earlier version of this template did not
-  connect it, `advance()` returned early forever, and it froze with a live HUD - which is a
-  crash as far as the player is concerned. `run_smoke.gd` drives through the boundary.
+- **There is always a way back to a cast** — from a landed fish, from a lost one, and from a
+  dead cast sitting on the bottom. A game built from an earlier version of this template froze
+  at a level boundary because nothing cleared `over`, and to the person holding the phone that
+  is indistinguishable from a crash. `run_smoke.gd` drives THROUGH each terminal state rather
+  than stopping at it, because a suite that always stops where the content stops cannot see
+  past the end of the content.
+- **A species is a row in `Species.TABLE`, never a class or a scene**, and **every row must be
+  reachable at a real fishing depth.** The lure sinks to the bed, so a species whose range sits
+  entirely above it can never be caught — it is in the table, it is a blank page in the
+  logbook, and no play will ever fill it in. The bluegill shipped that way for an hour with
+  every subsystem working perfectly. `test_tuning.gd` asserts it.
 - **Nothing in the HUD may be positioned against a literal screen size.** The project
   stretches with `aspect = "expand"`, so the canvas is about 1080x2340 on the phone and not
   1080x1920. Anchor to a full-rect `Control`, and let every interactive control own its input

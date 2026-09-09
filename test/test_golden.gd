@@ -1,106 +1,194 @@
 extends RefCounted
 
-## THE important one.
+## The whole-run golden.
 ##
-## The simulation is deterministic given a level: spawning is keyed on
-## (chunk, level) through the hash, and nothing consults randf() or a real
-## clock. So twenty simulated seconds produce the same numbers on every
-## machine, every time.
+## Five scripted sessions, each played to the last step, with every field of the
+## final state asserted at once. This is the single strongest test in the repo
+## and the reason the simulation has no renderer in it: on a sibling game the
+## genre changed three times in one day and this test came across every time,
+## which is worth more than any individual assertion in the suite.
 ##
-## That makes a golden test over the *whole game* possible, which is a far
-## stronger safety net than testing any single function - and it is what makes
-## a large refactor safe to attempt at all. Record it before changing anything,
-## never after.
+## **Regenerate with `test/record_golden.gd`, and read the diff before pasting
+## it in.** A golden is only worth having if changing it is a decision. It has
+## already earned that: the first recording showed a session sitting in
+## `waiting` with `slip: 1.0` and a species still named, which was stale state
+## leaking through a cast made straight out of a loss - a bug no assertion in
+## the suite was looking for and that nothing on screen would have shown.
 ##
-## Two runs are recorded, not one, and the pair is the point. `PASSIVE` is
-## never touching the screen; `DODGING` is a scripted policy that steers away
-## from whatever is in front of it. A change that only moves one of them says
-## something a single golden could not: if passive moves and dodging does not,
-## spawning changed; if dodging moves and passive does not, steering or
-## collision did.
+## Compared with `TestHarness.FLOAT_EPS` rather than exact equality. `snappedf`
+## does not round-trip through a source literal, so an exact golden over floats
+## is unpassable by construction; and these are recorded on Windows and checked
+## on a Linux runner, where identical IEEE arithmetic across two toolchains is
+## something people assume rather than something promised.
+
+const GOLDEN := [
+	{
+		"policy": "angler",
+		"seconds": 60.0,
+		"seed": 1,
+		"expect": {
+			"cast_distance": 12.609000,
+			"casts": 5,
+			"caught": 4,
+			"draws": 570,
+			"fish_distance": 9.759000,
+			"fish_id": "perch",
+			"fish_stamina": 0.569000,
+			"lost": 0,
+			"lure_depth": 4.000000,
+			"seconds": 60.000000,
+			"slip": 0.000000,
+			"state": "fighting",
+			"stress": 0.000000,
+			"tension": 0.583000,
+			"total_weight": 3.062000,
+		},
+	},
+	{
+		"policy": "angler",
+		"seconds": 60.0,
+		"seed": 4,
+		"expect": {
+			"cast_distance": 12.609000,
+			"casts": 6,
+			"caught": 5,
+			"draws": 497,
+			"fish_distance": 12.609000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
+			"lost": 0,
+			"lure_depth": 0.326000,
+			"seconds": 60.000000,
+			"slip": 0.000000,
+			"state": "sinking",
+			"stress": 0.000000,
+			"tension": 0.000000,
+			"total_weight": 1.492000,
+		},
+	},
+	{
+		"policy": "masher",
+		"seconds": 60.0,
+		"seed": 1,
+		"expect": {
+			"cast_distance": 12.609000,
+			"casts": 7,
+			"caught": 0,
+			"draws": 731,
+			"fish_distance": 12.059000,
+			"fish_id": "bluegill",
+			"fish_stamina": 0.920000,
+			"lost": 6,
+			"lure_depth": 4.000000,
+			"seconds": 60.000000,
+			"slip": 0.000000,
+			"state": "fighting",
+			"stress": 0.029000,
+			"tension": 1.103000,
+			"total_weight": 0.000000,
+		},
+	},
+	{
+		"policy": "idle_hands",
+		"seconds": 60.0,
+		"seed": 1,
+		"expect": {
+			"cast_distance": 12.609000,
+			"casts": 6,
+			"caught": 0,
+			"draws": 674,
+			"fish_distance": 12.609000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
+			"lost": 5,
+			"lure_depth": 4.000000,
+			"seconds": 60.000000,
+			"slip": 0.000000,
+			"state": "waiting",
+			"stress": 0.000000,
+			"tension": 0.000000,
+			"total_weight": 0.000000,
+		},
+	},
+	{
+		"policy": "timid",
+		"seconds": 60.0,
+		"seed": 1,
+		"expect": {
+			"cast_distance": 12.609000,
+			"casts": 3,
+			"caught": 0,
+			"draws": 338,
+			"fish_distance": 7.400000,
+			"fish_id": "bass",
+			"fish_stamina": 0.167000,
+			"lost": 2,
+			"lure_depth": 4.000000,
+			"seconds": 60.000000,
+			"slip": 0.238000,
+			"state": "fighting",
+			"stress": 0.000000,
+			"tension": 0.423000,
+			"total_weight": 0.000000,
+		},
+	},
+]
+
+
+func test_every_recorded_session_replays_exactly(t: TestHarness) -> void:
+	for case in GOLDEN:
+		var policy: String = case["policy"]
+		var seconds: float = case["seconds"]
+		var seed_value: int = case["seed"]
+		var expect: Dictionary = case["expect"]
+		var actual := Policies.play(policy, seconds, seed_value)
+		t.dict_eq(actual, expect,
+			"%s on seed %d no longer plays the session it was recorded from" % [policy, seed_value])
+
+
+## The balance claims the golden numbers are worth having ONLY if they hold.
 ##
-## The numbers were recorded, not designed. If a deliberate balance change
-## moves them, re-record them in the same commit and say so in the message. A
-## change to rendering, layout, input or the build must not touch them - if it
-## does, something has leaked into the simulation.
-
-const SECONDS := 20.0
-
-## Never touches the screen: runs straight down the middle and is dead before
-## twenty seconds are up, with three lives spent and the level unfinished.
-const PASSIVE := {
-	"level": 1, "lives": 0, "score": 40, "distance": 238.8, "x": 0.0,
-	"obstacles": 7, "pickups": 3, "over": true, "won": false,
-}
-
-## The same twenty seconds played by the dodging policy: still alive, one life
-## lost, further up the track. Same score, because the policy dodges and does
-## not go out of its way for pickups - which is honest, and is why `score` is
-## not the field these two are separated on.
-const DODGING := {
-	"level": 1, "lives": 2, "score": 40, "distance": 240.0, "x": 2.6,
-	"obstacles": 7, "pickups": 3, "over": false, "won": false,
-}
+## A golden proves the game did not change. It says nothing about whether the
+## game is any good, and a golden recorded from a broken build is a broken build
+## defended by a test. These are the properties that make those numbers mean
+## something, asserted separately so a failure says which one went.
+func test_only_the_angler_catches_anything(t: TestHarness) -> void:
+	for case in GOLDEN:
+		var policy: String = case["policy"]
+		var expect: Dictionary = case["expect"]
+		var caught: int = expect["caught"]
+		if policy == "angler":
+			t.gt(float(caught), 0.0, "the angler catches nothing - the game is unwinnable")
+		else:
+			t.eq(caught, 0,
+				"%s catches fish without tracking the band, so the fight is decoration" % policy)
 
 
-## Asserted directly, and separately from the goldens below, so that when they
-## fail together it is obvious which is the cause. A golden mismatch with this
-## passing is a real behaviour change; a golden mismatch with this failing is
-## not the golden's fault.
-func test_the_same_twenty_seconds_replays_identically(t: TestHarness) -> void:
-	t.dict_eq(_play(false), _play(false), "two passive runs differed - the simulation is not deterministic")
-	t.dict_eq(_play(true), _play(true), "two dodging runs differed - the simulation is not deterministic")
+func test_each_failing_policy_fails_for_a_different_reason(t: TestHarness) -> void:
+	# If two of them post the same numbers, one is not testing anything - and
+	# that is the single most useful signal the policy set produces.
+	var masher := Policies.play(Policies.MASHER, 60.0, 1)
+	var idle := Policies.play(Policies.IDLE_HANDS, 60.0, 1)
+	var timid := Policies.play(Policies.TIMID, 60.0, 1)
+
+	t.gt(float(masher["lost"]), 0.0, "the masher never loses a fish")
+	t.gt(float(idle["lost"]), 0.0, "idle hands never lose a fish")
+	t.gt(float(timid["lost"]), 0.0, "the timid player never loses a fish")
+
+	# The masher breaks lines fast, so it gets through more fish than the timid
+	# player, who holds on for a long time before the hook works loose. Same
+	# outcome, different mistake, and the counts have to show it.
+	t.gt(float(masher["lost"]), float(timid["lost"]),
+		"pulling too hard and pulling too little now fail at the same rate")
 
 
-func test_never_touching_the_screen_is_unchanged(t: TestHarness) -> void:
-	_check(t, _play(false), PASSIVE, "PASSIVE")
-
-
-func test_a_dodging_run_is_unchanged(t: TestHarness) -> void:
-	_check(t, _play(true), DODGING, "DODGING")
-
-
-## Playing well must beat not playing. Recorded goldens pin the numbers; this
-## pins the *relationship*, so re-recording carelessly cannot quietly accept a
-## game where steering stopped mattering. That has happened: on another game
-## here, four completely different play styles scored identically and it took a
-## measurement to notice.
-func test_dodging_beats_standing_still(t: TestHarness) -> void:
-	var passive := _play(false)
-	var dodging := _play(true)
-	t.gt(dodging["distance"], passive["distance"],
-		"steering got no further than never touching the screen - dodging is decoration")
-
-
-func _check(t: TestHarness, actual: Dictionary, expected: Dictionary, label: String) -> void:
-	if expected.is_empty():
-		# Print rather than pass silently, so a baseline is never recorded by
-		# accident. A golden you have never seen fail is one you do not know
-		# works.
-		print("")
-		print("  %s NOT YET RECORDED. Paste into test_golden.gd:" % label)
-		print("  const %s := %s" % [label, str(actual)])
-		print("")
-		t.ok(false, "no %s golden recorded yet - see the printed state above" % label)
-		return
-	t.dict_eq(actual, expected, "the simulation changed (%s)" % label)
-
-
-## `dodge` picks the emptier half of the lane based on the nearest obstacle
-## ahead. Deliberately crude: a policy with any cleverness in it becomes a
-## second thing that can change, and then a golden failure means "the bot got
-## better" as often as "the game changed".
-func _play(dodge: bool) -> Dictionary:
-	var s := Sim.new()
-	var step := 1.0 / 60.0
-	var n := int(round(SECONDS / step))
-	for i in n:
-		if dodge:
-			var danger := 0.0
-			for o in s.obstacles:
-				if not o.taken and o.z > s.distance and o.z < s.distance + 14.0:
-					danger = o.x
-					break
-			s.steer_to(-Tuning.LANE_HALF_WIDTH if danger > 0.0 else Tuning.LANE_HALF_WIDTH)
-		s.advance(step)
-	return s.state()
+func test_the_angler_beats_every_other_policy_on_every_seed(t: TestHarness) -> void:
+	# If the bot that reads the gauge ever loses to one that ignores it, the bot
+	# is wrong before the game is - and a balance pass built on that measurement
+	# is built on nothing.
+	for seed_value in [1, 2, 3, 4, 5, 6]:
+		var best := Policies.play(Policies.ANGLER, 90.0, seed_value)
+		for other in [Policies.MASHER, Policies.IDLE_HANDS, Policies.TIMID]:
+			var r := Policies.play(other, 90.0, seed_value)
+			t.gt(float(best["caught"]), float(r["caught"]) - 0.5,
+				"%s matches the angler on seed %d" % [other, seed_value])

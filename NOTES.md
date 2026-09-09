@@ -1,131 +1,115 @@
-# Notes — Godot phone-game template
+# Notes — Stillwater
 
-Decisions specific to this repo, and what to do next in it. General lessons belong in
+Decisions specific to this game, and what to do next in it. General lessons belong in
 `C:\dev\gamedev-notes`, not here.
 
-## Why this exists
+## What this game is
 
-Gideon's games were PWAs: Vite, TypeScript, three.js, served from GitHub Pages. That stack
-works and two games ship on it. The move to Godot is to get **native Android** — a real
-Play Store listing, Play Games Services, in-app purchases if ever wanted, no WebView
-ceiling, and no practical limit on asset size, which is what makes pre-made models and
-audio viable at all.
+A fishing game that starts on a calm lake at dawn and becomes deeply unsettling. The full
+design plan is a published document Gideon holds; the parts the code has to honour are here.
 
-The decision was explicitly *not* to preserve the code. What had to survive was the
-knowledge: the design lessons, and the method. So this repo is the method rebuilt on a new
-engine — pure simulation core, headless golden test, size guard, CI gate, build stamp,
-changelog — and the first job was to prove each piece actually works here before any game
-is committed to it.
+**The one structural idea: depth is time.** The lake does not go down, it goes back. Four
+metres is this year's weed; forty is a road tarred in 1931; eighty is rooftops. The fish and
+the objects age together, because they are what lived here *then*. The game never says so — the
+sounder gives a number, the junk carries dates, and the player does the arithmetic.
 
-## What is proven, as of 2026-09-08
+What that buys, and the reason to protect it: **the line upgrade IS the story progression.**
+Buying 40 lb braid is not "more power", it is reaching back another forty years. There is no
+second progression system to balance against the first, because there is only one. Any feature
+that adds a parallel ladder is working against the whole design.
 
-The whole chain, end to end, with nothing left on trust:
+**Money cannot buy the bottom.** Below 80 m the hook needs an *offering* — an object you fished
+up and chose not to sell — and there is a finite number of them. So a player who ignores the
+story caps out at 40 m with a full wallet. That is the "what happens if they ignore this?" test
+passing: the answer is not "they score less", it is "they cannot continue".
 
-- Godot 4.7.2 runs headless on Windows and exits non-zero on a failed script.
-- 28 pure tests, ~4,400 assertions, about a second, no display.
-- A whole-run golden over two policies (passive and dodging), **verified by deliberately
-  breaking it**: changing one tuning constant made it fail and name the exact field.
-- A smoke test that boots the real scene headlessly and compares drawn instances against
-  the model.
-- A signed 26.98 MB debug APK, exported from the command line.
-- A size guard that fails in both directions.
-- **CI green on a real runner** — tests, toolchain discovery, stamp, export, size guard,
-  and an APK attached to a GitHub Release.
-- **Installed and running on the S26 Ultra.** Vulkan 1.4.295, Forward Mobile, Adreno 840.
-  `dumpsys gfxinfo` over the first 44 frames: **50th/90th/95th percentile all 5 ms**, one
-  janky frame, GPU 1 ms at the median. On a placeholder scene, so it measures the engine
-  and the pipeline rather than a game — but it is the number to compare future ones to.
-- The stamp on the phone read back the exact commit that had just been pushed, which is
-  the whole point of it.
+## What is proven, as of 2026-09-09 (v0.2.0, M1)
 
-## The test harness is hand-written, deliberately
+- The fresh template copy passed its own gate before a line of game code — 28 tests, 4,410
+  assertions — so nothing that fails from here is inherited.
+- Cast → hook → fight → land, end to end, through the real scene and the real input seam.
+- 46 tests, 5,826 assertions, about a second, no display. Plus 33 smoke assertions that boot
+  the actual scene and catch a whole fish through it.
+- A whole-run golden over five scripted sessions, which has already earned its place: the first
+  recording exposed stale fish state leaking through a cast made straight out of a loss.
+- Screenshot at the phone's real aspect (460x996), not the project base.
 
-`test/harness.gd` is about a hundred lines rather than GUT or gdUnit4. Both of those are
-good and either would be a reasonable swap. The reason for not using them on day one was
-to prove the *pipeline* — headless run, real assertions, non-zero exit, CI gate — with
-nothing to download and no chance of an addon lagging an engine release.
+## The fight, and why it is built this way
 
-**The signal to switch** is the harness growing doubles, mocks, parameterised tests or
-scene-testing helpers. At that point it is reimplementing GUT badly and should be replaced
-by it.
+**The band is FIXED and the fish pushes tension around it.** Staying inside means giving line
+when it surges and taking it back when it rests. A band centred on the fish would need one
+constant thumb position and would not be a mechanic at all — that was the first model, and it
+was discarded on paper before it was written.
 
-## Two hours of the build were lifecycle, not logic
+**Rods change the WIDTH of the band and nothing else.** Not a damage number. That is legible in
+ten seconds of use, and it means buying a rod is felt on every species at once. A fish is hard
+because its surge is wide and its period short — never because its band is narrow, which is the
+rod's job.
 
-Worth knowing before writing any other headless harness in Godot:
+**The line is arithmetic, never a physics body.** Wrecking Crew earned this with a wrecking ball
+on a `PinJoint3D`: the moment an outcome lives in the physics server it is at the mercy of the
+tick rate, and a whole-run golden becomes impossible. Rigid bodies are for things that decide
+nothing.
 
-- `root.add_child(node)` inside `SceneTree._initialize()` does **not** run `_ready`, and
-  does not put the node in the tree until the first processed frame. Symptom: seven
-  hundred identical `Nonexistent function 'advance' in base 'Nil'` errors and a run that
-  never terminates. Fix: an idempotent `_ensure_booted()` rather than a rule about call
-  order, because a rule about call order is something every future test has to remember.
-- `Node3D.look_at` errors when the node is not inside the tree — which is that same case.
-  `Transform3D.looking_at` is pure maths and works anywhere. The scene now uses it and is
-  better for it.
+**The gauge draws the state, not the input.** Band, live tension, and where the thumb is asking
+for, on one track. The gap between the last two is the rod's give. Wrecking Crew's crane dial is
+the precedent: a control that shows the state lets the player read their own aim without looking
+away from it.
 
-## What the first real game built from this taught it
+## Balance, measured 2026-09-09
 
-Wrecking Crew was the first game copied out of here, on 2026-09-08. It changed genre three
-times in a day - a lane runner, then a crane-aiming runner, then a demolition game in a
-parking basement - and **the test suite came across every time**, which is the entire return
-on the pure-simulation rule and is worth more than any individual test in it.
+Six seeds, ninety-second sessions, from `test/run_probe.gd`:
 
-Everything below was folded back in afterwards, and each one is here because it cost
-something the first time:
+| policy | caught | lost | what it proves |
+|---|---|---|---|
+| `idle_hands` | 0.00 | 8.00 | the fight is a mechanic, not decoration |
+| `masher` | 0.00 | 9.83 | pulling flat out is a real mistake, and a fast one |
+| `timid` | 0.00 | 3.67 | the band has a bottom; failing slowly is still failing |
+| `angler` | **6.83** | **0.00** | it is winnable by reading the gauge |
 
-- **`Sim.next_level()` and the interlude in `main.gd`.** The template emitted
-  `level_finished` and connected nothing to it, so the first game built from it shipped a
-  hard freeze at the end of level one. `run_smoke.gd` now drives through that boundary.
-- **The anchored HUD pattern**, and a thumb pad already wired up in the file so the pattern
-  is present rather than described. Controls laid out against a literal 1920 landed hundreds
-  of pixels off on a 19.5:9 phone.
-- **`TestHarness.FLOAT_EPS`.** A golden over floats cannot use exact equality.
-- **`test/policies.gd` and `test/run_probe.gd`.** Scripted players as a first-class file, and
-  a balance probe that prints and cannot fail. The rule that came with them: every policy must
-  fail for a DIFFERENT reason, and if the one that reads the level loses to the one that
-  ignores it, fix the bot before touching a constant.
-- **`scripts/shot.gd`**, which is the only tool here that can tell you the picture is wrong -
-  and it has to render at the phone's aspect ratio, not the project's base one.
+Fight lengths from a full 22 m cast: bluegill 7.9 s, perch 9.6 s, bass 17.5 s. At the bot's
+actual cast distance (12.6 m) those are roughly 4.5 s and 10 s.
 
-Two things it also proved that are not code:
+**The number to watch is the angler losing zero.** A perfect proportional controller is not a
+thumb, so this is not necessarily a difficulty problem — but if Gideon reports the fight is too
+easy, that column is where it was already visible, and the lever is `surge` and `period` per
+species rather than the band.
 
-- **The asset rules changed.** "Nothing modelled is worth importing" was written when every
-  kilobyte was a download over mobile data. A native APK has no such constraint: an HDRI and
-  a concrete PBR set cost 1.6 MB and took the APK from 27.1 to 29.7. See `ASSETS.md`.
-- **Physics may be cosmetic and nothing else.** Mobile guidance is 10-20 active rigid bodies,
-  so structure, collapse and any pendulum stay as arithmetic in `src/sim/`. That is also what
-  keeps the whole-run golden possible.
+## Open, in rough priority order
 
-## Known gaps / next
+1. **Does the fight feel good?** Everything else is downstream of ninety seconds with a thumb on
+   the gauge. Nothing else should be built until that is answered.
+2. The boat is three boxes and the fish is a sphere with two prisms. Both are deliberate for M1
+   — see the asset rule — but the fish generator (spine, swept rib profile, fin set) is the next
+   real piece of art work, because species is data and the wrong ones in Act III are the same
+   generator with wrong numbers.
+3. The water is a four-wave Gerstner sum with an analytic depth term that is currently one
+   constant. When the bed becomes a heightfield, the sim uploads the field it already uses for
+   the fish and the shader samples that — **do not reach for `DEPTH_TEXTURE`**, it is corrupt on
+   Forward Mobile with MSAA and the simulation already owns the answer.
+4. No sound at all yet. The plan is offline-generated WAVs committed to the repo; the reel click
+   is the workhorse and is what will make reeling feel physical.
+5. `ANDROID_DEBUG_KEYSTORE_B64` is not yet set as a repository secret. Until it is, every CI
+   build is signed with a throwaway key and **Android will refuse to update the installed app** —
+   each build has to be uninstalled before the next one will go on.
 
-1. **Target API level is whatever the prebuilt export template targets.** Play requires
-   API 36 for new apps and updates from 31 August 2026. Verify with
-   `aapt dump badging build/*.apk | grep targetSdk` before any store submission, and turn
-   on `gradle_build/use_gradle_build` if it needs overriding.
-2. **The game is a placeholder.** A track, one obstacle kind, one pickup kind. It exists
-   so the golden has something to be golden about. Do not grow it — copy the repo and
-   grow the copy.
-3. **No release keystore.** The debug key is fine for sideloading and for internal
-   testing; a Play production release needs a real upload key, and Play App Signing
-   should be enabled so losing it is recoverable.
-4. **CI generates a throwaway debug key every run** unless `ANDROID_DEBUG_KEYSTORE_B64` is
-   set as a repository secret, so every build is signed differently and Android refuses to
-   update an installed app in place. **Set it on every new repo**; it is two minutes and the
-   alternative is uninstalling the game between builds. Verified working on Wrecking Crew.
-5. **No audio, and it is the biggest gap.** Kenney's URLs are not guessable and freesound
-   needs an API key - both re-checked 2026-09-08 - so neither CC0 library can be fetched
-   unattended. The route that works is generating WAVs offline with a short Python script
-   and committing them to `assets/`. See `assets/README.md`.
+## Invariants specific to this game
 
-## Shipping, when there is something to ship
-
-Direct APK is the fast path: CI attaches a signed APK to a GitHub Release, tap the link
-on the phone, install. Note that Google's developer verification is rolling out — the
-free limited-distribution tier covers up to 20 authorised devices at no cost, which is
-the right tier for one phone and a few friends.
-
-Play needs: the $25 account, developer verification, Play App Signing, the app content
-declarations, and then — for a personal account created after November 2023 — a closed
-test with **12 testers opted in for 14 continuous days** before production access. The
-internal testing track takes up to 100 testers with no review wait and is the fastest way
-to get a build onto the phone through Play, but it does **not** count toward that 14-day
-requirement.
+- **`src/sim/` may not reference a Node, a Viewport, an input event or a real frame.**
+- **A species is a row in `Species.TABLE`, never a class or a scene.** The wrong fish in Act III
+  are the same generator with different numbers; anything that special-cases a species in code
+  breaks that before it is built.
+- **Every species must be reachable at a real fishing depth.** The lure sinks to the bed, so a
+  row whose range sits entirely above it can never be caught — it is in the table, it is a blank
+  page in the logbook, and no amount of play will ever fill it in. The bluegill shipped that way
+  for an hour with nothing reporting a fault. `test_tuning.gd` asserts it now.
+- **Every policy must fail for a different reason.** If two post the same numbers, one is not
+  testing anything. If the one that reads the gauge ever loses to one that ignores it, fix the
+  bot before touching a constant.
+- **There is always a way back to a cast.** From landed, from lost, and from a dead cast on the
+  bottom. A game built from an earlier template froze at a level boundary and it read to the
+  player as a crash.
+- **Nothing in the HUD may be positioned against a literal screen size**, and every interactive
+  control owns its own input through `_gui_input`.
+- **The rod tip is derived from the rod's transform**, never typed twice. A hand-copied tip
+  drifts the moment the rod is nudged, and the symptom is a line hanging in the air beside it.

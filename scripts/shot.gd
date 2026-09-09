@@ -41,10 +41,9 @@ func _initialize() -> void:
 	root.add_child(_main)
 	_main.freeze()
 
-	var mem := {}
 	var step := 1.0 / 60.0
 	for i in int(round(_seconds / step)):
-		Policies.steer(Policies.GREEDY, _main.sim, mem)
+		Policies.act(Policies.ANGLER, _main.sim, step)
 		_main.advance(step, step)
 
 

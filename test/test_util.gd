@@ -62,19 +62,57 @@ func test_hash_covers_the_whole_unit_interval_evenly(t: TestHarness) -> void:
 		t.approx(pct, 10.0, 1.5, "decile %d holds %.2f%% of samples" % [d, pct])
 
 
-## Every threshold the game actually compares a hash against, checked against
-## the source rather than against the spawn it produces.
+## Every threshold the game actually compares a drawn value against, checked
+## against the source rather than against the bites it produces.
+##
+## This is the test that guards the signed-shift bug. On a sibling game the hash
+## used signed shifts, so it could never return above 0.5 - which silently
+## disabled every mechanic whose roll compared against a threshold above a half,
+## with no error and nothing visibly missing. Here the value at risk is the
+## per-step bite probability, which is small, so the check has to run the other
+## way round: the draw must be BELOW it often enough for a bite to be possible
+## at all, and not so often that a bite is instant.
 func test_the_thresholds_the_game_uses_can_all_fire(t: TestHarness) -> void:
 	var fires := func(threshold: float) -> int:
+		var r := SimRng.new(11)
 		var hit := 0
-		for c in 200:
-			if SimUtil.hash2(c, 91) < threshold:
+		for i in 4000:
+			if r.next() < threshold:
 				hit += 1
 		return hit
-	t.gt(fires.call(Tuning.OBSTACLE_CHANCE), 60, "obstacles can never spawn")
-	t.gt(fires.call(Tuning.PICKUP_CHANCE), 50, "pickups can never spawn")
-	# and the inverse: a threshold must not fire every single time either
-	t.lt(fires.call(Tuning.PICKUP_CHANCE), 200, "pickups spawn in literally every chunk")
+
+	# The real number the simulation compares against, at the rate it runs.
+	var step := 1.0 / 60.0
+	var per_step := 1.0 - exp(-Tuning.BITE_CHANCE_PER_SEC * step)
+	t.gt(per_step, 0.0, "a bite is possible at all")
+	t.lt(per_step, 1.0, "a bite is not certain on the first step")
+	t.gt(float(fires.call(per_step)), 0.0, "the draw can land under the bite threshold")
+
+	# And the inverse: the stream must not sit permanently below a small
+	# threshold either, or every step would be a bite.
+	t.lt(float(fires.call(per_step)), 4000.0, "not every single step is a bite")
+
+	# The species weights are compared against a value scaled across their sum,
+	# so the top of the range has to be reachable or the rarest fish is
+	# unreachable - the same class of bug at the other end.
+	t.gt(_max_of_stream(3000), 0.97, "the stream reaches the top of its range")
+	t.lt(_min_of_stream(3000), 0.03, "and the bottom")
+
+
+func _max_of_stream(n: int) -> float:
+	var r := SimRng.new(5)
+	var hi := 0.0
+	for i in n:
+		hi = maxf(hi, r.next())
+	return hi
+
+
+func _min_of_stream(n: int) -> float:
+	var r := SimRng.new(5)
+	var lo := 1.0
+	for i in n:
+		lo = minf(lo, r.next())
+	return lo
 
 
 func test_a_seeded_stream_replays_and_two_seeds_differ(t: TestHarness) -> void:
