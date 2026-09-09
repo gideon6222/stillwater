@@ -3867,7 +3867,10 @@ func _build_shore() -> void:
 	# to read as a slope rather than a shelf.
 	var bank := MeshInstance3D.new()
 	var bm := BoxMesh.new()
-	bm.size = Vector3(26.0, 0.5, 11.0)
+	# LONG ENOUGH TO STAND ON. It was 11 m and the new-game camera starts at
+	# z = -26, which put the player wading toward their own gate across open
+	# lake. The bank has to reach behind the furthest shot in any sequence.
+	bm.size = Vector3(30.0, 0.5, 26.0)
 	bank.mesh = bm
 	var bank_mat := _mat(Color(0.20, 0.20, 0.17), 0.98)
 	var stone_n := load("res://assets/tex/stone_normal.jpg")
@@ -3878,7 +3881,7 @@ func _build_shore() -> void:
 		bank_mat.uv1_scale = Vector3(7.0, 3.0, 1.0)
 	bank.mesh = bm
 	bank.material_override = bank_mat
-	bank.position = Vector3(0.0, 0.12, SHORE_Z + 4.6)
+	bank.position = Vector3(0.0, 0.12, SHORE_Z - 6.0)
 	bank.rotation_degrees = Vector3(-2.6, 0, 0)
 	_shore.add_child(bank)
 
@@ -3968,7 +3971,10 @@ func _stone_mat() -> StandardMaterial3D:
 	var col := load("res://assets/tex/stone_color.jpg")
 	if col != null:
 		m.albedo_texture = col
-	m.albedo_color = Color(0.52, 0.53, 0.50)
+	# Pulled well off the map's own red. A warm brick reads as a garden wall in
+	# the Home Counties; this valley is quarried grey-green stone and the wall
+	# has to belong to the same place as the water in front of it.
+	m.albedo_color = Color(0.42, 0.45, 0.42)
 	var n := load("res://assets/tex/stone_normal.jpg")
 	if n != null:
 		m.normal_enabled = true
