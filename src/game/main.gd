@@ -26,7 +26,7 @@ var _boat: Node3D
 ## rod is nudged, and the symptom is a line hanging in the air beside it.
 var _rod_tip: Vector3 = Vector3(0.4, 1.0, 2.4)
 var _line: MeshInstance3D
-var _float: MeshInstance3D
+var _float: Node3D
 var _fish: Node3D
 var _ui: Control
 var _readout: Label
@@ -244,13 +244,7 @@ func _build_world() -> void:
 	_line.name = "Line"
 	add_child(_line)
 
-	_float = MeshInstance3D.new()
-	var fm := SphereMesh.new()
-	fm.radius = 0.075
-	fm.height = 0.24
-	_float.mesh = fm
-	_float.material_override = _mat(Color(0.86, 0.24, 0.18), 0.55)
-	_float.name = "Float"
+	_float = _build_float()
 	add_child(_float)
 
 	_fish = _build_fish()
@@ -493,53 +487,85 @@ func _build_boat() -> void:
 	# actually sees is the gunwale running away on both sides and converging at
 	# the bow, with water between them. Same read, three thin meshes, and it
 	# frames the water instead of covering it.
-	# TEXTURED, and SWEPT into a hull rather than assembled from blocks.
+	# A REAL HULL, closed, with a floor you cannot see through.
 	#
-	# The framing rule above still holds - no solid deck, gunwales converging on
-	# a bow, water between them - and everything here is added inside it. What
-	# was missing was surface: the rail is the closest object to the camera in
-	# the whole game and fills a tenth of the frame, which is exactly the
-	# situation ASSETS.md names as the exception to modelling in code. So it gets
-	# a real plank normal and roughness.
+	# Gideon: "can you use a full model for the boat? I can see right through to
+	# the water." Correct - there were two gunwales and a strake and nothing
+	# under them, so the bottom of the frame was lake where the boat should be.
 	#
-	# The COLOUR map is deliberately not imported. A photographic wood albedo
-	# drags in its own palette and would be the one object in the picture not
-	# taking its colour from `Mood`; the normal and the roughness are the halves
-	# that are style-neutral, which is the rule from the notes.
+	# An earlier build had gone the other way and put a solid box under the
+	# camera, and the note from then still stands: a lit top face becomes the
+	# brightest object on screen and eats a third of a portrait frame - a picture
+	# of a plank. The resolution is that a hull is neither of those. It is a
+	# U-shaped cross section swept bow to stern, seen from INSIDE, so what fills
+	# the bottom of the frame is a floor with planks and ribs and a curved side
+	# rising away on each hand. That is a place to be sitting rather than a slab.
 	#
-	# **A chain of boxes was tried first and read as floating debris.** Short
-	# segments toed inward leave a visible gap at every joint and each one catches
-	# the light on its own end cap, so the hull came out as a scatter of blocks. A
-	# hull is a swept curve and has to be built as one - `_sweep` below.
+	# `cull_disabled` on the skin so it reads from inside as well as out, which
+	# is what lets one swept surface be both the hull and the interior.
 	var rail_mat := _wood_mat(Color(0.30, 0.22, 0.155), Vector3(1.0, 4.0, 1.0))
-	var strake_mat := _wood_mat(Color(0.245, 0.180, 0.128), Vector3(1.0, 4.0, 1.0))
+	var hull_mat := _wood_mat(Color(0.235, 0.175, 0.120), Vector3(2.0, 3.0, 1.0))
+	hull_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var floor_mat := _wood_mat(Color(0.285, 0.215, 0.145), Vector3(3.0, 2.0, 1.0))
+	floor_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 
+	var hull := MeshInstance3D.new()
+	hull.mesh = _build_hull_mesh()
+	hull.material_override = hull_mat
+	hull.name = "Hull"
+	_boat.add_child(hull)
+
+	# Floor planks, laid athwartships and slightly proud of the skin so they
+	# catch the light separately. This is the surface the player is actually
+	# looking down at, so it is the one that has to have boards in it.
+	for i in 9:
+		var t := float(i) / 8.0
+		var z: float = -0.75 + t * 2.55
+		# Just inside the skin at that station. It was 1.62 - and since the box is
+		# then twice that wide, every plank was over three times the beam and
+		# poking clean through both sides of the boat. Invisible from the one seat
+		# the player ever occupies, which is exactly the sort of thing that ships.
+		var w: float = _hull_half_width(z) * 0.92
+		if w < 0.10:
+			continue
+		var plank := MeshInstance3D.new()
+		var pmesh := BoxMesh.new()
+		pmesh.size = Vector3(w * 2.0, 0.030, 0.255)
+		plank.mesh = pmesh
+		plank.material_override = floor_mat
+		plank.position = Vector3(0.0, _hull_floor_y(z) + 0.020, z)
+		_boat.add_child(plank)
+
+	# Ribs, up the inside of each side. The detail that says somebody built this.
+	for i in 4:
+		var z2: float = -0.45 + float(i) * 0.72
+		var hw: float = _hull_half_width(z2)
+		if hw < 0.14:
+			continue
+		for side in [-1.0, 1.0]:
+			var rib := MeshInstance3D.new()
+			var rmesh := BoxMesh.new()
+			rmesh.size = Vector3(0.045, 0.36, 0.070)
+			rib.mesh = rmesh
+			rib.material_override = rail_mat
+			rib.position = Vector3(side * (hw - 0.035), _hull_floor_y(z2) + 0.16, z2)
+			rib.rotation_degrees = Vector3(0, 0, side * -11.0)
+			_boat.add_child(rib)
+
+	# The gunwale, capping the top edge of the skin on each side. Swept, because
+	# a chain of short boxes was tried here first and read as floating debris -
+	# every joint leaves a gap and every end cap catches the light on its own.
 	for side in [-1.0, 1.0]:
 		var rail_pts: Array[Vector3] = []
-		var strake_pts: Array[Vector3] = []
-		for i in 13:
-			var t := float(i) / 12.0
-			# Widest about a third back, not at the stern, and drawing in to a
-			# bow. A straight taper reads as a wedge rather than as a boat.
-			# Converging to a real bow. An earlier taper stopped at 0.29 and left
-			# the two sides a clear half-metre apart at the front, which reads as
-			# two rails rather than as a boat that closes. No bow BLOCK though -
-			# one stood here for a build and sat exactly in front of the float at
-			# a short cast, hiding the one object the player is watching.
-			var half: float = 0.615 - 0.50 * t * t
-			var z: float = 0.05 + t * 2.25
-			rail_pts.append(Vector3(side * half, 0.205 + 0.075 * t * t, z))
-			strake_pts.append(Vector3(side * (half + 0.010), 0.055 + 0.055 * t * t, z))
+		for i in 15:
+			var t := float(i) / 14.0
+			var z: float = -0.80 + t * 3.05
+			rail_pts.append(Vector3(side * _hull_half_width(z), _hull_rim_y(z), z))
 		var rail := MeshInstance3D.new()
-		rail.mesh = _sweep(rail_pts, 0.115, 0.150)
+		rail.mesh = _sweep(rail_pts, 0.105, 0.085)
 		rail.material_override = rail_mat
+		rail.name = "Gunwale"
 		_boat.add_child(rail)
-		# One strake under the gunwale, catching the light differently. Two planks
-		# read as a built object; one reads as an edge.
-		var strake := MeshInstance3D.new()
-		strake.mesh = _sweep(strake_pts, 0.075, 0.215)
-		strake.material_override = strake_mat
-		_boat.add_child(strake)
 
 	# A coil of rope on the thwart. Tiny, and it is the whole difference between
 	# a boat and a diagram of a boat - the eye reads "used" from one such object.
@@ -551,7 +577,7 @@ func _build_boat() -> void:
 	tm.ring_segments = 12
 	rope.mesh = tm
 	rope.material_override = _mat(Color(0.44, 0.39, 0.29), 0.95)
-	rope.position = Vector3(-0.40, 0.215, -0.16)
+	rope.position = Vector3(-0.34, _hull_rim_y(-0.16) + 0.030, -0.16)
 	rope.rotation_degrees = Vector3(4, 18, 0)
 	_boat.add_child(rope)
 
@@ -598,27 +624,153 @@ const ROD_SEG_LENGTH := 0.46
 var _rod_chain: Array[Node3D] = []
 
 
+## The rod, as a chain of segments that BENDS rather than a stick that tilts.
+##
+## Each link is still a transform carrier and the bend logic is untouched; what
+## changed is that the link now holds a TAPERED CYLINDER instead of a box, plus
+## the parts that make a rod a rod - a cork grip, a reel seat and a reel, and
+## line guides standing off the blank at every joint.
+##
+## The guides matter more than they look. A rod is recognised by its silhouette
+## against the sky, and a bare tapered stick is a stick; the little rings are
+## what the eye reads as tackle. They cost five meshes.
 func _build_rod() -> void:
+	var blank := _mat(Color(0.115, 0.105, 0.100), 0.34)
+	blank.metallic = 0.22
+	var whipping := _mat(Color(0.50, 0.36, 0.14), 0.55)
+	var metal := _mat(Color(0.62, 0.63, 0.64), 0.24)
+	metal.metallic = 0.85
+	var cork := _mat(Color(0.68, 0.55, 0.36), 0.92)
+
 	var parent: Node3D = _boat
 	for i in ROD_SEGMENTS:
+		# The link itself carries no mesh - it is the transform the bend writes
+		# to. Keeping it that way is what let the whole instrument be rebuilt
+		# without touching `_sync_rod` or `rod_bend_degrees`.
 		var seg := MeshInstance3D.new()
-		var m := BoxMesh.new()
-		# Tapered, so the tip is visibly whippier than the butt.
-		var thick := lerpf(0.030, 0.012, float(i) / float(ROD_SEGMENTS - 1))
-		m.size = Vector3(thick, thick, ROD_SEG_LENGTH)
-		seg.mesh = m
-		seg.material_override = _mat(Color(0.46, 0.33, 0.21), 0.5)
+		var r0 := lerpf(0.0165, 0.0060, float(i) / float(ROD_SEGMENTS))
+		var r1 := lerpf(0.0165, 0.0060, float(i + 1) / float(ROD_SEGMENTS))
+		var shaft := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.height = ROD_SEG_LENGTH
+		# +Y becomes +Z under the rotation below, so `top` is the tip end.
+		cm.top_radius = r1
+		cm.bottom_radius = r0
+		cm.radial_segments = 10
+		cm.rings = 1
+		shaft.mesh = cm
+		shaft.rotation_degrees = Vector3(90, 0, 0)
+		shaft.material_override = blank
+		seg.add_child(shaft)
+
 		if i == 0:
-			seg.position = Vector3(0.42, 0.56, 1.30)
+			seg.position = Vector3(0.42, _hull_rim_y(1.30) + 0.10, 1.30)
 			seg.rotation_degrees = Vector3(ROD_REST, 0, 9)
 			_rod = seg
 			seg.name = "Rod"
+
+			# Cork grip, below the reel seat, where a hand goes.
+			var grip := MeshInstance3D.new()
+			var gm := CylinderMesh.new()
+			gm.height = 0.20
+			gm.top_radius = 0.026
+			gm.bottom_radius = 0.023
+			gm.radial_segments = 10
+			grip.mesh = gm
+			grip.rotation_degrees = Vector3(90, 0, 0)
+			grip.position = Vector3(0, 0, -0.145)
+			grip.material_override = cork
+			seg.add_child(grip)
+
+			# The reel seat, and a reel hanging under it. A spinning reel sits
+			# BELOW the blank, which is also why it never crosses the water in
+			# the frame - it hangs into the boat.
+			var seat := MeshInstance3D.new()
+			var sm := CylinderMesh.new()
+			sm.height = 0.075
+			sm.top_radius = 0.027
+			sm.bottom_radius = 0.027
+			sm.radial_segments = 10
+			seat.mesh = sm
+			seat.rotation_degrees = Vector3(90, 0, 0)
+			seat.position = Vector3(0, 0, -0.030)
+			seat.material_override = metal
+			seg.add_child(seat)
+
+			var stem := MeshInstance3D.new()
+			var stm := BoxMesh.new()
+			stm.size = Vector3(0.014, 0.055, 0.020)
+			stem.mesh = stm
+			stem.position = Vector3(0, -0.043, -0.030)
+			stem.material_override = metal
+			seg.add_child(stem)
+
+			var spool := MeshInstance3D.new()
+			var spm := CylinderMesh.new()
+			spm.height = 0.042
+			spm.top_radius = 0.040
+			spm.bottom_radius = 0.040
+			spm.radial_segments = 14
+			spool.mesh = spm
+			spool.rotation_degrees = Vector3(0, 0, 90)
+			spool.position = Vector3(0, -0.088, -0.030)
+			spool.material_override = metal
+			seg.add_child(spool)
+
+			var handle := MeshInstance3D.new()
+			var hm := CylinderMesh.new()
+			hm.height = 0.058
+			hm.top_radius = 0.007
+			hm.bottom_radius = 0.007
+			hm.radial_segments = 8
+			handle.mesh = hm
+			handle.rotation_degrees = Vector3(0, 0, 90)
+			handle.position = Vector3(0.050, -0.088, -0.030)
+			handle.material_override = cork
+			seg.add_child(handle)
 		else:
 			seg.position = Vector3(0.0, 0.0, ROD_SEG_LENGTH)
 			seg.name = "RodSeg%d" % i
+
+		# A line guide at the start of every link past the butt, standing off the
+		# blank on a short foot. Ring outside, whipping where it is bound on.
+		if i > 0:
+			var foot := MeshInstance3D.new()
+			var fm2 := BoxMesh.new()
+			fm2.size = Vector3(0.006, 0.016, 0.030)
+			foot.mesh = fm2
+			foot.position = Vector3(0, -0.014, -ROD_SEG_LENGTH * 0.5 + 0.02)
+			foot.material_override = whipping
+			seg.add_child(foot)
+
+			var ring := MeshInstance3D.new()
+			var tm3 := TorusMesh.new()
+			tm3.inner_radius = lerpf(0.019, 0.008, float(i) / float(ROD_SEGMENTS - 1))
+			tm3.outer_radius = tm3.inner_radius + 0.004
+			tm3.rings = 6
+			tm3.ring_segments = 10
+			ring.mesh = tm3
+			ring.rotation_degrees = Vector3(90, 0, 0)
+			ring.position = Vector3(0, -0.014 - tm3.outer_radius, -ROD_SEG_LENGTH * 0.5 + 0.02)
+			ring.material_override = metal
+			seg.add_child(ring)
+
 		parent.add_child(seg)
 		_rod_chain.append(seg)
 		parent = seg
+
+	# The tip ring, which is the one the line actually leaves from.
+	var tip_ring := MeshInstance3D.new()
+	var ttm := TorusMesh.new()
+	ttm.inner_radius = 0.007
+	ttm.outer_radius = 0.011
+	ttm.rings = 6
+	ttm.ring_segments = 10
+	tip_ring.mesh = ttm
+	tip_ring.rotation_degrees = Vector3(90, 0, 0)
+	tip_ring.position = Vector3(0, 0, ROD_SEG_LENGTH * 0.5)
+	tip_ring.material_override = metal
+	_rod_chain[_rod_chain.size() - 1].add_child(tip_ring)
 
 
 ## Total bend across the whole rod, in degrees. The quantity the smoke test
@@ -803,10 +955,11 @@ func _rebuild_fish(id: String) -> void:
 			# single thing that makes a generated body read as a fish rather than
 			# as a lozenge, because it is what every real fish does.
 			var down := clampf(0.5 - cy * 0.5, 0.0, 1.0)
-			# Squared, so the dark holds most of the upper flank and the pale is
+			# Cubed, so the dark holds most of the upper flank and the pale is
 			# confined to the underside. A linear blend puts the midtone across
-			# the widest part of the body, which is where the eye looks.
-			var c := back.lerp(belly, pow(down, 2.1))
+			# the widest part of the body, which is exactly where the eye looks,
+			# and the fish came out as one pale tube under a bright dawn.
+			var c := back.lerp(belly, pow(down, 3.1))
 			if stripes > 0:
 				var bar := sin(t * PI * float(stripes) * 1.15)
 				if bar > 0.45:
@@ -1318,8 +1471,12 @@ func _sync() -> void:
 	# a foreground edge rather than a third of the picture, and aimed so the
 	# horizon sits in the upper third - the water is the subject, and in portrait
 	# there is not room for both a lot of sky and a lot of hull.
-	var eye := Vector3(0.0, 1.16, -1.55)
-	var focus := Vector3(0.0, 0.16, maxf(9.0, out.z * 0.62))
+	# THE WATER IS THE SUBJECT, and a real hull takes up far more of a portrait
+	# frame than two rails did. Sitting further back and looking a little higher
+	# puts the boat across the bottom third instead of the bottom half, which is
+	# what it was framed for before the boat had a floor.
+	var eye := Vector3(0.0, 1.30, -1.90)
+	var focus := Vector3(0.0, 0.72, maxf(9.0, out.z * 0.62))
 	_cam.transform = Transform3D(Basis.IDENTITY, eye).looking_at(focus, Vector3.UP)
 
 	_float.position = out
@@ -2311,3 +2468,171 @@ func _sweep_tapered(path: Array[Vector3], w0: float, w1: float) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
+
+
+# --- the hull --------------------------------------------------------------
+#
+# One set of functions describes the boat's shape and EVERYTHING reads them - the
+# skin, the floor planks, the ribs and the gunwale. When they were separate the
+# planks floated and the ribs stood in the water; a hull is one form, so it gets
+# one definition.
+
+## Half the beam at a station. Widest about a third back from the bow, drawing in
+## at both ends - a straight taper reads as a wedge.
+func _hull_half_width(z: float) -> float:
+	var t := clampf((z + 0.85) / 3.10, 0.0, 1.0)
+	var shape := sin(PI * pow(t, 0.72))
+	return 0.10 + 0.545 * shape
+
+
+## The bottom of the hull at a station. It rises toward the bow, which is the
+## rocker, and is what stops the boat looking like a bathtub.
+##
+## **ABOVE THE WATERLINE, and that is the whole bug this file had.** The lake is
+## one 220 m plane at y = 0 and it does not know the boat is there, so a floor at
+## y = -0.4 put the entire surface of the lake INSIDE the hull, a foot above the
+## boards - which is precisely "I can see right through to the water". Nothing
+## was missing; the water was simply in front of it.
+##
+## A real boat's sole sits above its waterline and the skin carries on down
+## outside. Only the inside is ever seen here, so the floor goes above y = 0 and
+## the draft is left as something the player never has a view of.
+func _hull_floor_y(z: float) -> float:
+	var t := clampf((z + 0.85) / 3.10, 0.0, 1.0)
+	return 0.045 + 0.26 * pow(t, 2.3)
+
+
+## The top edge - the sheer. Rises toward the bow, like every boat ever built.
+func _hull_rim_y(z: float) -> float:
+	var t := clampf((z + 0.85) / 3.10, 0.0, 1.0)
+	return 0.46 + 0.155 * pow(t, 2.0)
+
+
+const HULL_STATIONS := 22
+const HULL_ARC := 11
+
+
+## The skin, as a U-section swept bow to stern and closed at both ends.
+func _build_hull_mesh() -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var idx := PackedInt32Array()
+
+	for i in HULL_STATIONS:
+		var t := float(i) / float(HULL_STATIONS - 1)
+		var z: float = -0.85 + t * 3.10
+		var hw := _hull_half_width(z)
+		var fy := _hull_floor_y(z)
+		var ry := _hull_rim_y(z)
+		for j in HULL_ARC:
+			# A half-ellipse from port rim, down round the bilge, up to starboard.
+			var a := PI * float(j) / float(HULL_ARC - 1)
+			var x := -cos(a) * hw
+			var y := fy + (ry - fy) * (1.0 - sin(a))
+			verts.append(Vector3(x, y, z))
+			# Outward and downward, which is right for both faces given the skin
+			# is drawn double-sided.
+			norms.append(Vector3(-cos(a), -sin(a) * 0.55, 0.0).normalized())
+			uvs.append(Vector2(float(j) / float(HULL_ARC - 1), t * 3.0))
+
+	for i in HULL_STATIONS - 1:
+		for j in HULL_ARC - 1:
+			var a0 := i * HULL_ARC + j
+			var a1 := i * HULL_ARC + j + 1
+			var b0 := (i + 1) * HULL_ARC + j
+			var b1 := (i + 1) * HULL_ARC + j + 1
+			idx.append_array([a0, b0, a1, a1, b0, b1])
+
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = norms
+	arr[Mesh.ARRAY_TEX_UV] = uvs
+	arr[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return mesh
+
+
+## A real float, not a red ball.
+##
+## The classic waggler shape, and every part of it is doing a job the player
+## reads without being told: a RED CAP that is visible against dark water at
+## twenty metres, a WHITE WAIST so the eye can see exactly how far down it has
+## been pulled, a weighted stem below to keep it upright, and an antenna above
+## that is the first thing to go under when a fish tries the bait.
+##
+## That last one is the whole of minigame one. Gideon asked for the hook phase to
+## be "just watching the rod or bobber pull down", so the object being watched
+## has to have a part whose entire purpose is to be watched.
+## SIZED FOR LEGIBILITY, NOT FOR REALISM. A real waggler twenty metres out is a
+## few pixels on a phone, and the first minigame is "watch the float go under" -
+## an object the player cannot resolve cannot be watched. Built at roughly twice
+## life size, with an antenna long enough that its DISAPPEARANCE is the event,
+## which is what a real angler is actually reading too.
+func _build_float() -> Node3D:
+	var f := Node3D.new()
+	f.name = "Float"
+	f.visible = false
+
+	var red := _mat(Color(0.86, 0.22, 0.14), 0.42)
+	var white := _mat(Color(0.94, 0.93, 0.88), 0.42)
+	var dark := _mat(Color(0.14, 0.13, 0.12), 0.60)
+	var orange := _mat(Color(0.98, 0.52, 0.10), 0.35)
+	orange.emission_enabled = true
+	orange.emission = Color(0.85, 0.35, 0.05)
+	# Barely glowing. Enough that the tip still reads at dusk and at depth, where
+	# everything else in the frame has been drained - and not so much that it
+	# looks like a light.
+	orange.emission_energy_multiplier = 0.55
+
+	var top := MeshInstance3D.new()
+	var tm := SphereMesh.new()
+	tm.radius = 0.098
+	tm.height = 0.196
+	tm.is_hemisphere = true
+	tm.radial_segments = 14
+	tm.rings = 7
+	top.mesh = tm
+	top.material_override = red
+	top.position = Vector3(0, 0.010, 0)
+	f.add_child(top)
+
+	var bottom := MeshInstance3D.new()
+	var bm := SphereMesh.new()
+	bm.radius = 0.098
+	bm.height = 0.250
+	bm.is_hemisphere = true
+	bm.radial_segments = 14
+	bm.rings = 7
+	bottom.mesh = bm
+	bottom.material_override = white
+	bottom.position = Vector3(0, 0.010, 0)
+	bottom.rotation_degrees = Vector3(180, 0, 0)
+	f.add_child(bottom)
+
+	var stem := MeshInstance3D.new()
+	var sm := CylinderMesh.new()
+	sm.height = 0.20
+	sm.top_radius = 0.011
+	sm.bottom_radius = 0.006
+	sm.radial_segments = 8
+	stem.mesh = sm
+	stem.material_override = dark
+	stem.position = Vector3(0, -0.205, 0)
+	f.add_child(stem)
+
+	var ant := MeshInstance3D.new()
+	var am := CylinderMesh.new()
+	am.height = 0.260
+	am.top_radius = 0.010
+	am.bottom_radius = 0.014
+	am.radial_segments = 8
+	ant.mesh = am
+	ant.material_override = orange
+	ant.position = Vector3(0, 0.238, 0)
+	f.add_child(ant)
+
+	return f
+
