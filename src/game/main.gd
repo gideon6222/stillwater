@@ -83,6 +83,8 @@ var _save_due := 0.0
 var _sounder: Control
 var _action: Button
 var _use: Button
+var _title: TitleScreen
+var _intro: Intro
 var _things: Array[Dictionary] = []
 var _looking_at := ""
 var _splash: GPUParticles3D
@@ -286,6 +288,7 @@ func _build_world() -> void:
 	_build_weather()
 	_build_grade()
 	_build_hud()
+	_build_title()
 
 
 ## The water.
@@ -1397,28 +1400,7 @@ func _build_hud() -> void:
 
 	_load_game()
 
-	# The impact, the shake, the buzz and the sound are ONE event with four
-	# channels, so they are wired together and fired together. The survey's point
-	# about layering: screen shake plus particles plus audio plus haptics work
-	# synergistically, and any of them alone reads as thin.
-	sim.cast_landed.connect(func(_d: float) -> void:
-		_impact_at(lure_world_position(), 0.7)
-		_buzz(18, 0.30))
-	sim.hooked.connect(func(_id: String, perfect: bool) -> void:
-		_impact_at(lure_world_position(), 1.0)
-		_kick(0.55 if perfect else 0.34)
-		_hit_stop(0.09 if perfect else 0.05)
-		_buzz(45, 0.85 if perfect else 0.55))
-	sim.run_started.connect(func() -> void:
-		_kick(0.30)
-		_buzz(70, 0.60))
-	sim.landed.connect(func(_id: String, w: float) -> void:
-		_impact_at(lure_world_position(), 1.0)
-		_kick(0.22)
-		_buzz(30, 0.45))
-	sim.lost.connect(func(reason: String) -> void:
-		_kick(0.75 if reason == Sim.BROKE else 0.30)
-		_buzz(110 if reason == Sim.BROKE else 40, 0.9 if reason == Sim.BROKE else 0.4))
+	_wire_sim_signals()
 
 	_audio = Audio.new()
 	_audio.name = "Audio"
@@ -1462,11 +1444,7 @@ func _build_hud() -> void:
 			_audio.play("coin", -6.0)
 		_want_save())
 
-	# Anything that changes the boat asks for a write. Landing a fish is the one
-	# a player would be most upset to lose, and it is also the most frequent, so
-	# the request is COALESCED rather than written immediately - see `_want_save`.
-	sim.landed.connect(func(_id: String, _w: float) -> void: _want_save())
-	sim.object_found.connect(func(_id: String) -> void: _want_save())
+
 	_menus.changed.connect(_sync)
 	_menus.closed.connect(_sync)
 
@@ -1500,7 +1478,10 @@ func _build_hud() -> void:
 func _sync_bars() -> void:
 	if _tension_bar == null:
 		return
-	var in_room := _menus != null and _menus.is_open()
+	# The title counts as "not playing" for everything the HUD does. It was not,
+	# and the first screen of the game showed a purse, a depth sounder and a
+	# "Reel in" button behind the word STILLWATER.
+	var in_room := (_menus != null and _menus.is_open()) 		or (_title != null and _title.is_up())
 	_tension_bar.visible = sim.state == Sim.FIGHTING and not in_room
 	_tension_bar.queue_redraw()
 	if _dock != null:
@@ -1529,7 +1510,12 @@ func _sync_bars() -> void:
 		# standing instruction. One line, three jobs, and the most recent thing
 		# always wins - a hint that keeps saying the tutorial over the top of a
 		# thing the player is actively pointing at is a hint nobody reads.
-		if _hint_hold > 0.0:
+		if _intro != null and not _intro.done():
+			# The intro owns the line while it is running. It is teaching the
+			# thing the other hints describe, so letting both write here would
+			# be two voices saying the same lesson differently.
+			_hint.text = _intro.line()
+		elif _hint_hold > 0.0:
 			_hint.text = _hint_text
 		elif _looking_at != "":
 			for t in _things:
@@ -1763,6 +1749,9 @@ func _tick(dt: float) -> void:
 		dt *= 0.12
 	_shake = maxf(0.0, _shake - dt * 3.4)
 	_hint_hold = maxf(0.0, _hint_hold - dt)
+	if _title != null:
+		_title.tick(dt)
+	_sync_intro(dt)
 	var lk := 1.0 - exp(-LOOK_FOLLOW * dt)
 	_look_yaw = lerpf(_look_yaw, _look_yaw_want, lk)
 	_look_pitch = lerpf(_look_pitch, _look_pitch_want, lk)
@@ -1801,6 +1790,12 @@ func advance(seconds: float, step: float = 1.0 / 60.0) -> void:
 func freeze(seed_value: int = 1) -> void:
 	_ensure_booted()
 	frozen = true
+	# PAST THE TITLE. `freeze` means "put the game in a known state and let me
+	# drive it", and a title screen is not part of that state - leaving it up
+	# hid the whole HUD from every test that checks the HUD. A harness that has
+	# to know about the front door is a harness testing the wrong thing.
+	if _title != null:
+		_title.skip()
 	sim.restart(seed_value)
 	_sync()
 
@@ -3603,3 +3598,140 @@ func _build_wake_mesh() -> ArrayMesh:
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return m
+
+
+## Everything this scene listens to on the Sim, in one place.
+##
+## Extracted so "New game" can point it at a fresh Sim without rebuilding the
+## scene - a rebuild would drop the water, the sky and the props for a beat, and
+## the title is fading out over them at exactly that moment.
+func _wire_sim_signals() -> void:
+	# The impact, the shake, the buzz and the sound are ONE event with four
+	# channels, so they are wired together and fired together. The survey's point
+	# about layering: screen shake plus particles plus audio plus haptics work
+	# synergistically, and any of them alone reads as thin.
+	sim.cast_landed.connect(func(_d: float) -> void:
+		_impact_at(lure_world_position(), 0.7)
+		_buzz(18, 0.30))
+	sim.hooked.connect(func(_id: String, perfect: bool) -> void:
+		_impact_at(lure_world_position(), 1.0)
+		_kick(0.55 if perfect else 0.34)
+		_hit_stop(0.09 if perfect else 0.05)
+		_buzz(45, 0.85 if perfect else 0.55))
+	sim.run_started.connect(func() -> void:
+		_kick(0.30)
+		_buzz(70, 0.60))
+	sim.landed.connect(func(_id: String, w: float) -> void:
+		_impact_at(lure_world_position(), 1.0)
+		_kick(0.22)
+		_buzz(30, 0.45))
+	sim.lost.connect(func(reason: String) -> void:
+		_kick(0.75 if reason == Sim.BROKE else 0.30)
+		_buzz(110 if reason == Sim.BROKE else 40, 0.9 if reason == Sim.BROKE else 0.4))
+
+	# Anything that changes the boat asks for a write. Landing a fish is the one
+	# a player would be most upset to lose, and it is also the most frequent, so
+	# the request is COALESCED rather than written immediately - see `_want_save`.
+	sim.landed.connect(func(_id: String, _w: float) -> void: _want_save())
+	sim.object_found.connect(func(_id: String) -> void: _want_save())
+
+	# The first morning listens to the same signals. A beat that waits for a
+	# landed fish cannot be allowed to miss one because the player recast on the
+	# very next frame - see the note in intro.gd.
+	sim.cast_landed.connect(func(_d: float) -> void:
+		if _intro != null:
+			_intro.note_cast())
+	sim.nibble.connect(func() -> void:
+		if _intro != null:
+			_intro.note_nibble())
+	sim.hooked.connect(func(_id: String, _perfect: bool) -> void:
+		if _intro != null:
+			_intro.note_hooked())
+	sim.landed.connect(func(_id: String, _w: float) -> void:
+		if _intro != null:
+			_intro.note_landed())
+
+
+# --- the title and the first morning ----------------------------------------
+
+## The title goes up over a scene that is already running - see title.gd. The
+## intro is created either way and simply starts finished if the save says it
+## has been seen.
+func _build_title() -> void:
+	_intro = Intro.new()
+	if sim.intro_done:
+		_intro.finish()
+
+	_title = TitleScreen.new()
+	_title.name = "Title"
+	add_child(_title)
+	_title.setup(FileAccess.file_exists(SAVE_PATH))
+	_title.start_continue.connect(_on_continue)
+	_title.start_new.connect(_on_new_game)
+	_title.open_settings.connect(func() -> void:
+		# The SAME settings room the game uses. One settings screen in the
+		# project, not two that have to agree with each other.
+		_menus.open(Menus.KIT))
+
+
+func _on_continue() -> void:
+	_title.dismiss()
+	if _audio != null:
+		_audio.play("page", -4.0)
+
+
+## Wipe and start again. The save is deleted rather than overwritten, so a crash
+## between here and the first write cannot leave half of the old game behind.
+func _on_new_game() -> void:
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+	var settings_sensitivity := sim.sensitivity
+	var settings_muted := sim.sound_muted
+	sim = Sim.new(randi() % 100000 + 1)
+	# Settings survive a new game. They are about the person holding the phone,
+	# not about the save.
+	sim.sensitivity = settings_sensitivity
+	sim.sound_muted = settings_muted
+	_intro = Intro.new()
+	_fish_shown = ""
+	_look_yaw = 0.0
+	_look_pitch = 0.0
+	_look_yaw_want = 0.0
+	_look_pitch_want = 0.0
+	_cast_yaw = 0.0
+	_rewire(sim)
+	_title.dismiss()
+	if _audio != null:
+		_audio.play("page", -4.0)
+
+
+## Point everything that holds a Sim at the new one. Listed explicitly rather
+## than rebuilding the scene, because rebuilding would drop the water, the sky
+## and the props for a beat - and the title is fading out over them.
+func _rewire(s: Sim) -> void:
+	if _audio != null:
+		_audio.retarget(s)
+		_audio.set_muted(s.sound_muted)
+	if _menus != null:
+		_menus.retarget(s)
+		_menus.sensitivity = s.sensitivity
+		_menus.sound_muted = s.sound_muted
+	_wire_sim_signals()
+	_want_save()
+
+
+## The intro's copy goes in the hint line, which is where every other piece of
+## in-boat guidance already lives - so it is one thing that speaks, not two.
+func _sync_intro(dt: float) -> void:
+	if _intro == null or _intro.done():
+		return
+	if _title != null and _title.is_up():
+		return
+	_intro.note_state(sim.state, sim.taking)
+	if absf(_look_yaw) > 0.06 or absf(_look_pitch) > 0.04:
+		_intro.note_look()
+	_intro.advance(dt)
+	if _intro.done() and not sim.intro_done:
+		sim.intro_done = true
+		_want_save()
+

@@ -243,12 +243,133 @@ Feel is asserted, not eyeballed. Every one of these is a test:
 
 ---
 
-## 11. Build order
+## 11. The build, section by section
 
-**Done:** the world, economy, three rooms, save, sounder, audio, mood arc, boat
-motion, look control, action button, juice layer, feel tests, Kit settings.
+Every remaining piece, with **how** it gets done rather than only what it is.
+Ordered so each one is playable when it lands.
 
-**Next, in order:**
+Legend: **[done]** shipped · **[now]** this pass · **[next]** ordered after.
+
+---
+
+### 11.1 The title **[done]**
+
+*What.* First thing on launch: the lake at dawn behind the game's name, with
+**Continue**, **New game** and **Settings**. Continue is greyed with no save.
+
+*How.* Not a separate scene. The real boat scene boots and runs behind a
+`CanvasLayer` — the water is already moving, the sky is already the right hour,
+so the title is a photograph of the game rather than an image of it. New game
+clears the save through `Save`, Continue simply lifts the layer. Settings reuses
+the Kit room; there is one settings screen in the project, not two.
+
+*Feel.* The lake keeps moving under the menu, so the first frame is already
+alive. Buttons stack in the bottom third, in the thumb zone, using the same
+warm-verb / cool-navigation split the HUD uses.
+
+*Test.* Boots to the title, Continue disabled with no save and enabled with one,
+New game leaves a fresh boat, and every button leads somewhere.
+
+---
+
+### 11.2 The first morning **[done]**
+
+*What.* The intro. Teaches look → cast → watch → strike → reel → keep, in that
+order, and plants the story on the last beat.
+
+*How.* A beat list in `src/game/intro.gd`: each beat is a line of copy and a
+CONDITION that ends it, read off the sim. No timers where a condition will do —
+the tutorial waits for the player rather than the player waiting for it. Beats
+never block input; the game underneath is the real game from the first second.
+
+*The beats.*
+
+| # | Says | Ends when |
+|---|---|---|
+| 1 | "Dawn. Nothing on the water yet." | 2 s |
+| 2 | "Drag to look around." | the view has turned |
+| 3 | "Hold anywhere to cast. Hold longer to go further out." | a cast is in the air |
+| 4 | "Now watch the float." | a fish starts nibbling |
+| 5 | "It is only mouthing it. Wait for it to go under." | the float is properly under |
+| 6 | "NOW — tap." | hooked |
+| 7 | "Tap to reel. Stop when it runs." | landed |
+| 8 | "A bluegill. It goes in the book." | 3 s |
+| 9 | "Somebody has already written in it." | opens the Log |
+
+*Story.* Beat 9 is the hook. The logbook is not blank — it is a keeper's
+logbook, and there is a name in the front that is not yours.
+
+*Feel.* Copy is short, lower-case, and never repeats a beat already passed. It
+disappears the moment the condition is met, so the player's own action ends the
+sentence rather than a timer.
+
+*Test.* A bot that plays normally reaches beat 9 without the intro ever blocking
+it; every beat's condition is reachable; and the intro never reappears once done.
+
+---
+
+### 11.3 The keeper's logbook **[next]**
+
+*What.* The story's spine. Entries in five hands, unlocked by DEPTH.
+
+*How.* A table in `src/sim/keepers.gd`: `{keeper, depth, text}`. The Log grows a
+second tab. Unlock is the deepest cast ever made, saved as one float — the same
+number the score and the picture already use, so no new progression.
+
+*Feel.* Handwriting changes between keepers by font weight and colour only. The
+fifth hand is the player's, and its entries are the ones the game has been
+writing all along: the species records.
+
+---
+
+### 11.4 The radio **[next]**
+
+*What.* The one speaking character.
+
+*How.* A prop on the thwart with an interaction point. Generated speech is out
+of reach, so it is TEXT over a generated carrier-and-static bed — which is
+better anyway, because a voice would date the game and static does not. Messages
+are a table keyed on depth and hour.
+
+*Feel.* Starts as weather reports. The reports slowly stop being about weather.
+By the Quarry it reads the day's catch back to you.
+
+---
+
+### 11.5 Wrong fish **[next]**
+
+*What.* `wrong` exists in the species data and changes nothing on screen.
+
+*How.* The generator already takes every shape parameter from data. A wrong fish
+gets its `look` fields pushed past the range a real fish uses — an extra pair of
+fins, an eye with no iris, a body a third too long. No new code path; the same
+generator, worse numbers.
+
+*Feel.* Never remarked on. The logbook prints the note in the keeper's hand and
+the game says nothing.
+
+---
+
+### 11.6 First-run polish **[next]**
+
+Orientation lock, a pause that actually pauses, a proper app icon, and the
+audio starting on first touch rather than on boot.
+
+---
+
+### 11.7 The ending **[next]**
+
+The Old Fish at the Spring, the blank page, and NG+ where the lake remembers.
+
+---
+
+## 12. Build order
+
+**Done:** the world, economy, four rooms, save, sounder, audio, mood arc, boat
+motion, look control, action button, juice layer, feel tests, Kit settings,
+imported props, the title, and the first morning.
+
+**Next, in order:** (detail in section 11)
 
 1. **In-boat interaction.** Look at the livewell, the lamp, the bait box, the
    rope — a prompt appears, tapping uses it. This is the "small details" note:

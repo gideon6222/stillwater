@@ -73,6 +73,18 @@ var _want_playing := false
 var _playing := false
 
 
+## Point the mixer at a different Sim WITHOUT rebuilding it.
+##
+## `setup` is not idempotent and must never be called twice: it appends to
+## `_beds` and `_amb`, so a second call grew them past the tables they index and
+## the mix crashed on `BEDS[4]`. Starting a new game needs the sim swapped, not
+## nineteen fresh AudioStreamPlayers - the beds are mid-loop and the title is
+## fading out over them.
+func retarget(s: Sim) -> void:
+	sim = s
+	_connect(s)
+
+
 func setup(s: Sim) -> void:
 	sim = s
 	for row in BEDS:
@@ -85,6 +97,12 @@ func setup(s: Sim) -> void:
 		add_child(p)
 		_sfx.append(p)
 
+	_connect(s)
+
+
+## Everything the mixer listens to. Split out so `retarget` can re-run it against
+## a new Sim; the old connections die with the Sim they were made on.
+func _connect(sim: Sim) -> void:
 	sim.cast_landed.connect(func(_d: float) -> void: play("splash"))
 	sim.nibble.connect(func() -> void: play("nibble", -3.0))
 	sim.hooked.connect(func(_id: String, perfect: bool) -> void:

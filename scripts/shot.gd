@@ -59,6 +59,19 @@ func _initialize() -> void:
 	_main = scene.instantiate()
 	root.add_child(_main)
 	_main.freeze()
+	# Past the title, and past the intro. Both are worth photographing on their
+	# own - `-- 2 title` does that - but every other shot wants the game.
+	if _until == "title":
+		if _main._title != null:
+			_main._title.show_again()
+			_main._sync()
+	else:
+		if _main._title != null:
+			_main._on_continue()
+			for i in 120:
+				_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		if _main._intro != null:
+			_main._intro.finish()
 
 	# One memory for the whole run - see the note on Policies.act. A fresh dict
 	# per frame silently stops the bot tapping at all, and the screenshot would

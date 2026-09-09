@@ -62,6 +62,8 @@ func _initialize() -> void:
 	_check_looking_around_never_casts_by_accident(main)
 	_check_everything_in_the_boat_can_be_looked_at_and_used(main)
 	_check_nothing_interactable_is_invisible(main)
+	_check_the_title_leads_into_the_game(main)
+	_check_the_first_morning_teaches_and_ends(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -862,3 +864,102 @@ func _collect_mesh_points(node: Node, into: Array[Vector3]) -> void:
 			_collect_mesh_points(c, sub)
 			for pt in sub:
 				into.append(here + pt * (c as Node3D).scale)
+
+
+## THE TITLE LEADS INTO THE GAME, both ways in.
+##
+## Continue must be OFFERED only when there is something to continue, New game
+## must actually wipe, and both must leave a boat that can be fished. A title
+## screen that can strand the player is the worst possible first screen.
+func _check_the_title_leads_into_the_game(main) -> void:
+	_t.begin("smoke > the title leads into the game")
+	main.freeze(1)
+	_t.ok(main._title != null, "there is no title screen")
+	if main._title == null:
+		return
+
+	# Continue, with a save on disk.
+	main._save_game()
+	main._title.setup(true)
+	_t.ok(not main._title._continue.disabled, "Continue is greyed out with a save present")
+	main._on_continue()
+	for i in 90:
+		main.advance(1.0 / 60.0)
+	_t.ok(not main._title.is_up(), "the title never goes away after Continue")
+
+	# New game, which must wipe and leave a fresh boat - but keep the settings,
+	# because those are about the person and not about the save.
+	main.sim.econ.money = 4321
+	main.sim.caught = 17
+	main.sim.sensitivity = 1.7
+	main._save_game()
+	main._on_new_game()
+	_t.eq(main.sim.econ.money, 0, "New game kept the old purse")
+	_t.eq(main.sim.caught, 0, "New game kept the old tally")
+	_t.ok(absf(main.sim.sensitivity - 1.7) < 0.01,
+		"New game threw away the player's own settings")
+	_t.ok(not FileAccess.file_exists(main.SAVE_PATH),
+		"New game left the old save on disk")
+
+	# And the fresh boat actually fishes, through the real seam.
+	main.sim.hold_cast()
+	main.advance(0.4)
+	main.sim.release_cast()
+	for i in 600:
+		main.advance(1.0 / 60.0)
+	_t.ok(main.sim.casts > 0, "a new game cannot cast")
+
+	main._title.setup(false)
+	_t.ok(main._title._continue.disabled, "Continue is offered with no save at all")
+
+
+## THE FIRST MORNING TEACHES AND THEN GETS OUT OF THE WAY.
+##
+## Every beat has to be reachable by playing normally, the whole thing has to
+## finish, and it must never come back. A tutorial that can stall is worse than
+## no tutorial: the player cannot tell whether the game is broken or they are.
+func _check_the_first_morning_teaches_and_ends(main) -> void:
+	_t.begin("smoke > the first morning teaches and then ends")
+	main.freeze(1)
+	main.sim.intro_done = false
+	main._intro = Intro.new()
+	main._title.dismiss()
+	for i in 120:
+		main.advance(1.0 / 60.0)
+
+	_t.eq(main._intro.step, 0, "the intro does not start at the beginning")
+	_t.ok(main._intro.line() != "", "the intro's first beat says nothing")
+
+	# Looking is beat 2, and only a real look should pass it.
+	var step := 0
+	var mem := {}
+	var guard := 0
+	while not main._intro.done() and guard < 24000:
+		guard += 1
+		# A player who looks around and then fishes properly.
+		if main._intro.step == 1:
+			main._look_yaw = 0.4
+			main._look_yaw_want = 0.4
+		Policies.act(Policies.ANGLER, main.sim, 1.0 / 60.0, mem)
+		main.advance(1.0 / 60.0)
+
+	_t.ok(main._intro.done(),
+		"the intro stalled at beat %d: '%s'" % [main._intro.step, main._intro.line()])
+	_t.ok(main.sim.intro_done, "finishing the intro was never recorded")
+	_t.eq(main._intro.line(), "", "the intro still has something to say after finishing")
+
+	# Every beat has copy, and every non-timed beat has a condition that exists.
+	for beat in Intro.BEATS:
+		_t.ok(str(beat["say"]) != "", "a beat says nothing")
+		if not beat.has("hold"):
+			_t.ok(str(beat.get("needs", "")) != "", "a beat has neither a hold nor a condition")
+
+	# And it does not come back on the next boot.
+	main._save_game()
+	var fresh := Sim.new(1)
+	var f := FileAccess.open(main.SAVE_PATH, FileAccess.READ)
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	f.close()
+	Save.apply(fresh, parsed)
+	_t.ok(fresh.intro_done, "the first morning will play again on the next launch")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(main.SAVE_PATH))

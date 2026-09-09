@@ -61,6 +61,13 @@ var _toast_left := 0.0
 var _screen := ""
 
 
+## Same reason as the mixer: `setup` builds the whole UI and must not run twice.
+func retarget(s: Sim) -> void:
+	sim = s
+	if is_open():
+		refresh()
+
+
 func setup(s: Sim) -> void:
 	sim = s
 	layer = 2

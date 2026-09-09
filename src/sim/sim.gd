@@ -74,6 +74,10 @@ var econ := Econ.new()
 var sensitivity: float = 1.0
 var sound_muted: bool = false
 
+## Whether the first morning has been played. On the sim only so the pure save
+## can carry it; no rule reads it.
+var intro_done: bool = false
+
 ## Species landed at least once, and objects found at least once. The logbook is
 ## the collection, and a collection is the one reward whose value does not decay
 ## the way money does: every amount of money you earn makes the last amount
