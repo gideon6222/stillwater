@@ -264,6 +264,33 @@ Legend: **[done]** shipped · **[now]** this pass · **[next]** ordered after.
 
 ---
 
+### 11.0 The gate **[done]**
+
+*What.* The game begins on the WRONG SIDE of a wooden gate in a stone wall, at
+the end of the keeper's bank. Continue opens it and walks you down to the boat.
+New game does the same walk with the reason for it.
+
+*Why it is not set dressing.* **It is the ritual.** A keeper of this water walks
+down through that gate to the boat and does it every morning — so the way into
+the game and the way the fiction works are the same motion. The player does not
+press Continue; they go out.
+
+*How.* `sequence.gd` is a list of shots — position, look-at, duration, easing,
+how far the gate is open, and optionally a line. The rig interpolates between
+consecutive shots, so a cinematic is written as places to BE rather than as a
+path, and it is data rather than code. It plays over the real scene: same water,
+same sky, same hour, so nothing has to be kept in step, and the hand-over at the
+end is invisible because the last shot rests exactly on the seat.
+
+*Rules.* Under five seconds for Continue, because it plays every session. **Any
+touch cuts it** — a beautiful thing you cannot skip is the worst thing in the
+game by the fifth time. The touch that skips does not also cast.
+
+*Test.* Both sequences end at the seat with the gate open and the HUD back; a
+tap on the first frame cuts either one and fires nothing.
+
+---
+
 ### 11.1 The title **[done]**
 
 *What.* First thing on launch: the lake at dawn behind the game's name, with
@@ -379,6 +406,38 @@ audio starting on first touch rather than on boot.
 ### 11.7 The ending **[next]**
 
 The Old Fish at the Spring, the blank page, and NG+ where the lake remembers.
+
+---
+
+### 11.8 Rooms as objects **[part done]**
+
+*What.* Gideon: "I want the menus to feel more interactive, like a physical book
+with pages that turn, a store front, a lunch box with items, not just text
+menus." Right, and it applies to the three the player uses most.
+
+*The book — DONE.* The Logbook is a sheet of paper: warm ground, a darker gutter
+and stitching down the binding edge, foxing placed off a fixed hash so it does
+not crawl on redraw, a page-edge shadow, ruled lines under every heading, and
+dark INK instead of cream. The older a keeper's hand, the more it has faded into
+the paper. The way out says "Shut the book".
+
+Everything is drawn rather than imported: a page is a colour, a grain and an
+edge shadow, and a photograph of paper would drag its own lighting into a game
+that has spent a lot of effort having one of its own.
+
+*Still to do on the book:* actual page TURNS instead of one scroll — split the
+entries into spreads with a corner to tap, and a turn that animates.
+
+*The shed — NEXT.* A counter rather than a list: each item on a shelf slat with
+its price on a card, the livewell weighed in on a hook, and the gear ladders as
+things standing on shelves rather than rows of text.
+
+*The kit — NEXT.* A lidded tackle box seen from above, with compartments: bait
+in the trays, line spools in the lid, and the settings written inside the lid
+the way a real one has a list taped in it.
+
+*The rule for all three:* the room should look like the object it is named
+after, and every one of them is drawn, not imported — see the note on paper.
 
 ---
 

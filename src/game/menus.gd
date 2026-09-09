@@ -60,6 +60,10 @@ var _toast: Label
 var _toast_left := 0.0
 var _screen := ""
 
+## Which page of the book is open. The logbook is not a list any more - it is a
+## book, and a book has pages you turn.
+var _page := 0
+
 
 ## Same reason as the mixer: `setup` builds the whole UI and must not run twice.
 func retarget(s: Sim) -> void:
@@ -108,15 +112,19 @@ func refresh() -> void:
 		SHED:
 			_title.text = "The Bait Shed"
 			_fill_shed()
+			_paper(false)
 		MAP:
 			_title.text = "The Lake"
 			_fill_map()
+			_paper(false)
 		LOG:
 			_title.text = "The Logbook"
 			_fill_log()
+			_paper(true)
 		KIT:
 			_title.text = "Your Kit"
 			_fill_kit()
+			_paper(false)
 
 
 func tick(dt: float) -> void:
@@ -194,9 +202,11 @@ func _build() -> void:
 	_toast.visible = false
 	col.add_child(_toast)
 
-	var back := _button("Back to the boat", true)
-	back.pressed.connect(close)
-	col.add_child(back)
+	_build_paper()
+
+	_back = _button("Back to the boat", true)
+	_back.pressed.connect(close)
+	col.add_child(_back)
 
 
 func _say(msg: String, good: bool = true) -> void:
@@ -288,14 +298,22 @@ func _row(left: String, right: String, sub: String, enabled: bool,
 	return b
 
 
+## A heading, and on paper it gets a ruled line under it - which is what turns a
+## list of sections into a page somebody has laid out by hand.
 func _heading(text: String) -> void:
+	var on_paper := _screen == LOG
 	var l := Label.new()
 	l.text = text.to_upper()
 	l.add_theme_font_size_override("font_size", 24)
-	l.add_theme_color_override("font_color", INK_DIM)
+	l.add_theme_color_override("font_color", PAPER_INK_DIM if on_paper else INK_DIM)
 	l.custom_minimum_size = Vector2(0, 62)
 	l.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	_list.add_child(l)
+	if on_paper:
+		var rule := ColorRect.new()
+		rule.color = PAPER_RULE
+		rule.custom_minimum_size = Vector2(0, 2)
+		_list.add_child(rule)
 
 
 ## An unfilled line. Deliberately still VISIBLE - an empty rule is a question,
@@ -304,7 +322,7 @@ func _heading(text: String) -> void:
 ## the end of.
 func _blank() -> void:
 	var r := ColorRect.new()
-	r.color = RULE
+	r.color = PAPER_RULE if _screen == LOG else RULE
 	r.custom_minimum_size = Vector2(0, 2)
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_top", 15)
@@ -319,6 +337,10 @@ func _note(text: String, colour: Color = INK_DIM) -> void:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", 28)
+	# On the page, a note takes the default INK_DIM as "ink" rather than as
+	# "cream" - otherwise every caller would have to know which room it is in.
+	if _screen == LOG and colour == INK_DIM:
+		colour = PAPER_INK_DIM
 	l.add_theme_color_override("font_color", colour)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_list.add_child(l)
@@ -569,8 +591,9 @@ func _fill_book() -> void:
 		l.add_theme_font_size_override("font_size", 28)
 		# Each hand a shade different, and the older it is the more it has faded.
 		# Handwriting, without needing a font per keeper.
+		# Ink, and the older the hand the more it has faded into the paper.
 		var age := clampf((float(e["at"]) - 1.0) / 140.0, 0.0, 1.0)
-		l.add_theme_color_override("font_color", INK.lerp(INK_DIM, age * 0.75))
+		l.add_theme_color_override("font_color", PAPER_INK.lerp(PAPER_INK_DIM, age * 0.8))
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_list.add_child(l)
 
@@ -686,4 +709,109 @@ func _fill_kit() -> void:
 		str(Gear.ROD[sim.econ.rod]["name"]),
 		str(Gear.REEL[sim.econ.reel]["name"])])
 	_note("%d cast, %d landed, %d lost." % [sim.casts, sim.caught, sim.lost_count])
+
+
+# --- the book ---------------------------------------------------------------
+
+## PAPER, NOT A PANEL.
+##
+## Gideon: "I want the menus to feel more interactive, like a physical book with
+## pages that turn... not just text menus."
+##
+## The logbook is the one that most obviously wants to be an object, because it
+## already IS one in the fiction - four people wrote in it before the player.
+## So it gets a paper ground, a stitched spine down the left, a rule under every
+## heading, and page turns instead of a scroll bar.
+##
+## Everything here is drawn rather than imported. A page of paper is a colour, a
+## grain and an edge shadow; a photograph of paper would bring its own lighting
+## into a game that has spent a lot of effort on having one of its own.
+const PAPER_WARM := Color(0.878, 0.847, 0.773)
+const PAPER_SHADE := Color(0.790, 0.752, 0.667)
+const PAPER_INK := Color(0.145, 0.130, 0.110)
+const PAPER_INK_DIM := Color(0.145, 0.130, 0.110, 0.55)
+const PAPER_RULE := Color(0.145, 0.130, 0.110, 0.16)
+
+var _paper_bg: Control
+var _pager: HBoxContainer
+var _back: Button
+
+
+## Turn the room's ground into a sheet of paper, or back into a panel.
+func _paper(on: bool) -> void:
+	if _paper_bg != null:
+		_paper_bg.visible = on
+	# The way out has to belong to the room it is in. A charcoal panel across the
+	# foot of a page of paper is the one thing that says "this is a menu" after
+	# all the work to say it is a book.
+	if _back != null:
+		var box := StyleBoxFlat.new()
+		box.bg_color = Color(0.34, 0.28, 0.20, 0.16) if on else PANEL
+		box.set_corner_radius_all(6)
+		box.set_content_margin_all(18)
+		if on:
+			box.border_color = Color(0.30, 0.25, 0.18, 0.40)
+			box.set_border_width_all(2)
+		_back.add_theme_stylebox_override("normal", box)
+		_back.add_theme_stylebox_override("hover", box)
+		_back.add_theme_stylebox_override("disabled", box)
+		var press := box.duplicate() as StyleBoxFlat
+		press.bg_color = Color(0.34, 0.28, 0.20, 0.34) if on else Color(0.20, 0.22, 0.22)
+		_back.add_theme_stylebox_override("pressed", press)
+		_back.add_theme_color_override("font_color", PAPER_INK if on else INK)
+		_back.add_theme_color_override("font_disabled_color", PAPER_INK if on else DEAD)
+		_back.add_theme_color_override("font_pressed_color", PAPER_INK if on else INK)
+		_back.add_theme_color_override("font_hover_color", PAPER_INK if on else INK)
+		_back.text = "Shut the book" if on else "Back to the boat"
+	# The type has to change colour with the ground, or it is ink on a shadow.
+	_title.add_theme_color_override("font_color", PAPER_INK if on else INK)
+	_purse.add_theme_color_override("font_color",
+		Color(0.42, 0.31, 0.12) if on else COIN)
+
+
+func _build_paper() -> void:
+	_paper_bg = Control.new()
+	_paper_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_paper_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_paper_bg.visible = false
+	_paper_bg.name = "Paper"
+	# Behind everything else in the room, which means added FIRST - Godot draws
+	# siblings in order.
+	_root.add_child(_paper_bg)
+	_root.move_child(_paper_bg, 1)
+	_paper_bg.draw.connect(_draw_paper)
+
+
+## The sheet: a warm ground, a darker gutter down the binding edge, stitching,
+## and a soft edge shadow so it reads as a page rather than as a fill.
+func _draw_paper() -> void:
+	var w := _paper_bg.size.x
+	var h := _paper_bg.size.y
+	_paper_bg.draw_rect(Rect2(0, 0, w, h), PAPER_WARM)
+
+	# The gutter. A book is bound on one side and the paper curves into it.
+	var gutter := w * 0.085
+	for i in 22:
+		var t := float(i) / 21.0
+		var x := gutter * t
+		var a := (1.0 - t) * 0.30
+		_paper_bg.draw_rect(Rect2(x, 0, gutter / 22.0 + 1.0, h),
+			Color(PAPER_SHADE.r, PAPER_SHADE.g, PAPER_SHADE.b, a))
+
+	# Stitching down the binding.
+	for i in 26:
+		var y := h * (0.04 + 0.92 * float(i) / 25.0)
+		_paper_bg.draw_rect(Rect2(gutter * 0.42, y, 3.0, h * 0.018),
+			Color(0.30, 0.25, 0.18, 0.42))
+
+	# Foxing: a few soft blooms of age, placed off a fixed hash so the page does
+	# not crawl when it redraws.
+	for i in 9:
+		var fx := SimUtil.hash2(i, 11) * w
+		var fy := SimUtil.hash2(i, 23) * h
+		var r := 26.0 + SimUtil.hash2(i, 31) * 60.0
+		_paper_bg.draw_circle(Vector2(fx, fy), r, Color(0.72, 0.66, 0.53, 0.055))
+
+	# And the shadow of the page edge, on the outside.
+	_paper_bg.draw_rect(Rect2(w - 5.0, 0, 5.0, h), Color(0.55, 0.50, 0.40, 0.20))
 
