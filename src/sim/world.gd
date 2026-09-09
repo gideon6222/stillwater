@@ -297,3 +297,41 @@ static func next_hour(hour: String) -> String:
 
 static func is_night(hour: String) -> bool:
 	return hour == "night" or hour == "dusk"
+
+
+## WHAT THE SOUNDER DRAWS, and it is the best storytelling instrument in the game.
+##
+## Each spot has a bottom silhouette: a list of `[across, height]` points, where
+## `across` runs 0 to 1 left to right and `height` is metres ABOVE the bed. The
+## renderer scales it into the trace.
+##
+## The reason this is content and not noise: **the player reads the bottom before
+## they can reach it.** Buy the sounder at Old Town and the trace shows rooftops
+## and one tall spike forty metres below anything your line will touch. Nobody
+## says what it is. The dates on what comes up say it later, and the shape was
+## on screen for hours first.
+##
+## It is also why the sounder is the most expensive thing in the shed and buys no
+## fishing advantage whatsoever. It buys knowing.
+const BOTTOMS := {
+	"reed_bay": [[0.0, 0.0], [0.18, 0.5], [0.3, 0.2], [0.52, 0.7], [0.66, 0.3], [0.85, 0.6], [1.0, 0.1]],
+	"narrows": [[0.0, 1.4], [0.2, 0.4], [0.42, 0.1], [0.6, 0.2], [0.78, 0.9], [1.0, 2.1]],
+	# The road. Flat, level, and unmistakably not natural - a straight line across
+	# a lake bed is the whole reveal, and it arrives without a word.
+	"road": [[0.0, 0.3], [0.22, 0.5], [0.30, 1.6], [0.34, 1.7], [0.70, 1.7], [0.74, 1.6],
+		[0.82, 0.5], [1.0, 0.4]],
+	# Old Town: rooftops, and the steeple.
+	"steeple": [[0.0, 0.2], [0.10, 0.2], [0.12, 2.4], [0.20, 2.4], [0.22, 0.3],
+		[0.30, 0.3], [0.32, 3.1], [0.40, 3.1], [0.42, 0.2],
+		[0.52, 0.2], [0.545, 11.0], [0.57, 0.2],
+		[0.66, 0.2], [0.68, 2.8], [0.78, 2.8], [0.80, 0.3], [1.0, 0.2]],
+	"quarry": [[0.0, 9.0], [0.08, 8.6], [0.12, 3.0], [0.2, 2.8], [0.26, 0.4],
+		[0.62, 0.2], [0.70, 3.4], [0.76, 3.2], [0.82, 8.2], [0.9, 8.8], [1.0, 9.4]],
+	# The Spring. The bed does not come back. Whatever the sounder is bouncing off
+	# down there is not the bottom, and it is not in the same place twice.
+	"spring": [[0.0, 0.0], [1.0, 0.0]],
+}
+
+
+static func bottom_of(spot_id: String) -> Array:
+	return BOTTOMS.get(spot_id, BOTTOMS["reed_bay"])

@@ -242,6 +242,34 @@ The suites were green for all of these:
 **Photograph every screen and every extreme of the arc, once, and look at it.**
 `scripts/shot.gd` takes an hour, a weather and a depth for exactly this.
 
+## The sounder is the story, not a fishing aid
+
+It costs 1200 - the most expensive thing in the shed - and buys **no fishing
+advantage whatsoever.** No better bites, no bigger fish, no wider band. It buys
+knowing what is under the boat.
+
+That is the whole design. A depth column with the bed's own silhouette drawn
+from `World.BOTTOMS`: weed in the reeds, a dead flat level line at the Drowned
+Road that is unmistakably not natural, rooftops and one tall thin spike at Old
+Town, quarry walls below that. At The Spring the bed does not come back at all.
+
+**The player reads the bottom long before they can reach it.** Buy the sounder
+with 40 lb braid and the steeple is on screen forty metres below anything the
+line will touch, and nothing in the game says a word about it. The dates on what
+comes up explain it hours later; the shape was there the whole time.
+
+Two things it needed to actually work:
+
+- **Vertical exaggeration**, as a real sounder has. At true scale an eleven-metre
+  steeple in eighty metres of water is a fourteen per cent tick that reads as
+  noise on the bed. `SOUNDER_RELIEF` is 2.4, capped so a tall structure cannot
+  fill the column and hide the water the fish are in.
+- **A panel, not a ribbon.** The first version ran most of the screen height down
+  the left edge, over the boat and the rod, with the silhouette squashed into the
+  last inch. Everything it draws is metres straight off the sim, so the trace and
+  the rules cannot disagree - it is not a second model of the lake, it is the one
+  the fish are in.
+
 ## Open, in rough priority order
 
 1. **Does the third fight feel good?** Specifically: is the hook bar readable at a glance, is

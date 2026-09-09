@@ -84,11 +84,14 @@ func _initialize() -> void:
 		_main.sim.hour = String(args[2])
 	if args.size() > 3:
 		_main.sim.weather = String(args[3])
+	# The sounder is the most expensive thing in the shed, so a screenshot of the
+	# game without it is a screenshot of two thirds of the HUD.
+	_main.sim.econ.has_sounder = true
 	if args.size() > 4:
 		# Dread is depth, so this is "photograph it as if the line were this far
 		# down" - the whole visual arc in one number.
 		_main.sim.econ.line = 5
-		_main.sim.spot = "spring"
+		_main.sim.spot = String(args[5]) if args.size() > 5 else "spring"
 		_main.sim.lure_depth = float(args[4])
 		_main.sim.state = Sim.WAITING
 	# `_sync` as well as `_sync_mood`, or the HUD in the photograph still says

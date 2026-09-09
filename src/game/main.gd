@@ -47,6 +47,7 @@ var _dread := 0.0
 var _sky_mat: ProceduralSkyMaterial
 var _reeds: Node3D
 var _save_due := 0.0
+var _sounder: Control
 
 var _charging := false
 
@@ -103,6 +104,11 @@ const ROD_REST := -14.0       ## tip a little up, holding the rod out
 const CAST_BACK := 62.0       ## degrees lifted BEHIND rest at full charge
 const CAST_THROW_TO := -6.0   ## where the throw stops. ABOVE horizontal, on purpose
 const CAST_SWING_TIME := 0.20 ## seconds of forward swing
+
+## How much taller than life the sounder draws whatever is standing on the bed.
+## See the note in `_draw_sounder`: a real sounder exaggerates for exactly this
+## reason, and the steeple has to be a STEEPLE on a phone screen.
+const SOUNDER_RELIEF := 2.4
 
 ## Set by the headless harness. When true the frame loop does not step the sim,
 ## so `advance()` is the only thing moving time and results do not depend on how
@@ -722,6 +728,20 @@ func _build_hud() -> void:
 	_audio.setup(sim)
 	_audio.start()
 
+	# THE SOUNDER. Down the left edge, narrow, and only there once it is bought.
+	# It is a readout and not a control, so MOUSE_FILTER_IGNORE - the whole screen
+	# under it is still the cast surface.
+	_sounder = Control.new()
+	_sounder.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_sounder.offset_left = 34
+	_sounder.offset_right = 366
+	_sounder.offset_top = 300
+	_sounder.offset_bottom = 830
+	_sounder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sounder.name = "Sounder"
+	_sounder.draw.connect(_draw_sounder)
+	_ui.add_child(_sounder)
+
 	_menus = Menus.new()
 	_menus.name = "Menus"
 	add_child(_menus)
@@ -779,6 +799,10 @@ func _sync_bars() -> void:
 		_readout.visible = not in_room
 	if _prompt != null:
 		_prompt.visible = not in_room
+	if _sounder != null:
+		# Visibility HERE, never inside the draw callback - see the note above.
+		_sounder.visible = sim.econ.has_sounder and not in_room
+		_sounder.queue_redraw()
 
 
 func _dock_button(text: String) -> Button:
@@ -1357,3 +1381,101 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
 		if sim != null and _booted:
 			_save_game()
+
+
+## THE SOUNDER, and it is the game's best storytelling instrument.
+##
+## A depth column: surface at the top, the bed at the bottom, the lure where the
+## lure is, and the bottom's own silhouette drawn from `World.BOTTOMS`. It costs
+## 1200 and buys NO fishing advantage at all - no better bites, no bigger fish.
+## It buys knowing what is under the boat.
+##
+## Which is the point. The player sees rooftops and one tall spike at Old Town
+## forty metres below anything their line will touch, and nothing in the game
+## says a word about it. The dates on what comes up explain it hours later, and
+## the shape was on screen the whole time.
+##
+## Everything drawn is metres off the sim. The trace and the rules cannot
+## disagree, because the trace is not a second model of the lake - it is the one
+## the fish are in.
+func _draw_sounder() -> void:
+	if not sim.econ.has_sounder:
+		return
+	var w := _sounder.size.x
+	var h := _sounder.size.y
+	var spot := World.spot_by_id(sim.spot)
+	var bed: float = spot["bed"]
+	if bed <= 0.01:
+		return
+
+	_sounder.draw_rect(Rect2(0, 0, w, h), Color(0.02, 0.05, 0.06, 0.62))
+	_sounder.draw_rect(Rect2(0, 0, w, h), Color(0.55, 0.78, 0.70, 0.22), false, 2.0)
+
+	# Depth gridlines, every 25% of the bed, labelled in metres. The player reads
+	# this and does the arithmetic that turns metres into years by themselves.
+	for i in range(1, 4):
+		var y := h * float(i) / 4.0
+		_sounder.draw_line(Vector2(0, y), Vector2(w, y), Color(0.55, 0.78, 0.70, 0.13), 1.0)
+
+	# The bed, and whatever is standing on it.
+	var pts := PackedVector2Array()
+	var bottom := World.bottom_of(sim.spot)
+	# VERTICALLY EXAGGERATED, exactly as a real sounder is. At true scale an
+	# eleven metre steeple in eighty metres of water is a fourteen per cent tick
+	# that reads as noise on the bed - and this display exists to be READ, from a
+	# phone, at a glance. Capped so a tall structure cannot fill the column and
+	# hide the water the fish are in.
+	var per_m := (h / bed) * SOUNDER_RELIEF
+	var tallest := 0.0
+	for p in bottom:
+		tallest = maxf(tallest, float(p[1]))
+	if tallest * per_m > h * 0.55:
+		per_m = h * 0.55 / tallest
+	pts.append(Vector2(0, h))
+	for p in bottom:
+		var across: float = p[0]
+		# Every value out of a nested Array is a Variant, so both are annotated -
+		# `:=` cannot infer from one and the parse error names the local, not the
+		# lookup. Third time this has bitten in this repo.
+		var up: float = p[1]
+		pts.append(Vector2(across * w, h - up * per_m))
+	pts.append(Vector2(w, h))
+	_sounder.draw_colored_polygon(pts, Color(0.30, 0.44, 0.36, 0.72))
+
+	# How far the line will reach, as a hard rule across the column. Everything
+	# below it is water the player can see and cannot touch, which is the whole
+	# progression drawn as one line.
+	var reach := minf(bed, Gear.line_depth(sim.econ.line))
+	var ry := h * clampf(reach / bed, 0.0, 1.0)
+	_sounder.draw_line(Vector2(0, ry), Vector2(w, ry), Color(0.86, 0.72, 0.38, 0.55), 2.0)
+
+	# Fish, at the depths they actually live at. Only the ones this cast could
+	# meet: a mark for something the line cannot reach would be a lie.
+	var hour := sim.hour
+	for row in Species.at_depth(sim.lure_depth if sim.lure_depth > 0.1 else reach * 0.5, hour):
+		var lo: float = row["min_depth"]
+		var hi: float = row["max_depth"]
+		var mid := clampf((lo + hi) * 0.5, 0.0, bed)
+		var x := w * (0.24 + SimUtil.hash2(int(sim.time * 0.4), row["id"].length()) * 0.6)
+		var y := h * (mid / bed)
+		_sounder.draw_arc(Vector2(x, y), 7.0, PI * 1.1, PI * 1.9, 8,
+			Color(0.92, 0.86, 0.58, 0.75), 2.5)
+
+	# The lure. The one mark the player is actually steering.
+	if sim.lure_depth > 0.01:
+		var ly := h * clampf(sim.lure_depth / bed, 0.0, 1.0)
+		_sounder.draw_line(Vector2(w * 0.5, 0), Vector2(w * 0.5, ly),
+			Color(0.90, 0.92, 0.88, 0.35), 1.0)
+		_sounder.draw_circle(Vector2(w * 0.5, ly), 5.0, Color(0.92, 0.34, 0.26))
+
+	var font := ThemeDB.fallback_font
+	_sounder.draw_string(font, Vector2(10, h - 12), SimUtil.fmt_m(bed),
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.72, 0.86, 0.78, 0.7))
+	# The lure's depth is written NEXT TO THE LURE, not in a corner. It is the one
+	# number on this display that moves, and a moving number in a fixed caption
+	# box is a number the player has to look for.
+	if sim.lure_depth > 0.01:
+		var ly2 := h * clampf(sim.lure_depth / bed, 0.0, 1.0)
+		_sounder.draw_string(font, Vector2(w * 0.5 + 12, clampf(ly2 + 8.0, 20.0, h - 6.0)),
+			SimUtil.fmt_m(sim.lure_depth),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.95, 0.90, 0.80, 0.92))
