@@ -55,8 +55,16 @@ var _sky_cloud := 0.0
 var _fish_shown := ""
 
 # --- the boat's pose on the water, and where the player is looking ----------
-var _look_yaw := 0.0          ## radians, player's view offset
+var _look_yaw := 0.0          ## radians, where the view IS
 var _look_pitch := 0.0
+var _look_yaw_want := 0.0     ## where the finger has asked it to be
+var _look_pitch_want := 0.0
+
+## Player setting, 1.0 being the tuned default. Exposed because the research is
+## unanimous that look sensitivity has to be adjustable - it is the one control
+## value where individual preference genuinely differs, and no default is right
+## for everyone.
+var look_sensitivity := 1.0
 var _cast_yaw := 0.0          ## the heading the current cast was made on
 var _boat_pose := Transform3D.IDENTITY
 var _drag_from := Vector2.ZERO
@@ -74,6 +82,9 @@ var _reeds: Node3D
 var _save_due := 0.0
 var _sounder: Control
 var _action: Button
+var _use: Button
+var _things: Array[Dictionary] = []
+var _looking_at := ""
 var _splash: GPUParticles3D
 var _ring: MeshInstance3D
 var _shake := 0.0
@@ -675,6 +686,7 @@ func _build_boat() -> void:
 	_wake.name = "Wake"
 	add_child(_wake)
 
+	_build_things()
 	_build_reeds()
 
 
@@ -1223,7 +1235,9 @@ func _build_hud() -> void:
 	_prompt.anchor_right = 1.0
 	# Below both bars, not through them. At 320 it ran straight across the tension
 	# gauge, which is the one thing on screen that has to stay readable.
-	_prompt.offset_top = 400
+	# BELOW the sounder, not across it. At 400 the prompt ran straight through
+	# the depth trace - the one instrument the player is supposed to be reading.
+	_prompt.offset_top = 880
 	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_prompt.add_theme_font_size_override("font_size", 44)
 	_prompt.add_theme_color_override("font_color", Color(1.0, 0.96, 0.86))
@@ -1259,30 +1273,73 @@ func _build_hud() -> void:
 	# So the verb the player currently has is now written on a button, in words,
 	# at all times. It is deliberately NOT the main input: tapping the water is
 	# still how you fish, and this is the way out and the way back.
+	# ROUND, WARM AND BIG, in the corner a right thumb rests in.
+	#
+	# Gideon: "it looks kind of out of place to have the cast button next to the
+	# other menu style buttons." Exactly right, and the fault was categorical
+	# rather than cosmetic: the game's VERB and the game's NAVIGATION were drawn
+	# in one visual language and sat side by side, so casting read as a menu
+	# item. They are different kinds of thing and now they look it - this is a
+	# warm circle, the rooms are cool flat text, and they are at opposite ends of
+	# the bar.
+	#
+	# 260 px on a 1080 base is about 15 mm on the phone, comfortably over the
+	# 48 dp Android minimum, and it sits in the bottom-right "green zone" every
+	# thumb-reach study puts the primary action in.
 	_action = Button.new()
 	_action.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_action.offset_left = -330
-	_action.offset_right = -40
-	_action.offset_top = -330
-	_action.offset_bottom = -212
+	_action.offset_left = -ACTION_SIZE - 46
+	_action.offset_right = -46
+	_action.offset_top = -ACTION_SIZE - 150 - SAFE_BOTTOM
+	_action.offset_bottom = -150 - SAFE_BOTTOM
 	_action.focus_mode = Control.FOCUS_NONE
-	_action.add_theme_font_size_override("font_size", 34)
+	_action.add_theme_font_size_override("font_size", 36)
 	var abox := StyleBoxFlat.new()
-	abox.bg_color = Color(0.05, 0.09, 0.10, 0.86)
-	abox.border_color = Color(0.93, 0.90, 0.82, 0.30)
-	abox.set_border_width_all(2)
-	abox.set_corner_radius_all(10)
+	abox.bg_color = Color(0.16, 0.115, 0.075, 0.90)
+	abox.border_color = Color(0.88, 0.72, 0.40, 0.62)
+	abox.set_border_width_all(3)
+	abox.set_corner_radius_all(int(ACTION_SIZE * 0.5))
 	_action.add_theme_stylebox_override("normal", abox)
 	_action.add_theme_stylebox_override("hover", abox)
 	var apress := abox.duplicate() as StyleBoxFlat
-	apress.bg_color = Color(0.16, 0.24, 0.25, 0.94)
+	apress.bg_color = Color(0.36, 0.26, 0.14, 0.96)
+	apress.border_color = Color(0.98, 0.86, 0.56, 0.92)
 	_action.add_theme_stylebox_override("pressed", apress)
-	_action.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82))
-	_action.add_theme_color_override("font_hover_color", Color(0.93, 0.90, 0.82))
+	_action.add_theme_color_override("font_color", Color(0.96, 0.90, 0.76))
+	_action.add_theme_color_override("font_hover_color", Color(0.96, 0.90, 0.76))
 	_action.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
 	_action.name = "Action"
 	_action.pressed.connect(_on_action)
 	_ui.add_child(_action)
+
+	# USE, above the action and only when there is something to use. Same corner,
+	# same thumb, deliberately smaller and cooler - it is the second verb, not a
+	# rival to the first.
+	_use = Button.new()
+	_use.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_use.offset_left = -ACTION_SIZE - 46
+	_use.offset_right = -46
+	_use.offset_top = -ACTION_SIZE - 262 - SAFE_BOTTOM
+	_use.offset_bottom = -ACTION_SIZE - 158 - SAFE_BOTTOM
+	_use.focus_mode = Control.FOCUS_NONE
+	_use.add_theme_font_size_override("font_size", 30)
+	var ubox := StyleBoxFlat.new()
+	ubox.bg_color = Color(0.05, 0.09, 0.10, 0.86)
+	ubox.border_color = Color(0.93, 0.90, 0.82, 0.34)
+	ubox.set_border_width_all(2)
+	ubox.set_corner_radius_all(52)
+	_use.add_theme_stylebox_override("normal", ubox)
+	_use.add_theme_stylebox_override("hover", ubox)
+	var upress := ubox.duplicate() as StyleBoxFlat
+	upress.bg_color = Color(0.17, 0.25, 0.26, 0.94)
+	_use.add_theme_stylebox_override("pressed", upress)
+	_use.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82))
+	_use.add_theme_color_override("font_hover_color", Color(0.93, 0.90, 0.82))
+	_use.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	_use.visible = false
+	_use.name = "Use"
+	_use.pressed.connect(_on_use)
+	_ui.add_child(_use)
 
 	# A single line of what to do, under the action. Fades out once the player
 	# has done the thing a few times - a prompt that never leaves is a prompt
@@ -1291,8 +1348,8 @@ func _build_hud() -> void:
 	_hint.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	_hint.offset_left = 40
 	_hint.offset_right = -40
-	_hint.offset_top = -196
-	_hint.offset_bottom = -150
+	_hint.offset_top = -244 - SAFE_BOTTOM
+	_hint.offset_bottom = -196 - SAFE_BOTTOM
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.add_theme_font_size_override("font_size", 26)
 	_hint.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82, 0.62))
@@ -1308,16 +1365,20 @@ func _build_hud() -> void:
 	# to land a sturgeon. `_sync_bars` hides it in every state but IDLE, and that
 	# is not a nicety: the alternative is a button under the one gesture the game
 	# asks for most.
+	# Navigation lives bottom-LEFT and is deliberately quiet: flat, unboxed,
+	# low contrast. It is read once every few minutes; the action is pressed
+	# every few seconds. Giving them equal weight was the bug.
 	_dock = HBoxContainer.new()
-	_dock.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	_dock.offset_left = 40
-	_dock.offset_right = -40
-	_dock.offset_top = -196
-	_dock.offset_bottom = -84
-	_dock.add_theme_constant_override("separation", 18)
+	_dock.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_dock.offset_left = 34
+	_dock.offset_right = 640
+	_dock.offset_top = -150 - SAFE_BOTTOM
+	_dock.offset_bottom = -46 - SAFE_BOTTOM
+	_dock.add_theme_constant_override("separation", 10)
 	_dock.name = "Dock"
 	_ui.add_child(_dock)
-	for pair in [[Menus.SHED, "Shed"], [Menus.MAP, "Lake"], [Menus.LOG, "Log"]]:
+	for pair in [[Menus.SHED, "Shed"], [Menus.MAP, "Lake"], [Menus.LOG, "Log"],
+			[Menus.KIT, "Kit"]]:
 		var screen: String = pair[0]
 		var b := _dock_button(str(pair[1]))
 		b.pressed.connect(func() -> void: _open(screen))
@@ -1352,6 +1413,7 @@ func _build_hud() -> void:
 	_audio.name = "Audio"
 	add_child(_audio)
 	_audio.setup(sim)
+	_audio.set_muted(sim.sound_muted)
 	_audio.start()
 
 	# THE SOUNDER. Down the left edge, narrow, and only there once it is bought.
@@ -1372,8 +1434,21 @@ func _build_hud() -> void:
 	_menus.name = "Menus"
 	add_child(_menus)
 	_menus.setup(sim)
+	# Seed the room from whatever the save restored, then push it straight back
+	# out, so the first frame already honours the player's own settings.
+	_menus.sensitivity = sim.sensitivity
+	_menus.sound_muted = sim.sound_muted
+	look_sensitivity = sim.sensitivity
 	_menus.changed.connect(func() -> void:
-		_audio.play("coin", -6.0)
+		# The Kit owns the settings; this is where they reach the things that
+		# actually use them. Neither the camera nor the mixer needs to know a
+		# menu exists.
+		look_sensitivity = _menus.sensitivity
+		sim.sensitivity = _menus.sensitivity
+		sim.sound_muted = _menus.sound_muted
+		if _audio != null:
+			_audio.set_muted(_menus.sound_muted)
+			_audio.play("coin", -6.0)
 		_want_save())
 
 	# Anything that changes the boat asks for a write. Landing a fish is the one
@@ -1425,13 +1500,33 @@ func _sync_bars() -> void:
 		_readout.visible = not in_room
 	if _prompt != null:
 		_prompt.visible = not in_room
+	# What is under the aim, and therefore what the second button offers.
+	var thing := _thing_under_aim()
+	_looking_at = str(thing.get("id", "")) if not thing.is_empty() else ""
+	if _use != null:
+		_use.visible = _looking_at != "" and not in_room
+		if _use.visible:
+			_use.text = "Use"
+
 	if _action != null:
 		var label := _action_for_state()
 		_action.visible = label != "" and not in_room
 		_action.text = label
 	if _hint != null:
 		_hint.visible = not in_room
-		_hint.text = _hint_for_state()
+		# Priority: something just happened > something is under the aim > the
+		# standing instruction. One line, three jobs, and the most recent thing
+		# always wins - a hint that keeps saying the tutorial over the top of a
+		# thing the player is actively pointing at is a hint nobody reads.
+		if _hint_hold > 0.0:
+			_hint.text = _hint_text
+		elif _looking_at != "":
+			for t in _things:
+				if t["id"] == _looking_at:
+					_hint.text = (t["look"] as Callable).call()
+					break
+		else:
+			_hint.text = _hint_for_state()
 	if _sounder != null:
 		# Visibility HERE, never inside the draw callback - see the note above.
 		_sounder.visible = sim.econ.has_sounder and not in_room
@@ -1443,19 +1538,17 @@ func _dock_button(text: String) -> Button:
 	b.text = text
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_size_override("font_size", 34)
+	b.add_theme_font_size_override("font_size", 28)
 	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.05, 0.08, 0.09, 0.82)
-	box.border_color = Color(0.93, 0.90, 0.82, 0.22)
-	box.set_border_width_all(2)
-	box.set_corner_radius_all(8)
+	box.bg_color = Color(0.04, 0.07, 0.08, 0.55)
+	box.set_corner_radius_all(6)
 	b.add_theme_stylebox_override("normal", box)
 	b.add_theme_stylebox_override("hover", box)
 	var press := box.duplicate() as StyleBoxFlat
-	press.bg_color = Color(0.14, 0.20, 0.21, 0.92)
+	press.bg_color = Color(0.13, 0.19, 0.20, 0.85)
 	b.add_theme_stylebox_override("pressed", press)
-	b.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82))
-	b.add_theme_color_override("font_hover_color", Color(0.93, 0.90, 0.82))
+	b.add_theme_color_override("font_color", Color(0.90, 0.88, 0.80, 0.72))
+	b.add_theme_color_override("font_hover_color", Color(0.90, 0.88, 0.80, 0.72))
 	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
 	return b
 
@@ -1531,10 +1624,40 @@ func _draw_tension_bar() -> void:
 ## Getting this wrong in the other direction - time-based - would mean the player
 ## cannot look around without accidentally casting, which is exactly the kind of
 ## thing that reads as "clunky" without being nameable.
+## Diameter of the round action button, on the 1080-wide base canvas.
+const ACTION_SIZE := 260
+
+## Clearance left under everything for the Android gesture bar.
+##
+## A fixed number rather than `DisplayServer.get_display_safe_area()`, because
+## that returns the WINDOW on a desktop run and would move the whole HUD between
+## the phone and every screenshot taken here - which is exactly the class of bug
+## that shipped when controls were positioned against a literal 1920. 54 px on
+## the 1080 base is a little over the gesture bar on an S26 Ultra, and costs
+## nothing anywhere else.
+const SAFE_BOTTOM := 54
+
 const LOOK_SLOP := 14.0        ## pixels before a press becomes a look
-const LOOK_SPEED := 0.0042     ## radians per pixel
-const LOOK_YAW_LIMIT := 1.05   ## how far round you can turn in the seat
-const LOOK_PITCH_LIMIT := 0.42
+
+## HOW FAR A SWIPE TURNS YOU, expressed as the thing that can be judged: what
+## fraction of the screen you have to drag to look from one shoulder to the
+## other. Mobile convention is roughly a full screen width per 90-180 degrees;
+## the first version was 0.0042 rad/px, which turned the full 120-degree range in
+## a QUARTER of a screen width. The note was "the turning is really fast", and it
+## was - by about four times.
+##
+## Derived rather than typed, so the sensitivity and the limits cannot drift
+## apart the way two hand-tuned constants do.
+const LOOK_YAW_LIMIT := 1.05   ## how far round you can turn in the seat (60 deg)
+const LOOK_PITCH_LIMIT := 0.40
+const LOOK_SWEEP := 1.15       ## screen widths to travel the whole yaw range
+const LOOK_BASE_WIDTH := 1080.0
+
+## How hard the view chases the finger. Below 1 the camera eases in behind the
+## drag, which removes the twitch that raw pixel deltas give on a touch screen -
+## a finger reports in jumps, and a camera bolted straight to those jumps reads
+## as cheap however correct the sensitivity is.
+const LOOK_FOLLOW := 16.0
 
 func _on_cast_input(event: InputEvent) -> void:
 	if event is InputEventScreenDrag:
@@ -1598,8 +1721,12 @@ func _apply_look(rel: Vector2) -> void:
 		return
 	if _drag_moved <= LOOK_SLOP:
 		return
-	_look_yaw = clampf(_look_yaw - rel.x * LOOK_SPEED, -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
-	_look_pitch = clampf(_look_pitch - rel.y * LOOK_SPEED, -LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
+	var speed := (LOOK_YAW_LIMIT * 2.0) / (LOOK_BASE_WIDTH * LOOK_SWEEP) * look_sensitivity
+	_look_yaw_want = clampf(_look_yaw_want - rel.x * speed, -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
+	# Pitch gets less range than yaw and the same rate, because a seated person
+	# turns their head much further than they tip it.
+	_look_pitch_want = clampf(_look_pitch_want - rel.y * speed,
+		-LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
 
 
 func _mat(c: Color, rough: float = 0.6) -> StandardMaterial3D:
@@ -1624,6 +1751,10 @@ func _tick(dt: float) -> void:
 		_freeze_left -= dt
 		dt *= 0.12
 	_shake = maxf(0.0, _shake - dt * 3.4)
+	_hint_hold = maxf(0.0, _hint_hold - dt)
+	var lk := 1.0 - exp(-LOOK_FOLLOW * dt)
+	_look_yaw = lerpf(_look_yaw, _look_yaw_want, lk)
+	_look_pitch = lerpf(_look_pitch, _look_pitch_want, lk)
 	_sync_ring(dt)
 	_boat_dt = dt
 	_boat_time += dt
@@ -1947,7 +2078,10 @@ func _write_readout() -> void:
 	var line := ""
 	match sim.state:
 		Sim.IDLE:
-			line = "HOLD TO CAST"
+			# NOTHING. The button says "Cast" and the hint under it says how -
+			# a third instruction in the middle of the screen was the same
+			# sentence a third time, and it landed on top of the sounder.
+			line = ""
 		Sim.CHARGING:
 			line = "%.0f m" % Tuning.cast_distance(sim.charge)
 		Sim.FLYING, Sim.SINKING:
@@ -2041,6 +2175,11 @@ func _sync_mood(dt: float) -> void:
 				mi.transparency = 1.0 - near
 
 	_sync_weather(look, k)
+	if _lamp != null and _lamp.visible:
+		# Brightest at night and in fog, and almost nothing at noon - a lamp that
+		# is equally bright in daylight reads as a bug.
+		var want_lamp := 2.6 * (1.0 - clampf(float(look["ambient"]) / 0.9, 0.0, 1.0))
+		_lamp.light_energy = lerpf(_lamp.light_energy, maxf(0.35, want_lamp), k)
 	_sync_grade(k)
 
 	if _water_mat != null:
@@ -3132,4 +3271,151 @@ func _hit_stop(seconds: float) -> void:
 func _buzz(ms: int, amplitude: float) -> void:
 	if OS.has_feature("mobile"):
 		Input.vibrate_handheld(ms, clampf(amplitude, 0.0, 1.0))
+
+
+# --- things in the boat -----------------------------------------------------
+
+## THE BOAT IS A PLACE, NOT A CAMERA MOUNT.
+##
+## Gideon: "part of the issue is the small details. like being able to move
+## around the boat, interact with things. right now it just feels like you can
+## only cast and reel."
+##
+## Right, and the look control on its own does not fix it - turning your head in
+## a room where nothing can be touched is scenery, not agency. So the objects
+## already in the hull become things you can USE, by looking at them. No new
+## gesture: the same drag that turns your head aims at them, and the same button
+## that casts uses them.
+##
+## Each entry is a world point, a radius on screen, and what using it does. Kept
+## as data so adding the lamp or the radio later is one row.
+func _build_things() -> void:
+	_things = [
+		{
+			"id": "livewell",
+			"name": "The livewell",
+			"at": Vector3(0.0, 0.30, 0.55),
+			"look": func() -> String:
+				if sim.econ.held.is_empty():
+					return "The livewell   -   empty"
+				return "The livewell   -   %d fish, %.1f of %.1f kg" % [
+					sim.econ.held.size(), sim.econ.load_kg(), sim.econ.capacity()],
+			"use": func() -> void:
+				_open(Menus.SHED),
+		},
+		{
+			"id": "baitbox",
+			"name": "The bait box",
+			"at": Vector3(-0.34, 0.42, -0.05),
+			"look": func() -> String:
+				var b := Gear.bait_by_id(sim.econ.bait)
+				return "%s on the hook   -   tap to change" % str(b["name"]),
+			"use": func() -> void:
+				_cycle_bait(),
+		},
+		{
+			"id": "lamp",
+			"name": "The deck lamp",
+			"at": Vector3(0.40, 0.60, 1.05),
+			"look": func() -> String:
+				if not sim.econ.has_lamp:
+					return "A bracket where a lamp would go"
+				return "The deck lamp   -   %s" % ("lit" if _lamp_on else "out"),
+			"use": func() -> void:
+				if not sim.econ.has_lamp:
+					_say_hint("There is no lamp in the bracket.")
+					return
+				_lamp_on = not _lamp_on
+				_sync_lamp()
+				if _audio != null:
+					_audio.play("page", -6.0),
+		},
+		{
+			"id": "rope",
+			"name": "The rope",
+			"at": Vector3(-0.34, 0.50, -0.16),
+			"look": func() -> String:
+				return "A coil of rope. Somebody else's knot.",
+			"use": func() -> void:
+				_say_hint("You leave it where it is."),
+		},
+	]
+
+
+var _lamp_on := false
+var _lamp: OmniLight3D
+var _hint_hold := 0.0
+var _hint_text := ""
+
+
+## What the player is currently looking at, or "" for the water.
+##
+## A dot product rather than a raycast: the things are small, close, and never
+## occluded from the one seat in the game, so "is it near the middle of the
+## screen" is both the right question and a hundredth of the cost.
+func _thing_under_aim() -> Dictionary:
+	if sim.state != Sim.IDLE and sim.state != Sim.WAITING:
+		return {}
+	if _cam == null:
+		return {}
+	var eye := _cam.global_transform.origin if is_inside_tree() else _cam.transform.origin
+	var fwd := -_cam.transform.basis.z.normalized()
+	var best := {}
+	var best_dot := 0.985
+	for t in _things:
+		var at: Vector3 = _boat_pose * (t["at"] as Vector3)
+		var to := (at - eye)
+		if to.length() < 0.05:
+			continue
+		var d := fwd.dot(to.normalized())
+		if d > best_dot:
+			best_dot = d
+			best = t
+	return best
+
+
+func _cycle_bait() -> void:
+	# Only through bait actually owned, and only forwards. A chooser in the boat
+	# is a convenience, not a second shop - the shed is still where bait is
+	# bought, and this is for the thing every angler does twenty times an hour.
+	var owned: Array[String] = []
+	for b in Gear.BAIT:
+		var id: String = b["id"]
+		if sim.econ.has_bait(id):
+			owned.append(id)
+	if owned.size() <= 1:
+		_say_hint("Nothing else in the box.")
+		return
+	var i := owned.find(sim.econ.bait)
+	sim.econ.bait = owned[(i + 1) % owned.size()]
+	_say_hint("%s on the hook." % str(Gear.bait_by_id(sim.econ.bait)["name"]))
+	if _audio != null:
+		_audio.play("page", -8.0)
+	_want_save()
+
+
+func _say_hint(text: String) -> void:
+	_hint_text = text
+	_hint_hold = 2.6
+
+
+func _sync_lamp() -> void:
+	if _lamp == null:
+		_lamp = OmniLight3D.new()
+		_lamp.name = "DeckLamp"
+		_lamp.omni_range = 9.0
+		_lamp.light_energy = 0.0
+		_lamp.light_color = Color(1.0, 0.86, 0.62)
+		_lamp.position = Vector3(0.40, 0.72, 1.05)
+		add_child(_lamp)
+	_lamp.visible = _lamp_on and sim.econ.has_lamp
+
+
+## Use whatever is being looked at. Refuses silently if that is the water, which
+## is the only correct behaviour for a button that should not have been visible.
+func _on_use() -> void:
+	for t in _things:
+		if t["id"] == _looking_at:
+			(t["use"] as Callable).call()
+			return
 

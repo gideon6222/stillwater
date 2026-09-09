@@ -69,6 +69,11 @@ var day: int = 1
 
 var econ := Econ.new()
 
+## Player settings. They live on the sim ONLY so that the pure save can carry
+## them - nothing in the rules ever reads them, and nothing should.
+var sensitivity: float = 1.0
+var sound_muted: bool = false
+
 ## Species landed at least once, and objects found at least once. The logbook is
 ## the collection, and a collection is the one reward whose value does not decay
 ## the way money does: every amount of money you earn makes the last amount

@@ -60,6 +60,7 @@ func _initialize() -> void:
 	_check_every_action_answers_within_two_frames(main)
 	_check_the_boat_is_never_still(main)
 	_check_looking_around_never_casts_by_accident(main)
+	_check_everything_in_the_boat_can_be_looked_at_and_used(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -399,7 +400,7 @@ func _check_every_room_opens_and_closes(main) -> void:
 	_t.ok(menus != null, "the menus were never built")
 	if menus == null:
 		return
-	for screen in [Menus.SHED, Menus.MAP, Menus.LOG]:
+	for screen in [Menus.SHED, Menus.MAP, Menus.LOG, Menus.KIT]:
 		menus.open(screen)
 		_t.ok(menus.is_open(), "%s did not open" % screen)
 		_t.eq(menus.current(), screen, "%s opened the wrong room" % screen)
@@ -763,3 +764,51 @@ func _check_looking_around_never_casts_by_accident(main) -> void:
 	_t.eq(main.sim.state, Sim.CHARGING, "a still hold does not load a cast")
 	main._on_cast_input(release)
 	_t.ok(main.sim.state != Sim.CHARGING, "letting go does not release the cast")
+
+
+## EVERY THING IN THE BOAT CAN BE FOUND BY LOOKING, AND USED.
+##
+## The boat's objects are only worth having if the aim can actually reach them
+## from the seat. A thing placed outside the look limits is worse than no thing:
+## it is a prompt the player sees once, hunts for, and never finds again.
+##
+## Swept across the whole yaw and pitch range the player has, which is the honest
+## test - not "can the code find it if pointed at exactly".
+func _check_everything_in_the_boat_can_be_looked_at_and_used(main) -> void:
+	_t.begin("smoke > everything in the boat can be reached from the seat")
+	main.freeze(1)
+	main.sim.state = Sim.IDLE
+
+	var found: Dictionary = {}
+	var steps := 26
+	for yi in steps:
+		for pi in steps:
+			main._look_yaw = lerpf(-main.LOOK_YAW_LIMIT, main.LOOK_YAW_LIMIT,
+				float(yi) / float(steps - 1))
+			main._look_pitch = lerpf(-main.LOOK_PITCH_LIMIT, main.LOOK_PITCH_LIMIT,
+				float(pi) / float(steps - 1))
+			main._look_yaw_want = main._look_yaw
+			main._look_pitch_want = main._look_pitch
+			main._sync()
+			if main._looking_at != "":
+				found[main._looking_at] = true
+
+	for t in main._things:
+		var id: String = t["id"]
+		_t.ok(found.has(id),
+			"'%s' is in the boat but cannot be looked at from the seat" % id)
+
+	# And each one says something, and doing it does not blow up.
+	for t in main._things:
+		var text: String = (t["look"] as Callable).call()
+		_t.ok(text != "", "'%s' has nothing to say when looked at" % t["id"])
+		main._looking_at = str(t["id"])
+		main._on_use()
+		if main._menus.is_open():
+			main._menus.close()
+	_t.ok(true, "every thing in the boat can be used without erroring")
+
+	main._look_yaw = 0.0
+	main._look_pitch = 0.0
+	main._look_yaw_want = 0.0
+	main._look_pitch_want = 0.0

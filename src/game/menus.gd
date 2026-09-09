@@ -26,6 +26,7 @@ signal closed
 const SHED := "shed"
 const MAP := "map"
 const LOG := "log"
+const KIT := "kit"
 
 ## Ink and paper. The lake is cold and blue-green; the rooms are the inside of a
 ## keeper's hut, so they are warm and dim, and they get no brighter as the game
@@ -44,6 +45,12 @@ const ROW_H := 108        ## a touch target, not a line of text
 const PAD := 40
 
 var sim: Sim
+
+## Player settings. Owned here because this is the screen that edits them, and
+## pushed out to the renderer and the mixer through `changed` - neither of those
+## needs to know a menu exists.
+var sensitivity := 1.0
+var sound_muted := false
 
 var _root: Control
 var _title: Label
@@ -100,6 +107,9 @@ func refresh() -> void:
 		LOG:
 			_title.text = "The Logbook"
 			_fill_log()
+		KIT:
+			_title.text = "Your Kit"
+			_fill_kit()
 
 
 func tick(dt: float) -> void:
@@ -561,3 +571,60 @@ func _fill_log() -> void:
 		_list.add_child(_row(str(o["name"]), year, str(o.get("note", "")), false, COIN, true))
 	if not any:
 		_note("Nothing yet but water.")
+
+
+# --- the kit ----------------------------------------------------------------
+
+## Settings, and the reason they are a ROOM rather than a gear icon.
+##
+## Every study of touch look-controls says the same thing: sensitivity has to be
+## adjustable, because it is the one control value where preference genuinely
+## differs and no default is right for everyone. Gideon's note on the first
+## build with a look control was "the turning is really fast" - the default was
+## four times too quick, and a player without this screen would simply have put
+## the game down.
+##
+## It sits with the shed and the logbook because opening a menu should always
+## mean the same gesture. A gear in a corner is a second navigation language for
+## one screen.
+func _fill_kit() -> void:
+	_heading("looking around")
+	_note("How far the view turns when you drag. Lower is slower and steadier.")
+	var speeds := [
+		["Slow", 0.6], ["Steady", 0.85], ["Normal", 1.0], ["Quick", 1.3], ["Fast", 1.7],
+	]
+	for row in speeds:
+		var name: String = row[0]
+		var value: float = row[1]
+		var chosen: bool = absf(sensitivity - value) < 0.01
+		var b := _row(name, "set" if not chosen else "yours",
+			"", not chosen, GOOD if chosen else COIN, chosen)
+		b.pressed.connect(func() -> void:
+			sensitivity = value
+			_say("Turning set to %s." % name.to_lower())
+			refresh()
+			changed.emit())
+		_list.add_child(b)
+
+	_heading("sound")
+	var muted: bool = sound_muted
+	var mb := _row("Sound", "off" if muted else "on",
+		"the lake, the reel, and whatever is under it", true,
+		WRONG if muted else GOOD)
+	mb.pressed.connect(func() -> void:
+		sound_muted = not sound_muted
+		_say("Sound off." if sound_muted else "Sound on.")
+		refresh()
+		changed.emit())
+	_list.add_child(mb)
+
+	_heading("the boat")
+	_note("Day %d, %s. %s." % [sim.day, sim.hour, str(sim.weather).capitalize()])
+	_note("%s, in %s of water." % [
+		str(World.spot_by_id(sim.spot)["name"]), SimUtil.fmt_m(sim.deepest_here())])
+	_note("Line: %s.   Rod: %s.   Reel: %s." % [
+		Gear.line_name(sim.econ.line),
+		str(Gear.ROD[sim.econ.rod]["name"]),
+		str(Gear.REEL[sim.econ.reel]["name"])])
+	_note("%d cast, %d landed, %d lost." % [sim.casts, sim.caught, sim.lost_count])
+

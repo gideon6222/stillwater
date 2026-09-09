@@ -43,7 +43,7 @@ var _until := ""
 var _tag := ""
 
 ## Second-argument values that name a ROOM rather than a fishing state.
-const ROOMS := ["shed", "map", "log"]
+const ROOMS := ["shed", "map", "log", "kit", "boat"]
 
 
 func _initialize() -> void:
@@ -110,7 +110,10 @@ func _initialize() -> void:
 		_main.sim.reel_in()
 		_main.sim.state = Sim.IDLE
 		_main.advance(1.0 / 60.0, 1.0 / 60.0)
-		_main._open(_until)
+		# "boat" means: back to the boat, nothing open. The one state a bot never
+		# sits in for long, and therefore the one the HUD is hardest to look at.
+		if _until != "boat":
+			_main._open(_until)
 		_main.advance(1.0 / 60.0, 1.0 / 60.0)
 
 

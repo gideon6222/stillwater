@@ -52,6 +52,10 @@ static func to_dict(sim: Sim) -> Dictionary:
 		# way back to the shed with a full box and finding it empty would read as
 		# a lost session rather than as a rule.
 		"held": econ.held.duplicate(true),
+		# Settings ride in the save too. A look sensitivity the player has to set
+		# on every launch is a look sensitivity that is wrong on every launch.
+		"sensitivity": sim.sensitivity,
+		"muted": sim.sound_muted,
 	}
 	for k in ECON_INTS:
 		out[k] = econ.get(k)
@@ -132,6 +136,8 @@ static func apply(sim: Sim, data: Dictionary) -> bool:
 		spot = "reed_bay"
 	sim.spot = spot
 
+	sim.sensitivity = clampf(float(data.get("sensitivity", 1.0)), 0.3, 3.0)
+	sim.sound_muted = _bool(data, "muted")
 	sim.caught = maxi(0, _int(data, "caught", 0))
 	sim.lost_count = maxi(0, _int(data, "lost", 0))
 	sim.casts = maxi(0, _int(data, "casts", 0))
