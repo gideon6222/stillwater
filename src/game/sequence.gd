@@ -1,0 +1,141 @@
+class_name Sequence
+extends RefCounted
+
+## THE CAMERA, WHEN THE PLAYER IS NOT HOLDING IT.
+##
+## A list of shots. Each has a position, a point to look at, a duration, an
+## easing, and optionally a line of text and how far the gate should be open by
+## the end of it. The rig interpolates between consecutive shots, so a sequence
+## is written as the places the camera should BE rather than as a path.
+##
+## **The gate is the whole idea.** The game begins on the wrong side of it, and
+## Continue does not start the game so much as let you through - the same walk a
+## keeper of this water makes every morning. The ritual and the menu are the
+## same motion, which is why the title is a place instead of a picture.
+##
+## Kept out of `main.gd` because a cinematic is a script, and a script is data.
+
+## Where the boat's seat is, so a sequence can end exactly where play begins and
+## the hand-over is invisible.
+const SEAT := Vector3(0.0, 1.30, -1.90)
+const SEAT_LOOK := Vector3(0.0, 0.72, 9.0)
+
+## Standing outside the gate, which is where the title lives.
+const OUTSIDE := Vector3(0.0, 1.62, -19.4)
+const GATE_AT := Vector3(0.0, 1.30, -13.0)
+
+
+## CONTINUE: the gate opens and you walk down to the boat.
+##
+## Deliberately short. It is played every single session, and a beautiful thing
+## you cannot skip becomes the worst thing in the game by the fifth time - so it
+## is under five seconds and a tap anywhere cuts it.
+static func going_out() -> Array:
+	return [
+		# Two shots at gate 0.0, so the gate is SHUT for a beat before it moves.
+		# With only one, the interpolation to the next shot started opening it on
+		# the first frame and the player never saw a closed gate at all.
+		{"at": OUTSIDE, "look": GATE_AT, "for": 0.7, "gate": 0.0, "ease": "out"},
+		{"at": Vector3(0.0, 1.60, -17.6), "look": GATE_AT, "for": 1.1, "gate": 0.0, "ease": "inout"},
+		{"at": Vector3(0.0, 1.58, -15.4), "look": GATE_AT, "for": 1.2, "gate": 1.0, "ease": "inout"},
+		# Through the gateway and down the bank.
+		{"at": Vector3(0.0, 1.52, -9.4), "look": Vector3(0.0, 0.80, 2.0), "for": 1.3, "gate": 1.0, "ease": "inout"},
+		{"at": Vector3(0.0, 1.40, -4.2), "look": Vector3(0.0, 0.74, 6.0), "for": 1.1, "gate": 1.0, "ease": "inout"},
+		{"at": SEAT, "look": SEAT_LOOK, "for": 1.0, "gate": 1.0, "ease": "out"},
+	]
+
+
+## NEW GAME: the same walk, with the reason for it.
+##
+## Every line is true, none of them explains anything, and the last one is the
+## hook the whole game hangs on. The player is told they have been given work
+## and a cottage; they are not told by whom, or what happened to the keeper
+## whose book they are about to write in.
+static func arriving() -> Array:
+	return [
+		{"at": Vector3(0.0, 1.66, -26.0), "look": GATE_AT, "for": 2.6, "gate": 0.0, "ease": "out",
+			"say": "The letter said the cottage came with the work."},
+		{"at": Vector3(0.0, 1.64, -22.4), "look": GATE_AT, "for": 2.6, "gate": 0.0, "ease": "inout",
+			"say": "It did not say what the work was."},
+		{"at": Vector3(0.55, 1.55, -18.0), "look": Vector3(0.0, 1.55, -13.0), "for": 2.8, "gate": 0.0, "ease": "inout",
+			"say": "Only that the water is to be kept, and the book is to be filled."},
+		{"at": Vector3(0.0, 1.58, -16.0), "look": GATE_AT, "for": 2.0, "gate": 1.0, "ease": "inout",
+			"say": "The key was under the stone, where they said it would be."},
+		{"at": Vector3(0.0, 1.52, -9.4), "look": Vector3(0.0, 0.80, 2.0), "for": 2.2, "gate": 1.0, "ease": "inout"},
+		{"at": Vector3(0.0, 1.40, -4.2), "look": Vector3(0.0, 0.74, 6.0), "for": 1.8, "gate": 1.0, "ease": "inout",
+			"say": "It is a big lake for one person."},
+		{"at": SEAT, "look": SEAT_LOOK, "for": 2.0, "gate": 1.0, "ease": "out",
+			"say": "Nobody said who filled the book before you."},
+	]
+
+
+var shots: Array = []
+var index := 0
+var elapsed := 0.0
+var running := false
+
+
+func start(list: Array) -> void:
+	shots = list
+	index = 0
+	elapsed = 0.0
+	running = shots.size() > 1
+
+
+func done() -> bool:
+	return not running
+
+
+## Everything the renderer needs this frame: where the camera is, where it
+## looks, how open the gate is, and what if anything is being said.
+func advance(dt: float) -> Dictionary:
+	if not running:
+		return {}
+	elapsed += dt
+	var here: Dictionary = shots[index]
+	var span: float = maxf(0.001, float(here["for"]))
+	if elapsed >= span:
+		elapsed -= span
+		index += 1
+		if index >= shots.size() - 1:
+			# The last entry is the resting pose, not a shot to play through.
+			running = false
+			var last: Dictionary = shots[shots.size() - 1]
+			return {
+				"at": last["at"], "look": last["look"],
+				"gate": float(last.get("gate", 1.0)), "say": "",
+			}
+		here = shots[index]
+
+	var next: Dictionary = shots[index + 1]
+	var t := clampf(elapsed / maxf(0.001, float(here["for"])), 0.0, 1.0)
+	t = _ease(t, str(here.get("ease", "inout")))
+	return {
+		"at": (here["at"] as Vector3).lerp(next["at"], t),
+		"look": (here["look"] as Vector3).lerp(next["look"], t),
+		"gate": lerpf(float(here.get("gate", 0.0)), float(next.get("gate", 0.0)), t),
+		"say": str(here.get("say", "")),
+	}
+
+
+## Skip to the end, for a player who has seen it. The sequence must always be
+## skippable: a thing you cannot cut becomes the worst part of the game by the
+## fifth time you sit through it.
+func skip() -> Dictionary:
+	running = false
+	if shots.is_empty():
+		return {}
+	var last: Dictionary = shots[shots.size() - 1]
+	return {"at": last["at"], "look": last["look"], "gate": 1.0, "say": ""}
+
+
+static func _ease(t: float, kind: String) -> float:
+	match kind:
+		"out":
+			return 1.0 - pow(1.0 - t, 3.0)
+		"in":
+			return t * t * t
+		_:
+			# Smoothstep. A camera that starts and stops abruptly reads as a
+			# cut even when it is a move.
+			return t * t * (3.0 - 2.0 * t)

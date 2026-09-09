@@ -288,6 +288,7 @@ func _build_world() -> void:
 	_build_weather()
 	_build_grade()
 	_build_hud()
+	_build_sequence_line()
 	_build_title()
 
 
@@ -699,6 +700,7 @@ func _build_boat() -> void:
 	_wake.name = "Wake"
 	add_child(_wake)
 
+	_build_shore()
 	_build_props()
 	_build_things()
 	_build_reeds()
@@ -1525,7 +1527,7 @@ func _sync_bars() -> void:
 	# The title counts as "not playing" for everything the HUD does. It was not,
 	# and the first screen of the game showed a purse, a depth sounder and a
 	# "Reel in" button behind the word STILLWATER.
-	var in_room := (_menus != null and _menus.is_open()) 		or (_title != null and _title.is_up())
+	var in_room := _hud_is_down()
 	_tension_bar.visible = sim.state == Sim.FIGHTING and not in_room
 	_tension_bar.queue_redraw()
 	if _dock != null:
@@ -1722,6 +1724,14 @@ func _on_cast_input(event: InputEvent) -> void:
 	else:
 		return
 
+	if pressed and _in_sequence:
+		# Any touch cuts the sequence, and does nothing else with that touch -
+		# skipping and casting on the same press would fire a cast the player
+		# never asked for.
+		_skip_sequence()
+		_cast_area.accept_event()
+		return
+
 	if pressed:
 		_touching = true
 		_drag_from = at
@@ -1795,6 +1805,7 @@ func _tick(dt: float) -> void:
 	_hint_hold = maxf(0.0, _hint_hold - dt)
 	if _title != null:
 		_title.tick(dt)
+	_sync_sequence(dt)
 	_sync_intro(dt)
 	var lk := 1.0 - exp(-LOOK_FOLLOW * dt)
 	_look_yaw = lerpf(_look_yaw, _look_yaw_want, lk)
@@ -1840,6 +1851,13 @@ func freeze(seed_value: int = 1) -> void:
 	# to know about the front door is a harness testing the wrong thing.
 	if _title != null:
 		_title.skip()
+	# And no cinematic. `freeze` means "the game, now" - a camera on rails is
+	# not the state any test wants to measure.
+	_in_sequence = false
+	_seq.running = false
+	_gate_open = 1.0
+	if _seq_line != null:
+		_seq_line.text = ""
 	sim.restart(seed_value)
 	_sync()
 
@@ -1880,7 +1898,35 @@ func _sync() -> void:
 	# a foreground edge rather than a third of the picture, and aimed so the
 	# horizon sits in the upper third - the water is the subject, and in portrait
 	# there is not room for both a lot of sky and a lot of hull.
-	# THE CAMERA RIDES THE BOAT, and the boat rides the water.
+	# A SEQUENCE OWNS THE CAMERA WHILE ONE IS RUNNING.
+	#
+	# The whole title and both intros are camera moves over the real scene, so
+	# there is no separate menu world to keep in step with this one - the water,
+	# the sky and the hour are already right because they are the same water,
+	# sky and hour. It also means the hand-over at the end is invisible: the last
+	# shot rests exactly on the seat the player is about to be given.
+	if _in_sequence:
+		# The camera goes on rails and NOTHING ELSE IS SKIPPED. An early return
+		# here meant the rest of `_sync` never ran during a sequence - so the
+		# HUD, which stands down on exactly that condition, was never told to.
+		# The title showed a purse and a Cast button over the gate.
+		_cam.transform = Transform3D(Basis.IDENTITY, _seq_at).looking_at(_seq_look, Vector3.UP)
+	else:
+		_sync_play_camera(out)
+
+	_float.position = out
+	_float.visible = sim.state != Sim.IDLE and sim.state != Sim.CHARGING 		and sim.state != Sim.HOLDING and not _in_sequence
+	_draw_line_between(_rod_tip, out)
+	_line.visible = _float.visible
+
+	_sync_wake(out)
+	_sync_fish()
+	_write_readout()
+	_sync_bars()
+
+
+## The camera during play: riding the boat, riding the water.
+func _sync_play_camera(out: Vector3) -> void:
 	#
 	# This is the single largest thing that was missing. Swink's definition of
 	# game feel starts with "real-time control of virtual objects in a simulated
@@ -1906,17 +1952,6 @@ func _sync() -> void:
 			* Basis(Vector3.UP, sin(t2 * 2.3) * a) \
 			* Basis(Vector3.FORWARD, sin(t2 * 1.1) * a * 0.7)
 	_cam.transform = Transform3D(basis, eye)
-
-	_float.position = out
-	_float.visible = sim.state != Sim.IDLE and sim.state != Sim.CHARGING and sim.state != Sim.HOLDING
-
-	_draw_line_between(_rod_tip, out)
-	_line.visible = _float.visible
-
-	_sync_wake(out)
-	_sync_fish()
-	_write_readout()
-	_sync_bars()
 
 
 ## The rod IS the tension gauge.
@@ -2233,6 +2268,7 @@ func _sync_mood(dt: float) -> void:
 		# is equally bright in daylight reads as a bug.
 		var want_lamp := 2.6 * (1.0 - clampf(float(look["ambient"]) / 0.9, 0.0, 1.0))
 		_lamp.light_energy = lerpf(_lamp.light_energy, maxf(0.35, want_lamp), k)
+	_sync_gate()
 	_sync_grade(k)
 
 	if _water_mat != null:
@@ -3435,6 +3471,15 @@ func _build_things() -> void:
 var _lamp_on := false
 var _lamp: OmniLight3D
 var _lamp_prop: Node3D
+var _shore: Node3D
+var _gate_left: Node3D
+var _gate_right: Node3D
+var _gate_open := 0.0
+var _seq := Sequence.new()
+var _seq_line: Label
+var _seq_at := Sequence.OUTSIDE
+var _seq_look := Sequence.GATE_AT
+var _in_sequence := false
 var _hint_hold := 0.0
 var _hint_text := ""
 
@@ -3710,6 +3755,12 @@ func _build_title() -> void:
 	_title.name = "Title"
 	add_child(_title)
 	_title.setup(FileAccess.file_exists(SAVE_PATH))
+	# The title is a PLACE: standing outside the gate, in the real scene, with
+	# the real water beyond it. Nothing here is a separate menu world.
+	_in_sequence = true
+	_seq_at = Sequence.OUTSIDE
+	_seq_look = Sequence.GATE_AT
+	_gate_open = 0.0
 	_title.start_continue.connect(_on_continue)
 	_title.start_new.connect(_on_new_game)
 	_title.open_settings.connect(func() -> void:
@@ -3722,6 +3773,7 @@ func _on_continue() -> void:
 	_title.dismiss()
 	if _audio != null:
 		_audio.play("page", -4.0)
+	_play_sequence(Sequence.going_out())
 
 
 ## Wipe and start again. The save is deleted rather than overwritten, so a crash
@@ -3747,6 +3799,9 @@ func _on_new_game() -> void:
 	_title.dismiss()
 	if _audio != null:
 		_audio.play("page", -4.0)
+	# A first arrival gets the long version; anyone who has seen it gets the
+	# same walk without the letter.
+	_play_sequence(Sequence.arriving())
 
 
 ## Point everything that holds a Sim at the new one. Listed explicitly rather
@@ -3779,3 +3834,256 @@ func _sync_intro(dt: float) -> void:
 		sim.intro_done = true
 		_want_save()
 
+
+# --- the shore, the wall and the gate ---------------------------------------
+
+## THE KEEPER'S GATE.
+##
+## Behind the boat, at the end of a short bank, there is a stone wall with a
+## wooden gate in it. The game begins on the wrong side of that gate.
+##
+## It is not set dressing for a menu. **It is the ritual.** A keeper of this
+## water walks down through the gate to the boat, and does it every time - so
+## the way into the game and the way the fiction works are the same motion. That
+## is the whole reason the title is a place rather than a picture: the player
+## does not press "Continue", they go out.
+##
+## It sits at negative Z, behind the stern, which is the one direction the
+## playing camera never looks. So it costs nothing during a session and is
+## simply there if the player turns round far enough to see it.
+const SHORE_Z := -13.0
+const GATE_HALF := 1.15
+
+func _build_shore() -> void:
+	_shore = Node3D.new()
+	_shore.name = "Shore"
+	add_child(_shore)
+
+	var stone := _stone_mat()
+	var timber := _wood_mat(Color(0.255, 0.185, 0.125), Vector3(1.0, 2.4, 1.0))
+	timber.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+	# The bank. A slab from the wall down to the waterline, tilted just enough
+	# to read as a slope rather than a shelf.
+	var bank := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(26.0, 0.5, 11.0)
+	bank.mesh = bm
+	var bank_mat := _mat(Color(0.20, 0.20, 0.17), 0.98)
+	var stone_n := load("res://assets/tex/stone_normal.jpg")
+	if stone_n != null:
+		bank_mat.normal_enabled = true
+		bank_mat.normal_texture = stone_n
+		bank_mat.normal_scale = 0.7
+		bank_mat.uv1_scale = Vector3(7.0, 3.0, 1.0)
+	bank.mesh = bm
+	bank.material_override = bank_mat
+	bank.position = Vector3(0.0, 0.12, SHORE_Z + 4.6)
+	bank.rotation_degrees = Vector3(-2.6, 0, 0)
+	_shore.add_child(bank)
+
+	# The wall, in two pieces with the gateway between them.
+	for side in [-1.0, 1.0]:
+		var seg := MeshInstance3D.new()
+		var wm := BoxMesh.new()
+		wm.size = Vector3(9.4, 2.9, 0.55)
+		seg.mesh = wm
+		seg.material_override = stone
+		seg.position = Vector3(side * (GATE_HALF + 4.7), 1.30, SHORE_Z)
+		_shore.add_child(seg)
+
+	# A capping course, so the wall has a top rather than an edge.
+	for side in [-1.0, 1.0]:
+		var cap := MeshInstance3D.new()
+		var cm := BoxMesh.new()
+		cm.size = Vector3(9.6, 0.16, 0.72)
+		cap.mesh = cm
+		cap.material_override = stone
+		cap.position = Vector3(side * (GATE_HALF + 4.7), 2.82, SHORE_Z)
+		_shore.add_child(cap)
+
+	# Gate posts.
+	for side in [-1.0, 1.0]:
+		var post := MeshInstance3D.new()
+		var pm := BoxMesh.new()
+		pm.size = Vector3(0.26, 2.5, 0.30)
+		post.mesh = pm
+		post.material_override = timber
+		post.position = Vector3(side * GATE_HALF, 1.10, SHORE_Z)
+		_shore.add_child(post)
+
+	# THE GATE ITSELF, two leaves hinged on the posts. Each is a pivot at the
+	# hinge with the boards hung off it, so opening is one rotation.
+	_gate_left = _build_gate_leaf(-1.0, timber)
+	_gate_right = _build_gate_leaf(1.0, timber)
+	_shore.add_child(_gate_left)
+	_shore.add_child(_gate_right)
+
+
+## One leaf: five vertical boards and two rails, hung off a hinge pivot.
+func _build_gate_leaf(side: float, timber: Material) -> Node3D:
+	var pivot := Node3D.new()
+	pivot.name = "GateLeaf"
+	pivot.position = Vector3(side * GATE_HALF, 1.05, SHORE_Z)
+
+	var width := GATE_HALF - 0.06
+	for i in 5:
+		var t := (float(i) + 0.5) / 5.0
+		var board := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(width / 5.0 - 0.03, 2.05, 0.075)
+		board.mesh = bm
+		board.material_override = timber
+		board.position = Vector3(-side * t * width, 0.0, 0.0)
+		pivot.add_child(board)
+
+	for y in [-0.66, 0.66]:
+		var rail := MeshInstance3D.new()
+		var rm := BoxMesh.new()
+		rm.size = Vector3(width, 0.16, 0.055)
+		rail.mesh = rm
+		rail.material_override = timber
+		rail.position = Vector3(-side * width * 0.5, float(y), -0.06)
+		pivot.add_child(rail)
+
+	# The diagonal brace, which is what makes a gate read as a gate.
+	var brace := MeshInstance3D.new()
+	var brm := BoxMesh.new()
+	brm.size = Vector3(sqrt(width * width + 1.32 * 1.32), 0.13, 0.05)
+	brace.mesh = brm
+	brace.material_override = timber
+	brace.position = Vector3(-side * width * 0.5, 0.0, -0.06)
+	brace.rotation_degrees = Vector3(0, 0, rad_to_deg(atan2(1.32, width)) * side)
+	pivot.add_child(brace)
+	return pivot
+
+
+func _stone_mat() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	# The COLOUR map is taken this time, unlike the timber. On a stone wall the
+	# variation between one block and the next is structural information rather
+	# than palette - it is what makes it masonry instead of a grey slab - so it
+	# earns its place, and it is tinted hard toward the game's own colours so it
+	# still belongs to this lake.
+	var col := load("res://assets/tex/stone_color.jpg")
+	if col != null:
+		m.albedo_texture = col
+	m.albedo_color = Color(0.52, 0.53, 0.50)
+	var n := load("res://assets/tex/stone_normal.jpg")
+	if n != null:
+		m.normal_enabled = true
+		m.normal_texture = n
+		m.normal_scale = 1.1
+	var r := load("res://assets/tex/stone_rough.jpg")
+	if r != null:
+		m.roughness_texture = r
+	m.roughness = 1.0
+	m.uv1_scale = Vector3(3.4, 1.1, 1.0)
+	return m
+
+
+## Swing the leaves. 0 is shut, 1 is wide.
+func _sync_gate() -> void:
+	if _gate_left == null:
+		return
+	var a := deg_to_rad(_gate_open * 96.0)
+	_gate_left.rotation.y = -a
+	_gate_right.rotation.y = a
+
+
+# --- the sequences ----------------------------------------------------------
+
+## Run a camera sequence, and hold the game while it plays.
+func _play_sequence(shots: Array) -> void:
+	_in_sequence = true
+	_seq.start(shots)
+	var first: Dictionary = shots[0]
+	_seq_at = first["at"]
+	_seq_look = first["look"]
+	_gate_open = float(first.get("gate", 0.0))
+	_sync_bars()
+
+
+## Advance whichever sequence is playing. Called from the frame tick, so a
+## sequence moves on real time and not on the simulation's - it has to keep
+## running while the game underneath is held still.
+func _sync_sequence(dt: float) -> void:
+	if not _in_sequence:
+		return
+	var f := _seq.advance(dt)
+	if f.is_empty():
+		_end_sequence()
+		return
+	_seq_at = f["at"]
+	_seq_look = f["look"]
+	_gate_open = float(f["gate"])
+	if _seq_line != null:
+		var say := str(f.get("say", ""))
+		_seq_line.text = say
+		# Fade each line in over its own shot rather than snapping it on. Text
+		# that appears instantly on a moving camera reads as a subtitle; text
+		# that arrives reads as a thought.
+		_seq_line.modulate.a = 0.0 if say == "" else minf(1.0, _seq_line.modulate.a + dt * 1.8)
+	if _seq.done():
+		_end_sequence()
+
+
+func _end_sequence() -> void:
+	_in_sequence = false
+	_gate_open = 1.0
+	if _seq_line != null:
+		_seq_line.text = ""
+		_seq_line.modulate.a = 0.0
+	_sync_bars()
+	_want_save()
+
+
+## A tap anywhere cuts to the end. **Every sequence in this game is skippable**,
+## because a beautiful thing you cannot skip is the worst thing in the game by
+## the fifth time you sit through it.
+func _skip_sequence() -> void:
+	if not _in_sequence:
+		return
+	var f := _seq.skip()
+	if not f.is_empty():
+		_seq_at = f["at"]
+		_seq_look = f["look"]
+	_end_sequence()
+
+
+func _build_sequence_line() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 2
+	layer.name = "SeqText"
+	add_child(layer)
+	_seq_line = Label.new()
+	_seq_line.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_seq_line.offset_left = 90
+	_seq_line.offset_right = -90
+	_seq_line.offset_top = -520
+	_seq_line.offset_bottom = -340
+	_seq_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_seq_line.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_seq_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_seq_line.add_theme_font_size_override("font_size", 38)
+	_seq_line.add_theme_color_override("font_color", Color(0.95, 0.93, 0.87))
+	_seq_line.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_seq_line.add_theme_constant_override("outline_size", 10)
+	_seq_line.modulate.a = 0.0
+	_seq_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(_seq_line)
+
+
+## Whether the HUD should stand down: a room is open, the title is up, or a
+## camera sequence is running.
+##
+## A function rather than an inline expression because the inline one was a
+## multi-line boolean and a line continuation got mangled - twice - leaving the
+## sequence clause silently dropped and the whole HUD drawn over the gate. A
+## condition three things depend on should have one name.
+func _hud_is_down() -> bool:
+	if _menus != null and _menus.is_open():
+		return true
+	if _title != null and _title.is_up():
+		return true
+	return _in_sequence

@@ -43,7 +43,7 @@ var _until := ""
 var _tag := ""
 
 ## Second-argument values that name a ROOM rather than a fishing state.
-const ROOMS := ["shed", "map", "log", "kit", "boat"]
+const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive"]
 
 
 func _initialize() -> void:
@@ -61,7 +61,19 @@ func _initialize() -> void:
 	_main.freeze()
 	# Past the title, and past the intro. Both are worth photographing on their
 	# own - `-- 2 title` does that - but every other shot wants the game.
-	if _until == "title":
+	if _until == "gate" or _until == "arrive":
+		# Photograph a sequence part-way through: `-- 2.0 gate` is two seconds
+		# into the walk down to the boat.
+		if _main._title != null:
+			_main._title.skip()
+		_main._play_sequence(Sequence.going_out() if _until == "gate" else Sequence.arriving())
+		# `advance` already ticks the sequence - calling `_sync_sequence` here too
+		# ran it at double speed and the walk was over before the shutter opened.
+		var t := 0.0
+		while t < _seconds and _main._in_sequence:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+			t += 1.0 / 60.0
+	elif _until == "title":
 		if _main._title != null:
 			_main._title.show_again()
 			_main._sync()
@@ -128,7 +140,9 @@ func _initialize() -> void:
 		_main.advance(1.0 / 60.0, 1.0 / 60.0)
 		# "boat" means: back to the boat, nothing open. The one state a bot never
 		# sits in for long, and therefore the one the HUD is hardest to look at.
-		if _until != "boat":
+		# "boat", "title", "gate" and "arrive" are not rooms - they are places to
+		# stand. Only the real rooms get opened.
+		if _until in ["shed", "map", "log", "kit"]:
 			_main._open(_until)
 		_main.advance(1.0 / 60.0, 1.0 / 60.0)
 

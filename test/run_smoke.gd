@@ -65,6 +65,7 @@ func _initialize() -> void:
 	_check_the_title_leads_into_the_game(main)
 	_check_the_first_morning_teaches_and_ends(main)
 	_check_a_wrong_fish_is_drawn_wrong(main)
+	_check_the_walk_to_the_boat_always_arrives(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -1008,3 +1009,52 @@ func _check_a_wrong_fish_is_drawn_wrong(main) -> void:
 	for id in wrong_ids:
 		main._rebuild_fish(id)
 		_t.ok(main._fish.get_child_count() > 3, "'%s' built almost nothing" % id)
+
+
+## THE WALK ALWAYS ARRIVES, AND CAN ALWAYS BE CUT.
+##
+## The title is a place - standing outside a gate - and Continue walks you
+## through it to the boat. Two things have to hold or it is a trap rather than
+## an opening: it must END at the seat, exactly where play begins, and a tap
+## must always cut it. A beautiful thing you cannot skip is the worst thing in
+## the game by the fifth time you sit through it.
+func _check_the_walk_to_the_boat_always_arrives(main) -> void:
+	_t.begin("smoke > the walk to the boat arrives, and can be cut")
+
+	for shots in [Sequence.going_out(), Sequence.arriving()]:
+		# It plays out on its own and stops.
+		main.freeze(1)
+		main._play_sequence(shots)
+		_t.ok(main._in_sequence, "the sequence did not start")
+		_t.ok(main._hud_is_down(), "the HUD is up over a cinematic")
+		var guard := 0
+		while main._in_sequence and guard < 3600:
+			main.advance(1.0 / 60.0)
+			guard += 1
+		_t.ok(not main._in_sequence, "the sequence never ended")
+		_t.lt(float(guard), 3599.0, "the sequence ran for a minute without finishing")
+		# And it puts the camera where play begins.
+		_t.approx(main._seq_at.distance_to(Sequence.SEAT), 0.0, 0.01,
+			"the walk does not end at the seat - the hand-over into play would jump")
+		_t.eq(main._gate_open, 1.0, "the gate is not open at the end of the walk")
+		_t.ok(not main._hud_is_down(), "the HUD never comes back after the walk")
+
+		# And a touch cuts it, from the very first frame.
+		main.freeze(1)
+		main._play_sequence(shots)
+		main.advance(1.0 / 60.0)
+		var press := InputEventScreenTouch.new()
+		press.pressed = true
+		press.position = Vector2(300, 900)
+		main._on_cast_input(press)
+		_t.ok(not main._in_sequence, "a tap does not skip the sequence")
+		# ...and that tap must NOT also have thrown a cast.
+		_t.eq(main.sim.state, Sim.IDLE, "skipping the sequence also fired a cast")
+		_t.eq(main._gate_open, 1.0, "skipping left the gate shut")
+
+	# The shots themselves are well formed.
+	for shots in [Sequence.going_out(), Sequence.arriving()]:
+		_t.gt(float(shots.size()), 2.0, "a sequence with fewer than three shots is a cut")
+		for shot in shots:
+			_t.ok(shot.has("at") and shot.has("look"), "a shot has no camera position")
+			_t.gt(float(shot.get("for", 0.0)), 0.05, "a shot is too short to see")
