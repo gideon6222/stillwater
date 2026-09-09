@@ -62,7 +62,7 @@ func _fight_lengths() -> void:
 	# aggregate table above hides the thing that matters most: a bluegill should
 	# be almost unlosable and a bass should be a real gamble, and one mean over
 	# all three says nothing about either.
-	print("  %-18s %8s %8s %8s %8s %8s" % ["species", "seconds", "taps", "won%", "runs", "zone"])
+	print("  %-18s %8s %8s %8s %8s %8s" % ["species", "seconds", "taps", "won%", "runs", "window"])
 	print("  %s" % "-".repeat(62))
 	for row in Species.TABLE:
 		var id: String = row["id"]
@@ -80,7 +80,7 @@ func _fight_lengths() -> void:
 		var avg_p := float(taps) / maxf(1.0, float(won))
 		print("  %-18s %8.1f %8.1f %7.0f%% %8.2f %8.2f" % [
 			row["name"], avg_s, avg_p, float(won) / float(tries) * 100.0,
-			row["run_chance"], row["zone"],
+			row["run_chance"], row["take_window"],
 		])
 	print("")
 

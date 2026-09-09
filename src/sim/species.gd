@@ -12,9 +12,9 @@ extends RefCounted
 ##
 ## Fields that decide the two minigames:
 ##
-##   sweep_speed   how fast the marker crosses the hook bar - the whole of how
-##                 hard a fish is to HOOK
-##   zone          how wide the green zone is on that bar, before any rod bonus
+##   take_window   seconds the real take lasts - the whole of how hard a fish is
+##                 to HOOK. A bluegill sits on the bait; a bass is gone again
+##   teases        how many false tugs it gives before the take, on average
 ##   run_chance    how often it bolts instead of coming in quietly
 ##   stamina       how much tiring it takes before it stops running
 ##   haul          metres per second gained, relative to REEL_RATE
@@ -39,8 +39,8 @@ const TABLE := [
 		"max_depth": 4.0,
 		"weight_lo": 0.10,
 		"weight_hi": 0.40,
-		"sweep_speed": 0.62,
-		"zone": 0.34,
+		"take_window": 0.85,
+		"teases": 1.2,
 		"run_chance": 0.16,
 		"stamina": 0.80,
 		"haul": 1.35,
@@ -53,8 +53,8 @@ const TABLE := [
 		"max_depth": 4.0,
 		"weight_lo": 0.20,
 		"weight_hi": 0.60,
-		"sweep_speed": 0.86,
-		"zone": 0.25,
+		"take_window": 0.58,
+		"teases": 2.0,
 		"run_chance": 0.34,
 		"stamina": 1.05,
 		"haul": 1.05,
@@ -67,8 +67,8 @@ const TABLE := [
 		"max_depth": 4.0,
 		"weight_lo": 0.80,
 		"weight_hi": 3.00,
-		"sweep_speed": 1.18,
-		"zone": 0.18,
+		"take_window": 0.40,
+		"teases": 2.7,
 		"run_chance": 0.55,
 		"stamina": 1.70,
 		"haul": 0.78,
@@ -123,16 +123,21 @@ static func by_id(id: String) -> Dictionary:
 	return {}
 
 
-## Where the green zone sits on the hook bar, as [lo, hi], from a unit value.
+## How many teases this fish gives before the take, from a unit value in [0, 1).
 ##
-## The POSITION is random per bite and the WIDTH is the species - so the player
-## has to actually look at the bar every single time rather than learning one
-## spot. A fixed position would turn the hook minigame into a metronome inside
-## two bites.
-static func hook_zone(s: Dictionary, unit: float) -> Array:
-	var w: float = maxf(Tuning.HOOK_ZONE_MIN, float(s["zone"]))
-	var lo := clampf(unit, 0.0, 1.0) * (1.0 - w)
-	return [lo, lo + w]
+## Drawn per bite around the species' average rather than fixed, because a fixed
+## count is a metronome: two bites and the player is counting tugs instead of
+## watching the float, which is the whole thing the nibble exists to make them do.
+static func tease_count(s: Dictionary, unit: float) -> int:
+	var avg: float = s["teases"]
+	var spread := 1.0
+	var n := int(round(avg - spread + clampf(unit, 0.0, 0.999) * (spread * 2.0 + 1.0)))
+	return clampi(n, Tuning.TEASE_MIN, Tuning.TEASE_MAX)
+
+
+## How long the still water between two tugs lasts, from a unit value.
+static func tug_gap(unit: float) -> float:
+	return Tuning.TUG_GAP_MIN + clampf(unit, 0.0, 1.0) * (Tuning.TUG_GAP_MAX - Tuning.TUG_GAP_MIN)
 
 
 ## Whether the next phase of the fight is a run, from a unit value in [0, 1).

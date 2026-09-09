@@ -99,7 +99,7 @@ func test_a_run_is_survived_by_stopping(t: TestHarness) -> void:
 		"a run that starts while you are tapping does not even reach the red")
 	# But a player who HAS stopped must be safe. Half a second of decay from the
 	# aim point, plus the jolt, has to stay under the top.
-	var eased := aim * exp(-Tuning.TAP_DECAY * 0.45)
+	var eased := aim * exp(-Tuning.TAP_DECAY * Tuning.TELL_TIME)
 	t.lt(eased + Tuning.RUN_JOLT, Tuning.SAFE_HI + 0.02,
 		"stopping when warned is still not enough to survive a run")
 	t.gt(Tuning.RUN_GAIN, 0.0, "a run costs no ground")
@@ -113,29 +113,42 @@ func test_the_warning_is_generous(t: TestHarness) -> void:
 	t.lt(Tuning.TELL_TIME, 1.5, "the warning is so long the run is no longer a surprise")
 
 
-## The hook bar has to be winnable and losable.
-func test_the_hook_bar_is_a_real_test(t: TestHarness) -> void:
-	t.gt(Tuning.HOOK_SWEEPS, 0.9, "the marker does not complete a single pass")
-	t.lt(Tuning.HOOK_SWEEPS, 5.0, "there are so many passes that timing is irrelevant")
-	t.gt(Tuning.HOOK_ZONE_MIN, 0.02, "the smallest zone is too small to hit deliberately")
+## The nibble has to be winnable, losable, and READABLE.
+##
+## The last one is the whole point of it. A tease and a take are told apart by
+## how deep and how long, so both differences have to be big enough to see at
+## cast range - there is no HUD element to fall back on.
+func test_a_tease_and_a_take_look_different(t: TestHarness) -> void:
+	t.lt(Tuning.TEASE_DEPTH, 0.6,
+		"a tease pulls the float almost as far under as a real take")
+	t.gt(Tuning.TAKE_DEPTH - Tuning.TEASE_DEPTH, 0.35,
+		"the two depths are too close to tell apart at cast range")
 	for s in Species.TABLE:
-		var z: float = s["zone"]
-		t.gt(z, Tuning.HOOK_ZONE_MIN - 0.0001, "%s's zone is below the floor" % s["name"])
-		t.lt(z, 0.6, "%s's zone covers most of the bar" % s["name"])
-		# Time inside the zone on one pass, in seconds. Under about a fifth of a
-		# second is a reflex test rather than a timing one.
-		var speed: float = s["sweep_speed"]
-		var window := z / speed
-		t.gt(window, 0.15, "%s gives only %.2fs in the zone" % [s["name"], window])
+		var window: float = s["take_window"]
+		t.gt(window, Tuning.TEASE_TIME * 1.4,
+			"%s's take lasts %.2fs against a %.2fs tease - they read the same" % [
+				s["name"], window, Tuning.TEASE_TIME])
+		# And it has to be long enough to react to at all. Under about a third of
+		# a second is a reflex test rather than a judgement.
+		t.gt(window, 0.30, "%s gives only %.2fs to strike in" % [s["name"], window])
+		t.lt(window, 2.0, "%s holds the bait so long that timing does not matter" % s["name"])
 
 
-func test_the_hook_zone_stays_on_the_bar(t: TestHarness) -> void:
+func test_the_tease_sequence_is_a_real_wait(t: TestHarness) -> void:
+	t.gt(float(Tuning.TEASE_MIN), 0.5, "a fish can take the bait with no teasing at all")
+	t.gt(float(Tuning.TEASE_MAX), float(Tuning.TEASE_MIN),
+		"every bite offers exactly the same number of teases")
+	t.lt(float(Tuning.TEASE_MAX), 6.0, "a bite takes so many teases that it is a waiting game")
+	t.gt(Tuning.TUG_GAP_MIN, 0.2, "the tugs come so fast they blur into one")
+	t.gt(Tuning.TUG_GAP_MAX, Tuning.TUG_GAP_MIN, "the gap between tugs never varies")
+
+
+func test_the_tease_count_stays_in_range(t: TestHarness) -> void:
 	for s in Species.TABLE:
 		for i in 40:
-			var z := Species.hook_zone(s, float(i) / 40.0)
-			t.ok(z[0] >= -0.0001, "%s's zone starts off the left of the bar" % s["name"])
-			t.ok(z[1] <= 1.0001, "%s's zone runs off the right of the bar" % s["name"])
-			t.gt(z[1] - z[0], 0.0, "%s's zone has no width" % s["name"])
+			var n := Species.tease_count(s, float(i) / 40.0)
+			t.ok(n >= Tuning.TEASE_MIN, "%s can offer fewer teases than the floor" % s["name"])
+			t.ok(n <= Tuning.TEASE_MAX, "%s can offer more teases than the ceiling" % s["name"])
 
 
 ## A tired fish runs less, which is what makes the end of a fight feel different
@@ -172,7 +185,8 @@ func test_every_species_is_reachable_and_sane(t: TestHarness) -> void:
 			"%s can be reached in water this deep" % s["name"])
 		t.gt(s["stamina"], 0.0, "%s has stamina" % s["name"])
 		t.gt(s["haul"], 0.0, "%s can be pumped in" % s["name"])
-		t.gt(s["sweep_speed"], 0.0, "%s has a marker that moves" % s["name"])
+		t.gt(s["take_window"], 0.0, "%s never actually takes the bait" % s["name"])
+		t.gt(s["teases"], 0.0, "%s never teases at all" % s["name"])
 		t.gt(s["weight"], 0.0, "%s can actually be picked" % s["name"])
 		# A fish that spends most of the fight running can never be reeled in, so
 		# it is unlandable however well it is played.

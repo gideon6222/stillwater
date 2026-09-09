@@ -35,7 +35,6 @@ var _prompt: Label
 var _cast_area: Control
 var _rod: MeshInstance3D
 var _wake: MeshInstance3D
-var _hook_bar: Control
 var _tension_bar: Control
 
 var _charging := false
@@ -55,15 +54,21 @@ var _charging := false
 ## addition." Also correct, and it says the previous fix was an over-correction:
 ## deleting the gauge was never the answer to a gauge being in the wrong place.
 ##
-## So the gauges are back, at the TOP, and the input is a tap anywhere on the
-## bottom half. A tap needs no precision of position at all, which is the
-## property that lets the two live on opposite ends of the screen - and it is why
-## the input had to become a tap before the gauges could come back.
-const BAR_TOP := 210.0        ## hook bar, from the top edge
+## So the gauge is back, at the TOP, and the input is a tap anywhere. A tap needs
+## no precision of position at all, which is the property that lets the two live
+## at opposite ends of the screen - and it is why the input had to become a tap
+## before the gauge could come back.
+##
+## Only the REEL has a gauge. Minigame 1 is the float being pulled under, in the
+## world, with no HUD at all - which is the third note: "just watching the rod or
+## bobber pull down... make it look like a fish is nibbling on the bait".
 const BAR_W := 0.62           ## fraction of screen width
-const BAR_H := 54.0
-const GAUGE_TOP := 300.0      ## tension gauge, below the hook bar
+const GAUGE_TOP := 235.0      ## tension gauge, from the top edge
 const GAUGE_H := 42.0
+
+## How far the float is pulled under at a full take, in metres. Deep enough that
+## a tease and a take are obviously different depths at cast range.
+const FLOAT_DIP := 0.34
 
 ## How far the rod bends forward under load, in degrees.
 const ROD_BEND := 40.0
@@ -80,9 +85,13 @@ const ROD_BEND := 40.0
 ## fish was on it. They are different motions and now they are different code -
 ## the whole rod ROTATES back to load a cast and swings forward to release it,
 ## and only a hooked fish BENDS it.
-const CAST_BACK := 46.0       ## degrees the rod rotates back at full charge
-const CAST_THROW := 52.0      ## degrees past rest it swings through on release
-const CAST_SWING_TIME := 0.22 ## seconds of forward swing
+## The rod at rest, and the two ends of the cast, as ABSOLUTE angles - so "still
+## angled up" is a number you can read rather than the result of an arithmetic.
+## All three are negative because negative is up; see the sign note in _sync_rod.
+const ROD_REST := -14.0       ## tip a little up, holding the rod out
+const CAST_BACK := 62.0       ## degrees lifted BEHIND rest at full charge
+const CAST_THROW_TO := -6.0   ## where the throw stops. ABOVE horizontal, on purpose
+const CAST_SWING_TIME := 0.20 ## seconds of forward swing
 
 ## Set by the headless harness. When true the frame loop does not step the sim,
 ## so `advance()` is the only thing moving time and results do not depend on how
@@ -421,7 +430,7 @@ func _build_rod() -> void:
 		seg.material_override = _mat(Color(0.46, 0.33, 0.21), 0.5)
 		if i == 0:
 			seg.position = Vector3(0.42, 0.56, 1.30)
-			seg.rotation_degrees = Vector3(-14, 0, 9)
+			seg.rotation_degrees = Vector3(ROD_REST, 0, 9)
 			_rod = seg
 			seg.name = "Rod"
 		else:
@@ -588,27 +597,10 @@ func _build_hud() -> void:
 	_cast_area.gui_input.connect(_on_cast_input)
 	_ui.add_child(_cast_area)
 
-	# MINIGAME 1's bar and MINIGAME 2's gauge. Both anchored to the TOP centre
-	# and both MOUSE_FILTER_IGNORE - they are readouts, not controls, and a
-	# readout that eats a touch is a readout the player cannot tap through.
-	_hook_bar = Control.new()
-	_hook_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	# Width by ANCHORS, not by code. Setting offsets from `_ui.size.x` looked
-	# equivalent and was not: the harness syncs before the layout engine has run,
-	# so the size read back is 0 and the bars render as a few pixels wide. Anchors
-	# are resolved by the layout itself and are correct at every aspect with no
-	# per-frame work at all.
-	_hook_bar.anchor_left = 0.5 - BAR_W * 0.5
-	_hook_bar.anchor_right = 0.5 + BAR_W * 0.5
-	_hook_bar.offset_left = 0.0
-	_hook_bar.offset_right = 0.0
-	_hook_bar.offset_top = BAR_TOP
-	_hook_bar.offset_bottom = BAR_TOP + BAR_H
-	_hook_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hook_bar.name = "HookBar"
-	_hook_bar.draw.connect(_draw_hook_bar)
-	_ui.add_child(_hook_bar)
-
+	# MINIGAME 1 has NO HUD AT ALL - the float is the whole instrument, which is
+	# what was asked for. Only the reel has a gauge, and it is anchored to the TOP
+	# centre and MOUSE_FILTER_IGNORE: it is a readout, not a control, and a readout
+	# that eats a touch is a readout the player cannot tap through.
 	_tension_bar = Control.new()
 	_tension_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_tension_bar.anchor_left = 0.5 - BAR_W * 0.5
@@ -668,49 +660,20 @@ func _build_hud() -> void:
 ##
 ## **Visibility is set HERE, never inside the draw callback.**
 ##
-## It was, and it shipped. `_draw_hook_bar` began with
-## `_hook_bar.visible = (state == HOOKING)`, which is a LATCH: a hidden Control
-## never receives `draw` again, so the first frame in any other state switched it
-## off permanently and NEITHER GAUGE WAS EVER SEEN on the phone. It survived my
+## It was, and it shipped. The draw handler began with
+## `visible = (state == FIGHTING)`, which is a LATCH: a hidden Control never
+## receives `draw` again, so the first frame in any other state switched it off
+## permanently and the gauge was NEVER SEEN on the phone. It survived my own
 ## screenshot because that capture happened to freeze mid-fight - the one state
 ## in which the bug cannot appear.
 ##
 ## The general form, worth carrying: **a callback must not decide whether it is
 ## called.** Anything that gates its own invocation can only ever fail closed.
 func _sync_bars() -> void:
-	if _hook_bar == null or _tension_bar == null:
+	if _tension_bar == null:
 		return
-	_hook_bar.visible = sim.state == Sim.HOOKING
 	_tension_bar.visible = sim.state == Sim.FIGHTING
-	_hook_bar.queue_redraw()
 	_tension_bar.queue_redraw()
-
-
-## MINIGAME 1: a marker sweeping a bar, and a green zone to tap it in.
-##
-## The zone's position is drawn fresh per bite, so the bar has to be looked at
-## every time. Drawn from `sim.zone_lo`/`zone_hi` and `sim.sweep` directly - the
-## same numbers the rules use, so what the player aims at and what is scored
-## cannot drift apart.
-func _draw_hook_bar() -> void:
-	if sim.state != Sim.HOOKING:
-		return
-	var w := _hook_bar.size.x
-	var h := _hook_bar.size.y
-
-	_hook_bar.draw_rect(Rect2(0, 0, w, h), Color(0.04, 0.07, 0.09, 0.72))
-
-	var zx := sim.zone_lo * w
-	var zw := (sim.zone_hi - sim.zone_lo) * w
-	var hot := sim.sweep_in_zone()
-	_hook_bar.draw_rect(Rect2(zx, 2, zw, h - 4), Color(0.42, 0.86, 0.48, 0.55 if hot else 0.34))
-
-	# The marker. Fat and bright, because it is the only thing being timed.
-	var mx := sim.sweep * w
-	var col := Color(1.0, 0.98, 0.90) if hot else Color(1.0, 0.86, 0.52)
-	_hook_bar.draw_rect(Rect2(mx - 3.0, -6, 6.0, h + 12), col)
-
-	_hook_bar.draw_rect(Rect2(0, 0, w, h), Color(0.88, 0.90, 0.86, 0.35), false, 2.0)
 
 
 ## MINIGAME 2: the tension gauge.
@@ -914,16 +877,29 @@ func _sync_rod() -> void:
 		Sim.CHARGING:
 			back = sim.charge * CAST_BACK
 		Sim.FLYING:
-			# The throw: from wherever the charge had it, forward THROUGH the
-			# rest angle. `back` goes negative here, which is the same axis
-			# continuing past zero rather than a second motion.
-			var k := clampf(sim.state_time / CAST_SWING_TIME, 0.0, 1.0)
-			back = lerpf(sim.charge * CAST_BACK, -CAST_THROW, k)
+			# The throw: from wherever the charge had it, forward and down to a
+			# stop that is STILL ABOVE HORIZONTAL.
+			#
+			# Gideon: "when you cast the rod should pull back, then fling forward
+			# but still be angled up. when you cast currently, it pulls back a
+			# little then angles all the way into the water before returning."
+			# It was written as an offset PAST the rest angle, which put the tip
+			# under the waterline at the end of every cast. `CAST_THROW_TO` is an
+			# absolute angle now, so "still angled up" is stated rather than
+			# arrived at, and the smoke test asserts it stays above horizontal.
+			var k := _ease_out(clampf(sim.state_time / CAST_SWING_TIME, 0.0, 1.0))
+			back = lerpf(sim.charge * CAST_BACK, -(CAST_THROW_TO - ROD_REST), k)
 		Sim.SINKING:
-			# Ease out of the throw rather than snapping back, so the whole cast
-			# reads as one continuous motion.
-			var settle := clampf(sim.state_time / 0.45, 0.0, 1.0)
-			back = lerpf(-CAST_THROW, 0.0, settle)
+			# Drift back to rest rather than snapping, so the whole cast reads as
+			# one continuous motion.
+			var settle := _ease_out(clampf(sim.state_time / 0.55, 0.0, 1.0))
+			back = lerpf(-(CAST_THROW_TO - ROD_REST), 0.0, settle)
+		Sim.NIBBLING:
+			# The rod tip twitches with the tug as well as the float dipping -
+			# "just watching the rod or bobber pull down". Two readings of one
+			# number, so whichever the player happens to be looking at tells them
+			# the same thing.
+			bend = sim.tug * ROD_BEND * 0.30
 		Sim.FIGHTING:
 			bend = clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0) * ROD_BEND
 		_:
@@ -940,7 +916,7 @@ func _sync_rod() -> void:
 		if i == 0:
 			# The butt carries the whole swing plus its share of the bend. Both
 			# are down-positive, and `back` is a lift, so it subtracts.
-			_rod_chain[i].rotation_degrees = Vector3(-14.0 - back + share, 0.0, 9.0)
+			_rod_chain[i].rotation_degrees = Vector3(ROD_REST - back + share, 0.0, 9.0)
 		else:
 			_rod_chain[i].rotation_degrees = Vector3(share, 0.0, 0.0)
 	_update_rod_tip()
@@ -998,6 +974,21 @@ func _lure_position() -> Vector3:
 			# Pulled under by however much tension is on it. A slack line lets it
 			# sit up, which is the second reading of "you are not tapping enough".
 			return Vector3(0.0, -sim.tension * 0.16, z)
+		Sim.NIBBLING:
+			# **MINIGAME 1, and it is entirely here.** `sim.tug` is how far the
+			# fish has the float under - shallow and brief for a tease, deep and
+			# held for the real take - so the one number that decides the outcome
+			# is the one the player is watching. There is no HUD for this at all.
+			#
+			# The jitter is what sells it as something alive rather than a value
+			# being animated: a float being mouthed shakes as well as sinking.
+			# Keyed on the sim clock, so two captures of one instant are identical.
+			var jitter := sin(sim.time * 34.0) * sim.tug * 0.035
+			return Vector3(
+				jitter,
+				-sim.tug * FLOAT_DIP,
+				sim.cast_distance + jitter * 0.5
+			)
 		_:
 			return Vector3(0.0, 0.0, sim.cast_distance)
 
@@ -1068,13 +1059,10 @@ func _write_readout() -> void:
 		Sim.WAITING:
 			line = ""
 		Sim.NIBBLING:
-			line = "..."
-		Sim.HOOKING:
-			# The one instruction the game ever gives, and it earns its place:
-			# the hook bar is the first thing a new player sees and a bare
-			# sweeping marker does not say what to do with it. Everything after
-			# this is taught by the gauge.
-			line = "TAP IN THE GREEN"
+			# The one hint the game gives, and only until the first fish is landed.
+			# After that the float has taught it and a caption would just be read
+			# instead of the water.
+			line = "WATCH THE FLOAT" if sim.caught == 0 else ""
 		Sim.FIGHTING:
 			# Distance only. No "STOP TAPPING!" during a run - the needle
 			# climbing on its own while the thumb is still says it better than
@@ -1091,3 +1079,10 @@ func _write_readout() -> void:
 
 	_readout.text = "CAUGHT %d   LOST %d\n%.2f kg" % [sim.caught, sim.lost_count, sim.total_weight]
 	_stamp.text = BuildStamp.line()
+
+
+## Ease-out, so the rod decelerates into the end of a swing instead of arriving
+## at constant speed. A linear cast reads as a mechanism rather than an arm.
+func _ease_out(k: float) -> float:
+	var x := clampf(k, 0.0, 1.0)
+	return 1.0 - (1.0 - x) * (1.0 - x)

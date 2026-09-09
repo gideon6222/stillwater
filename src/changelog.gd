@@ -12,25 +12,22 @@ extends RefCounted
 ## refactored; one line each; newest first. Add this from day one. On an
 ## earlier game it arrived far too late to be as useful as it should have been.
 
-const VERSION := "0.4.1"
+const VERSION := "0.5.0"
 
 const RELEASES := [
 	{
-		"version": "0.4.1",
+		"version": "0.5.0",
 		"date": "2026-09-09",
-		"title": "The gauges actually appear now",
+		"title": "Watch the float",
 		"notes": [
-			"HOOK IT: a marker sweeps a bar. Tap while it is in the green.",
-			"Dead centre starts the fight already up to pressure.",
-			"REEL IT IN: tap to keep the needle in the green band.",
-			"Stop tapping and it falls - the fish takes line back.",
-			"Tap too much and it goes into the red, and the line parts.",
+			"HOOK IT: no bar any more. Watch the FLOAT.",
+			"The fish teases the bait - short shallow dips that pop straight back.",
+			"Then it takes it properly: deeper, and it stays under. Tap THEN.",
+			"Tap on a tease and you pull the bait out of its mouth.",
+			"Strike early in the take and the fight starts already up to pressure.",
+			"REEL IT IN: tap to keep the needle in the green. Smaller steps now.",
 			"When the fish RUNS the needle climbs on its own. Stop tapping.",
-			"The bar flashes just before a run. Watch for it.",
-			"Gauges are at the top now, so your thumb never covers them.",
-			"The rod lifts UP AND BACK to cast, then swings forward. Only a fish bends it.",
-			"Fixed: neither gauge was ever visible. They are now.",
-			"Fixed: tap to wind a dead cast back in. You could get stuck with a line out.",
+			"Casting: the rod lifts up and BACK, then flings forward - still angled up.",
 		],
 	},
 ]

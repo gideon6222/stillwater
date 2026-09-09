@@ -43,6 +43,7 @@ func _initialize() -> void:
 	_check_the_line_always_comes_back(main)
 	_check_the_gauges_are_clear_of_the_thumb(main)
 	_check_the_controls_are_anchored(main)
+	_check_the_float_is_the_nibble_minigame(main)
 	_check_the_cast_is_a_swing_not_a_bend(main)
 	_check_the_lure_is_where_the_line_ends(main)
 
@@ -117,7 +118,6 @@ func _check_the_gauges_are_clear_of_the_thumb(main) -> void:
 		_t.ok(false, "no fish was hooked to check the gauges against")
 		return
 
-	var hook_bar: Control = main._hook_bar
 	var gauge: Control = main._tension_bar
 
 	# **THE GAUGE IS ACTUALLY ON SCREEN.**
@@ -132,14 +132,10 @@ func _check_the_gauges_are_clear_of_the_thumb(main) -> void:
 	# So: check it is showing when it should be, AND that it comes back after
 	# being hidden, which is the half a single snapshot cannot catch.
 	_t.ok(gauge.visible, "the tension gauge is not visible during a fight")
-	_t.ok(not hook_bar.visible, "the hook bar is still up during a fight")
 
 	main.freeze(1)
 	main.advance(0.1)
 	_t.ok(not gauge.visible, "the tension gauge is up before anything is hooked")
-	_t.ok(_drive_until(main, Sim.HOOKING, 180.0), "the hook bar can be reached")
-	_t.ok(hook_bar.visible, "the hook bar never comes back once it has been hidden")
-
 	_t.ok(_drive_until(main, Sim.FIGHTING, 180.0), "a fish can be hooked again")
 	_t.ok(gauge.visible, "the tension gauge never comes back once it has been hidden")
 
@@ -153,7 +149,7 @@ func _check_the_gauges_are_clear_of_the_thumb(main) -> void:
 	# down on every device, so the base is the honest reference.
 	var base_h := float(ProjectSettings.get_setting("display/window/size/viewport_height"))
 	_t.gt(base_h, 0.0, "the project has no base viewport height to measure against")
-	for bar in [hook_bar, gauge]:
+	for bar in [gauge]:
 		var c := bar as Control
 		_t.eq(c.anchor_top, 0.0, "%s is not anchored to the top of the viewport" % c.name)
 		_t.eq(c.anchor_bottom, 0.0,
@@ -208,15 +204,27 @@ func _check_the_cast_is_a_swing_not_a_bend(main) -> void:
 	# and flings up when you let go". A positive X rotation points the tip DOWN
 	# in Godot, so lifting back has to make the angle MORE NEGATIVE than rest.
 	var butt: Node3D = main._rod
-	_t.lt(butt.rotation_degrees.x, -14.0 - 5.0,
+	_t.lt(butt.rotation_degrees.x, main.ROD_REST - 5.0,
 		"the rod goes DOWN when the cast is charged - the sign is inverted")
 
-	# Then the release throws it forward, past the rest angle.
+	# Then the release throws it forward past the rest angle - **and stops with
+	# the tip still above horizontal.**
+	#
+	# Gideon: "when you cast the rod should pull back, then fling forward but
+	# still be angled up. when you cast currently, it pulls back a little then
+	# angles all the way into the water before returning." Both halves are the
+	# assertion: forward of rest, and still negative, which is up.
+	#
+	# Sampled at the END of the swing, not partway through. The first version
+	# measured at 0.12s of a 0.20s eased throw - before it had crossed rest - and
+	# reported a fault that was not there.
 	main.sim.release_cast()
-	main.advance(0.12)
+	main.advance(main.CAST_SWING_TIME + 0.02)
 	_t.eq(main.sim.state, Sim.FLYING, "the cast did not go")
-	_t.gt(butt.rotation_degrees.x, -14.0,
+	_t.gt(butt.rotation_degrees.x, main.ROD_REST,
 		"the rod does not swing FORWARD through the rest angle on release")
+	_t.lt(butt.rotation_degrees.x, 0.0,
+		"the rod swings down THROUGH horizontal and into the water on a cast")
 
 	# And a fish bends it the other way from the lift - down and forward.
 	_t.ok(_drive_until(main, Sim.FIGHTING, 180.0), "a fish can be hooked")
@@ -305,3 +313,55 @@ func _finish() -> void:
 	print("")
 	print("  smoke: %d assertions, %d FAILED" % [_t.checks, _t.failures.size()])
 	quit(1)
+
+
+## MINIGAME 1 has NO HUD, so the only thing that can carry it is the float, and
+## the only assertion that matters is that the float actually MOVES.
+##
+## Gideon: "can you make the initial hook portion of the mini game just watching
+## the rod or bobber pull down." If the float sits still through a nibble there
+## is nothing on screen to play against at all - and unlike a missing gauge, no
+## control's properties would be wrong.
+func _check_the_float_is_the_nibble_minigame(main) -> void:
+	_t.begin("smoke > the float is pulled under during a nibble")
+	main.freeze(1)
+	if not _drive_until_state(main, Sim.NIBBLING, 180.0):
+		_t.ok(false, "no nibble was ever reached")
+		return
+
+	var rest_y: float = main._float.position.y
+	var lowest := rest_y
+	var step := 1.0 / 60.0
+	for i in int(round(14.0 / step)):
+		if main.sim.state != Sim.NIBBLING:
+			break
+		lowest = minf(lowest, main._float.position.y)
+		main.advance(step, step)
+
+	_t.lt(lowest, rest_y - 0.05,
+		"the float never dips during a nibble - there is nothing to watch")
+
+	# And no HUD element may appear for it. The nibble is the world, not a bar.
+	for child in main._ui.get_children():
+		var n := (child as Node).name
+		_t.ok(n != "HookBar", "the hook bar is back - minigame 1 is the float now")
+
+
+## Advance until a state, casting but never striking - so a NIBBLE can be watched
+## rather than immediately hooked. `_drive_until` uses the angler, which strikes
+## the instant the take begins and would end the thing being observed.
+func _drive_until_state(main, want: String, limit: float) -> bool:
+	var step := 1.0 / 60.0
+	for i in int(round(limit / step)):
+		if main.sim.state == want:
+			return true
+		match main.sim.state:
+			Sim.IDLE, Sim.HOLDING, Sim.LOST:
+				main.sim.hold_cast()
+			Sim.CHARGING:
+				if main.sim.state_time >= Policies.CHARGE_HOLD:
+					main.sim.release_cast()
+			_:
+				pass
+		main.advance(step, step)
+	return main.sim.state == want

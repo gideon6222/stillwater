@@ -23,12 +23,12 @@ up and chose not to sell — and there is a finite number of them. So a player w
 story caps out at 40 m with a full wallet. That is the "what happens if they ignore this?" test
 passing: the answer is not "they score less", it is "they cannot continue".
 
-## What is proven, as of 2026-09-09 (v0.4.1, M1)
+## What is proven, as of 2026-09-09 (v0.5.0, M1)
 
 - The fresh template copy passed its own gate before a line of game code — 28 tests, 4,410
   assertions — so nothing that fails from here is inherited.
 - Cast → hook → reel → land, end to end, through the real scene and the real input seam.
-- 62 tests, 5,235 assertions, about a second, no display. Plus 57 smoke assertions that boot
+- 66 tests, 5,137 assertions, about a second, no display. Plus 56 smoke assertions that boot
   the actual scene and catch a whole fish through it.
 - A whole-run golden over seven scripted sessions, which has earned its place twice: the first
   recording exposed stale fish state leaking through a cast made straight out of a loss, and a
@@ -59,14 +59,31 @@ Deleting the gauge was an over-correction — the answer to a gauge in the wrong
 place is to move it, not to remove it — and three responses to three situations
 is a lot to infer from a bent stick.
 
-**Fight 3 is what he described:** *"tapping to keep the pressure on without
+**Fight 3 is what he described**, in two rounds: *"tapping to keep the pressure on without
 breaking the line... a combination of two different mini games, like one to hook
 the fish and one to reel it in... visual on screen queues or gauges."*
 
+The first round of it built minigame 1 as a **sweep bar** - a marker crossing a
+green zone. His next note replaced it: *"can you make the initial hook portion of
+the mini game just watching the rod or bobber pull down. make it look like a fish
+is nibbling on the bait and pulling on the line. try to use other games as
+reference for it."*
+
+Right, and the reason generalises: **the bar was an abstraction sitting on top of
+a thing that could simply be shown.** A float being pulled under IS the timing
+cue; drawing a second, invented representation of it above the horizon asks the
+player to learn a symbol for something already in front of them.
+
 | | what you do | what it teaches |
 |---|---|---|
-| **1. The hook** | a marker sweeps a bar; tap while it is in the green | timing, and that the bar must be *looked* at — the zone moves every bite |
+| **1. The nibble** | watch the FLOAT. It teases - short shallow dips that pop back - then takes it properly, deeper and held. Strike on the take | judgement rather than reflex, and it is entirely in the world: **no HUD at all** |
 | **2. The reel** | tap to keep the needle in the green band | rate, not position |
+
+The reference is Animal Crossing, which is the right one to copy here. Stardew
+and Zelda give a single cue with no teases, which is a pure timing test; the
+teases are what make it a judgement. The tease count is drawn per bite, because a
+fixed count is a metronome and two bites later the player is counting tugs
+instead of looking at anything.
 
 **The gauges are at the TOP and the tap target is the whole screen.** That split
 is the settlement of both earlier notes, and it is only possible because the
@@ -98,21 +115,21 @@ Six seeds, ninety-second sessions, from `test/run_probe.gd`:
 
 | policy | caught | lost | what it proves |
 |---|---|---|---|
-| `idle_hands` | 0.00 | 9.00 | both minigames are mechanics |
-| `masher` | 0.00 | 12.67 | tapping flat out is the fastest way to lose |
-| `slowpoke` | 0.00 | 4.17 | the band has a bottom; the fish takes line back |
-| `blind` | 5.50 | 0.33 | ignoring the run warning costs fish |
-| `angler` | 5.67 | 0.00 | perfect play wins — see the warning below |
-| `human` | **5.33** | **0.67** | a plausible player loses about one in nine |
+| `idle_hands` | 0.00 | 8.67 | both minigames are mechanics |
+| `masher` | 0.00 | 11.83 | striking at the first twitch is almost always a tease |
+| `slowpoke` | 0.00 | 2.83 | the band has a bottom; the fish takes line back |
+| `blind` | 4.67 | 0.17 | ignoring the run warning costs fish |
+| `angler` | 4.83 | 0.00 | perfect play wins - see the warning below |
+| `human` | **4.83** | **0.83** | a plausible player loses about one in seven |
 
 Per species, landed by `human` from a worst-case full-length cast — the reel
 only, since these start already hooked:
 
 | species | landed | seconds | taps |
 |---|---|---|---|
-| Bluegill | 92% | 10.8 | 27 |
-| Yellow Perch | 67% | 14.0 | 34 |
-| Largemouth Bass | 50% | 19.1 | 45 |
+| Bluegill | 92% | 10.8 | 28 |
+| Yellow Perch | 67% | 14.1 | 34 |
+| Largemouth Bass | 54% | 19.0 | 45 |
 
 **Read `human`, never `angler`.** `angler` is a zero-latency, perfect-information
 controller and it beats any mechanic that is fair — its score says nothing about
@@ -168,6 +185,16 @@ hard.**
   player as a crash.
 - **Nothing in the HUD may be positioned against a literal screen size**, and every interactive
   control owns its own input through `_gui_input`.
+- **The nibble has NO HUD, and adding one undoes the whole point of it.** The float being
+  pulled under is the instrument. `run_smoke.gd` asserts the float actually dips and that no
+  control named `HookBar` has come back.
+- **The cast STOPS above horizontal.** It lifts back, flings forward past rest, and settles -
+  it never swings the tip into the water. `CAST_THROW_TO` is an absolute angle so that is a
+  number you can read rather than the result of an arithmetic.
+- **`TAP_KICK` and `TAP_DECAY` are coupled, and so are `RUN_PULL` and `TAP_DECAY`.** Taps per
+  second is `TAP_DECAY * tension / TAP_KICK`, and a run left alone settles at
+  `RUN_PULL / TAP_DECAY`. Halving the decay alone doubled the tapping rate AND moved the run
+  settle point into the band; all four move together or none do.
 - **The gauges live in the top third and the tap target is everything.** `run_smoke.gd` asserts
   the separation, because it is the settlement of two separate playtest notes and neither should
   come back.

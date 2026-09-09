@@ -38,36 +38,66 @@ const SPOOK_TIME := 1.20          ## a wrong strike puts them off for this long
 ##
 ## Built as described, because he named the mechanism. Two minigames:
 ##
-##   1. THE HOOK   a marker sweeps a bar; tap while it is in the green zone
-##   2. THE REEL   tap to keep the tension needle inside the safe band
+##   1. THE NIBBLE   watch the float. Strike on the real take, not on a tease
+##   2. THE REEL     tap to keep the tension needle inside the safe band
 ##
 ## **And the gauges are back.** The second fight deleted them, which was an
 ## over-correction: his complaint about the FIRST fight was that his thumb
 ## covered the meter, and the fix for that is to move the meter off the thumb,
-## not to remove it. Readouts live at the TOP of the screen now and the tap
-## target is the whole bottom - so they cannot overlap, and a tap needs no
-## precision of position at all, which is what makes that split possible.
+## not to remove it. The reel's gauge lives at the TOP of the screen and the tap
+## target is the whole of it - they cannot overlap, and a tap needs no precision
+## of position at all, which is what makes that split possible.
 
-# --- 1. the hook ----------------------------------------------------------
-const HOOK_SWEEPS := 2.0          ## full passes before it loses interest
-const HOOK_ZONE_MIN := 0.10       ## the green zone never gets smaller than this
-const HOOK_PERFECT := 0.35        ## fraction of the zone that counts as dead centre
-const HOOK_PERFECT_BONUS := 0.22  ## tension the fight starts with, on a perfect set
+# --- 1. the nibble --------------------------------------------------------
+##
+## Gideon: "can you make the initial hook portion of the mini game just watching
+## the rod or bobber pull down. make it look like a fish is nibbling on the bait
+## and pulling on the line. try to use other games as reference for it. the first
+## tap sets the hook, then it pulls up the bar to tap and reel in the fish."
+##
+## So the sweep bar is gone. This is the Animal Crossing shape, which is the one
+## worth copying here: the fish TEASES the bait a few times - short shallow tugs
+## that pop straight back - and then takes it properly, deeper and for longer.
+## Strike on the take and you are on; strike on a tease and you have pulled it
+## out of its mouth.
+##
+## It is better than the bar for exactly the reason he asked for it: the thing
+## you watch is the float, in the world, doing what a float does. There is no
+## abstraction to learn, and nothing on the HUD at all until a fish is hooked.
+## Stardew and Zelda use one cue with no teases, which is a pure timing test; the
+## teases are what turn it into a judgement.
+const TEASE_MIN := 1              ## teases before the take, inclusive
+const TEASE_MAX := 3
+const TEASE_TIME := 0.26          ## how long one tease pulls the float under
+const TEASE_DEPTH := 0.34         ## how far, relative to a real take
+const TUG_GAP_MIN := 0.42         ## still water between tugs
+const TUG_GAP_MAX := 0.95
+const TAKE_DEPTH := 1.0
+const HOOK_PERFECT := 0.45        ## fraction of the take window that is a clean set
+const HOOK_PERFECT_BONUS := 0.22  ## tension the fight starts with, on a clean set
 
 # --- 2. the reel ----------------------------------------------------------
 ## Tapping is the whole input. Each tap kicks the needle up; it falls on its own
 ## between taps, so holding a rate IS the mechanic and there is no position to
 ## hold. That is what makes it legible on a phone: the player is doing one thing
 ## and can see the result of it immediately.
-const TAP_KICK := 0.115           ## how far one tap moves the needle
-const TAP_DECAY := 0.46           ## how fast it falls back, per second
+## Gideon: "can you make the taps move the bar in smaller increments as well?"
+##
+## Halved - but BOTH of them, and that is the point. Taps per second to hold a
+## given tension is `TAP_DECAY * tension / TAP_KICK`, so shrinking the kick alone
+## would have doubled the tapping rate to about five a second and turned a
+## judgement into a dexterity test. Halving the decay with it keeps the rate at
+## roughly 2.4/s and makes each tap a finer adjustment, which is what was asked
+## for. `test_the_band_is_tappable_at_a_human_rate` is the guard on that.
+const TAP_KICK := 0.058           ## how far one tap moves the needle
+const TAP_DECAY := 0.23           ## how fast it falls back, per second
 const SAFE_LO := 0.42             ## bottom of the green band
 const SAFE_HI := 0.78             ## top of it
 const TENSION_MAX := 1.0
 
 const REEL_RATE := 1.55           ## m/s gained while the needle is in the band
 const SLIP_RATE := 0.62           ## m/s the fish takes back while below the band
-const STRAIN_RATE := 4.40         ## toward a snapped line, while above the band
+const STRAIN_RATE := 6.50         ## toward a snapped line, while above the band
 const STRAIN_RECOVER := 0.40      ## strain bleeding off once you stop
 
 ## Runs. The needle climbs ON ITS OWN, so the correct answer is to STOP TAPPING -
@@ -78,12 +108,16 @@ const STRAIN_RECOVER := 0.40      ## strain bleeding off once you stop
 ## ALREADY stopped tapping - not how fast they can react afterwards. Without it a
 ## rate-controller simply corrects its way out of every run and nothing about the
 ## fight is a decision.
-const RUN_JOLT := 0.30            ## tension added the moment a run begins
-const RUN_PULL := 0.18            ## tension per second it adds while it lasts
+## Both of these are coupled to TAP_DECAY and had to move with it. The settle
+## point of a run left alone is RUN_PULL / TAP_DECAY, so halving the decay put it
+## at 0.78 - the top of the band - and made a run unsurvivable however it was
+## played. The tests caught it immediately, which is what they are for.
+const RUN_JOLT := 0.24            ## tension added the moment a run begins
+const RUN_PULL := 0.09            ## tension per second it adds while it lasts
 const RUN_GAIN := 1.05            ## m/s it takes back during one
 const RUN_MIN := 1.2
 const RUN_MAX := 2.4
-const TELL_TIME := 0.45           ## warning before a run - just over a reaction time
+const TELL_TIME := 0.55           ## warning before a run - just over a reaction time
 
 const CALM_MIN := 2.2             ## seconds of ordinary reeling between runs
 const CALM_MAX := 4.6

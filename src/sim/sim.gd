@@ -27,7 +27,6 @@ extends RefCounted
 
 signal cast_landed(distance: float)
 signal nibble()
-signal hook_offered(species_id: String)
 signal hooked(species_id: String, perfect: bool)
 signal tapped()
 signal run_started()
@@ -41,8 +40,7 @@ const CHARGING := "charging"      ## holding, loading the cast
 const FLYING := "flying"          ## in the air
 const SINKING := "sinking"        ## on the water, going down
 const WAITING := "waiting"        ## at depth, fishing
-const NIBBLING := "nibbling"      ## the rod tip taps. Something is interested
-const HOOKING := "hooking"        ## MINIGAME 1: the marker sweeps, tap in the zone
+const NIBBLING := "nibbling"      ## MINIGAME 1: watch the float. Strike on the take
 const FIGHTING := "fighting"      ## MINIGAME 2: tap to hold the needle in the band
 const HOLDING := "holding"        ## landed, held up, being looked at
 const LOST := "lost"              ## it came off
@@ -52,7 +50,8 @@ const LOST := "lost"              ## it came off
 ## apart cannot correct either.
 const BROKE := "the line broke"
 const ESCAPED := "it got away"
-const MISSED := "you missed it"
+const MISSED := "you were too slow"
+const EARLY := "you struck too early"
 
 var state: String = IDLE
 var time: float = 0.0             ## seconds since the session started
@@ -71,15 +70,19 @@ var fish_distance: float = 0.0    ## metres from the boat
 var fish_stamina: float = 1.0     ## [0, 1], falls as it tires
 var fight_time: float = 0.0       ## seconds this fish has been on
 
-# --- MINIGAME 1: the hook -------------------------------------------------
-## A marker sweeps a bar and the player taps while it is inside a green zone.
-## The zone's WIDTH is the species and its POSITION is drawn per bite, so the
-## bar has to be looked at every time rather than learned once.
-var sweep: float = 0.0            ## [0, 1] where the marker is
-var sweep_dir: float = 1.0
-var sweeps_left: float = 0.0
-var zone_lo: float = 0.0
-var zone_hi: float = 0.0
+# --- MINIGAME 1: the nibble -----------------------------------------------
+## The fish teases the bait a few times - short shallow tugs that pop straight
+## back - and then takes it properly, deeper and for longer. Strike on the take
+## and you are on; strike on a tease and you have pulled it out of its mouth.
+##
+## `tug` is what the renderer pulls the float under by, so the ONE number that
+## decides the outcome is also the one the player is watching. There is no HUD
+## element for any of this and there must not be one.
+var tug: float = 0.0              ## [0, 1] how far the float is pulled under
+var taking: bool = false          ## this tug is the real take, not a tease
+var teases_left: int = 0
+var tug_timer: float = 0.0        ## seconds left in the current tug or gap
+var in_tug: bool = false          ## false means still water between tugs
 
 # --- MINIGAME 2: the reel -------------------------------------------------
 ## Tapping is the whole input. Each tap kicks the needle up, it falls on its own
@@ -165,8 +168,8 @@ func release_cast() -> void:
 ## that it was not intuitive to tell what you were supposed to do.
 func tap() -> void:
 	match state:
-		HOOKING:
-			_try_hook()
+		NIBBLING:
+			_strike()
 		FIGHTING:
 			taps += 1
 			tension = clampf(tension + Tuning.TAP_KICK, 0.0, Tuning.TENSION_MAX)
@@ -184,12 +187,6 @@ func tap() -> void:
 			# knows about is not a way out.**
 			_enter(IDLE)
 			_clear_fish()
-		NIBBLING:
-			# Striking at a fish that is only interested puts it off. This is the
-			# one place a mistimed tap should cost anything, because there is
-			# something on the line to lose.
-			spook_timer = Tuning.SPOOK_TIME
-			_enter(WAITING)
 		_:
 			pass
 
@@ -228,10 +225,7 @@ func advance(dt: float) -> void:
 		WAITING:
 			_wait(dt)
 		NIBBLING:
-			if state_time >= Tuning.NIBBLE_TIME:
-				_offer_hook()
-		HOOKING:
-			_sweep(dt)
+			_nibble(dt)
 		FIGHTING:
 			_fight(dt)
 		HOLDING:
@@ -260,7 +254,8 @@ func state_snapshot() -> Dictionary:
 		"fish_id": fish_id,
 		"fish_distance": snappedf(fish_distance, 0.001),
 		"fish_stamina": snappedf(fish_stamina, 0.001),
-		"sweep": snappedf(sweep, 0.001),
+		"tug": snappedf(tug, 0.001),
+		"taking": taking,
 		"tension": snappedf(tension, 0.001),
 		"strain": snappedf(strain, 0.001),
 		"running": running,
@@ -269,11 +264,14 @@ func state_snapshot() -> Dictionary:
 	}
 
 
-## True while the marker is inside the green zone. The HUD draws the zone from
-## `zone_lo`/`zone_hi` and the rules use this, so what the player sees and what
-## is scored cannot disagree.
-func sweep_in_zone() -> bool:
-	return sweep >= zone_lo and sweep <= zone_hi
+## True while the fish has the bait properly - the one moment a strike works.
+##
+## The renderer pulls the float under by `tug` and the rules read `taking`, and
+## both come from the same tug sequence, so what the player is looking at and
+## what is scored cannot disagree. **There is no HUD element for this** - the
+## float is the whole instrument, which is what was asked for.
+func can_hook() -> bool:
+	return in_tug and taking
 
 
 ## True while the tension needle is inside the safe band.
@@ -300,11 +298,11 @@ func _clear_fish() -> void:
 	fish_distance = 0.0
 	fish_stamina = 1.0
 	fight_time = 0.0
-	sweep = 0.0
-	sweep_dir = 1.0
-	sweeps_left = 0.0
-	zone_lo = 0.0
-	zone_hi = 0.0
+	tug = 0.0
+	taking = false
+	teases_left = 0
+	tug_timer = 0.0
+	in_tug = false
 	tension = 0.0
 	strain = 0.0
 	running = false
@@ -331,64 +329,92 @@ func _wait(dt: float) -> void:
 	fish_weight = lerpf(s["weight_lo"], s["weight_hi"], _rng.next())
 	fish_stamina = 1.0
 	fight_time = 0.0
-	_enter(NIBBLING)
-	nibble.emit()
+	_start_nibble()
 
 
 ## MINIGAME 1 opens. The zone's position is drawn now, so the bar is different
 ## every time and cannot be played from memory.
-func _offer_hook() -> void:
+## MINIGAME 1 begins. The fish is on the bait but has not committed.
+##
+## The number of teases is drawn per bite rather than fixed, because a fixed
+## count is a metronome: two bites and the player is counting tugs instead of
+## watching the float, which is the whole thing this exists to make them do.
+func _start_nibble() -> void:
 	var s := Species.by_id(fish_id)
 	if s.is_empty():
 		_enter(WAITING)
 		return
-	var z := Species.hook_zone(s, _rng.next())
-	zone_lo = z[0]
-	zone_hi = z[1]
-	sweep = 0.0
-	sweep_dir = 1.0
-	sweeps_left = Tuning.HOOK_SWEEPS
-	_enter(HOOKING)
-	hook_offered.emit(fish_id)
+	teases_left = Species.tease_count(s, _rng.next())
+	tug = 0.0
+	taking = false
+	in_tug = false
+	tug_timer = Species.tug_gap(_rng.next())
+	_enter(NIBBLING)
+	nibble.emit()
 
 
-func _sweep(dt: float) -> void:
+## The tug sequence: still water, a tug, still water, a tug... and then the take.
+##
+## `tug` rises and falls within each pull rather than switching on and off, so
+## the float DIPS AND RECOVERS instead of teleporting. That shape is the whole
+## readability of the mechanic - a tease is shallow and brief, the take is deep
+## and holds, and the difference has to be visible in the movement itself.
+func _nibble(dt: float) -> void:
 	var s := Species.by_id(fish_id)
 	if s.is_empty():
 		_enter(WAITING)
 		return
-	var speed: float = s["sweep_speed"]
-	sweep += sweep_dir * speed * dt
-	# Bounce, and count a pass each time it turns round. Two passes and the fish
-	# loses interest, which is the time limit.
-	while sweep > 1.0 or sweep < 0.0:
-		if sweep > 1.0:
-			sweep = 2.0 - sweep
-			sweep_dir = -1.0
-		else:
-			sweep = -sweep
-			sweep_dir = 1.0
-		sweeps_left -= 1.0
-	if sweeps_left <= 0.0:
-		lost_count += 1
-		_enter(LOST)
-		lost.emit(MISSED)
 
+	tug_timer -= dt
 
-func _try_hook() -> void:
-	if not sweep_in_zone():
-		lost_count += 1
-		_enter(LOST)
-		lost.emit(MISSED)
+	if in_tug:
+		var span: float = float(s["take_window"]) if taking else Tuning.TEASE_TIME
+		var depth: float = Tuning.TAKE_DEPTH if taking else Tuning.TEASE_DEPTH
+		# A quick pull under and a slower recovery, which is what a float does.
+		var k := 1.0 - clampf(tug_timer / maxf(0.001, span), 0.0, 1.0)
+		tug = depth * sin(clampf(k, 0.0, 1.0) * PI)
+		if tug_timer <= 0.0:
+			if taking:
+				# The take came and went. It is gone.
+				lost_count += 1
+				_enter(LOST)
+				lost.emit(MISSED)
+				return
+			in_tug = false
+			tug = 0.0
+			tug_timer = Species.tug_gap(_rng.next())
 		return
 
-	# Dead centre starts the fight with the needle already in the band, which is
-	# a real reward for a clean set rather than a score bonus - the player feels
-	# it in the first second of the fight instead of reading it in a number.
-	var mid := (zone_lo + zone_hi) * 0.5
-	var half := maxf(0.0001, (zone_hi - zone_lo) * 0.5)
-	var off := absf(sweep - mid) / half
-	var perfect := off <= Tuning.HOOK_PERFECT
+	# Still water between tugs.
+	tug = 0.0
+	if tug_timer > 0.0:
+		return
+	in_tug = true
+	taking = teases_left <= 0
+	teases_left -= 1
+	tug_timer = float(s["take_window"]) if taking else Tuning.TEASE_TIME
+
+
+## The strike. The first tap, and the whole of minigame 1.
+##
+## On the take you are on; on a tease or on still water you have pulled the bait
+## out of its mouth. Two different messages, because "too early" and "too slow"
+## are different mistakes and a player who cannot tell them apart cannot correct
+## either.
+func _strike() -> void:
+	if not taking or not in_tug:
+		lost_count += 1
+		_enter(LOST)
+		lost.emit(EARLY)
+		return
+
+	var s := Species.by_id(fish_id)
+	# Striking early in the take is a clean set, and it is worth something the
+	# player FEELS rather than reads: the fight opens with the needle already in
+	# the band instead of below it.
+	var span: float = maxf(0.001, float(s["take_window"]))
+	var into := 1.0 - clampf(tug_timer / span, 0.0, 1.0)
+	var perfect := into <= Tuning.HOOK_PERFECT
 
 	fish_distance = cast_distance
 	tension = Tuning.SAFE_LO + (Tuning.HOOK_PERFECT_BONUS if perfect else 0.0)
@@ -397,10 +423,12 @@ func _try_hook() -> void:
 	fight_time = 0.0
 	running = false
 	tell = 0.0
+	tug = 0.0
+	in_tug = false
+	taking = false
 	phase_time = Species.calm_seconds(_rng.next())
 	_enter(FIGHTING)
 	hooked.emit(fish_id, perfect)
-
 
 ## MINIGAME 2.
 ##

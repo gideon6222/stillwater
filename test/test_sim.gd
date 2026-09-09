@@ -102,14 +102,19 @@ func test_tapping_a_dead_cast_winds_it_back_in(t: TestHarness) -> void:
 	t.eq(s.state, Sim.FLYING, "the second cast never leaves the rod")
 
 
-## But a tap at a fish that IS interested still costs something, or the hook
-## minigame is not a decision.
-func test_tapping_at_a_nibble_still_spooks(t: TestHarness) -> void:
+## But a tap at a fish that IS interested costs the fish, or the nibble is not a
+## decision. This is the counterpart of the test above: the SAME gesture is a
+## free way out on a dead cast and a real mistake once something is on the bait,
+## and which it is depends only on the state the player can see.
+func test_striking_early_at_a_nibble_costs_the_fish(t: TestHarness) -> void:
 	var s := Sim.new(1)
 	t.ok(_drive_to(s, Sim.NIBBLING, 40.0), "a fish gets interested")
+	var before := s.lost_count
+	# The very first frame of a nibble is still water, so this is a strike at
+	# nothing - the earliest possible mistake.
 	s.tap()
-	t.eq(s.state, Sim.WAITING, "striking early did not put the fish off")
-	t.gt(s.spook_timer, 0.0, "and there is no cost to doing it")
+	t.eq(s.state, Sim.LOST, "striking before the take cost nothing")
+	t.eq(s.lost_count, before + 1, "and it was not counted")
 
 
 func test_a_cast_cannot_be_started_during_a_fight(t: TestHarness) -> void:
@@ -122,83 +127,147 @@ func test_a_cast_cannot_be_started_during_a_fight(t: TestHarness) -> void:
 
 ## MINIGAME 1 ------------------------------------------------------------------
 
-func test_a_bite_opens_the_hook_bar_with_a_fresh_zone(t: TestHarness) -> void:
+func test_a_bite_starts_the_fish_teasing_the_bait(t: TestHarness) -> void:
 	var s := Sim.new(1)
-	t.ok(_drive_to(s, Sim.HOOKING), "a bite reaches the hook bar")
-	t.gt(s.zone_hi, s.zone_lo, "the green zone has a width")
-	t.ok(s.zone_lo >= 0.0 and s.zone_hi <= 1.0, "the zone is on the bar")
-	t.approx(s.sweep, 0.0, 0.05, "the marker starts at one end")
-	t.gt(s.sweeps_left, 0.0, "there is time to hit it")
+	t.ok(_drive_to(s, Sim.NIBBLING), "a bite reaches the nibble")
+	t.gt(float(s.teases_left), -0.5, "the tease count was never drawn")
+	t.ok(not s.taking, "the fish takes it properly with no teasing at all")
+	t.approx(s.tug, 0.0, 1e-6, "the float is already under before anything has happened")
 
 
-## The zone must MOVE between bites, or the bar becomes a metronome the player
-## learns in two casts and never looks at again.
-func test_the_hook_zone_moves_between_bites(t: TestHarness) -> void:
-	var seen := {}
-	for seed_value in [1, 2, 3, 4, 5, 6, 7, 8]:
-		var s := Sim.new(seed_value)
-		if _drive_to(s, Sim.HOOKING, 60.0):
-			seen[snappedf(s.zone_lo, 0.01)] = true
-	t.gt(float(seen.size()), 2.0, "the green zone lands in the same place every time")
-
-
-func test_tapping_in_the_zone_hooks_the_fish(t: TestHarness) -> void:
-	var s := _sim_at_hook_bar()
-	t.ok(s != null, "the hook bar can be reached")
+## The float has to actually MOVE, and a tease has to look different from a take.
+## That difference IS the mechanic - there is no HUD element for any of it.
+func test_a_tease_is_shallow_and_a_take_is_deep(t: TestHarness) -> void:
+	var s := _sim_nibbling()
+	t.ok(s != null, "a nibble can be reached")
 	if s == null:
 		return
 	var step := 1.0 / 60.0
-	for i in int(round(6.0 / step)):
-		if s.state != Sim.HOOKING:
+	var tease_peak := 0.0
+	var take_peak := 0.0
+	for i in int(round(20.0 / step)):
+		if s.state != Sim.NIBBLING:
 			break
-		if s.sweep_in_zone():
+		if s.in_tug:
+			if s.taking:
+				take_peak = maxf(take_peak, s.tug)
+			else:
+				tease_peak = maxf(tease_peak, s.tug)
+		s.advance(step)
+	t.gt(tease_peak, 0.0, "a tease does not move the float at all")
+	t.gt(take_peak, 0.0, "the take does not move the float at all")
+	t.gt(take_peak, tease_peak * 1.6,
+		"a take is only %.2f deep against a tease's %.2f - they look the same" % [take_peak, tease_peak])
+
+
+## And the float has to come back UP between tugs, or it reads as sinking rather
+## than as something pulling at it.
+func test_the_float_recovers_between_tugs(t: TestHarness) -> void:
+	var s := _sim_nibbling()
+	t.ok(s != null, "a nibble can be reached")
+	if s == null:
+		return
+	var step := 1.0 / 60.0
+	var went_under := false
+	var came_back := false
+	for i in int(round(20.0 / step)):
+		if s.state != Sim.NIBBLING:
+			break
+		if s.tug > 0.2:
+			went_under = true
+		elif went_under and s.tug <= 0.001:
+			came_back = true
+			break
+		s.advance(step)
+	t.ok(went_under, "the float never went under")
+	t.ok(came_back, "the float never came back up - it reads as sinking, not as a bite")
+
+
+func test_striking_on_the_take_hooks_the_fish(t: TestHarness) -> void:
+	var s := _sim_nibbling()
+	t.ok(s != null, "a nibble can be reached")
+	if s == null:
+		return
+	var step := 1.0 / 60.0
+	for i in int(round(20.0 / step)):
+		if s.state != Sim.NIBBLING:
+			break
+		if s.can_hook():
 			s.tap()
 			break
 		s.advance(step)
-	t.eq(s.state, Sim.FIGHTING, "tapping inside the green zone did not set the hook")
+	t.eq(s.state, Sim.FIGHTING, "striking on the take did not set the hook")
 	t.gt(s.tension, 0.0, "the fight starts with no tension at all")
 
 
-func test_tapping_outside_the_zone_loses_the_fish(t: TestHarness) -> void:
-	var s := _sim_at_hook_bar()
-	t.ok(s != null, "the hook bar can be reached")
+func test_striking_on_a_tease_loses_the_fish(t: TestHarness) -> void:
+	var s := _sim_nibbling()
+	t.ok(s != null, "a nibble can be reached")
 	if s == null:
 		return
 	var step := 1.0 / 60.0
-	# Wait until the marker is definitely outside, then tap.
-	for i in int(round(6.0 / step)):
-		if not s.sweep_in_zone():
+	var struck := false
+	for i in int(round(20.0 / step)):
+		if s.state != Sim.NIBBLING:
+			break
+		if s.in_tug and not s.taking:
+			s.tap()
+			struck = true
 			break
 		s.advance(step)
-	t.ok(not s.sweep_in_zone(), "the marker never left the zone")
-	s.tap()
-	t.eq(s.state, Sim.LOST, "tapping outside the zone still hooked it")
+	t.ok(struck, "no tease was ever offered to strike at")
+	t.eq(s.state, Sim.LOST, "striking on a tease still hooked it")
 	t.eq(s.lost_count, 1, "and it was not counted as a loss")
 
 
-func test_never_tapping_loses_the_fish_when_the_sweeps_run_out(t: TestHarness) -> void:
-	var s := _sim_at_hook_bar()
-	t.ok(s != null, "the hook bar can be reached")
+func test_striking_at_still_water_loses_the_fish(t: TestHarness) -> void:
+	var s := _sim_nibbling()
+	t.ok(s != null, "a nibble can be reached")
 	if s == null:
 		return
-	# Just past two sweeps of the slowest fish, and no further: LOST returns to
-	# IDLE on its own after a moment, so waiting too long asserts about the wrong
-	# state entirely.
-	_step(s, 4.0)
-	t.gt(float(s.lost_count), 0.0, "the bar never times out")
+	var step := 1.0 / 60.0
+	for i in int(round(20.0 / step)):
+		if s.state != Sim.NIBBLING or not s.in_tug:
+			break
+		s.advance(step)
+	t.ok(not s.in_tug, "the fish never let go between tugs")
+	s.tap()
+	t.eq(s.state, Sim.LOST, "striking at nothing still hooked a fish")
+
+
+func test_letting_the_take_pass_loses_the_fish(t: TestHarness) -> void:
+	var s := _sim_nibbling()
+	t.ok(s != null, "a nibble can be reached")
+	if s == null:
+		return
+	# Never strike. It teases, takes, and gives up.
+	_step(s, 12.0)
+	t.gt(float(s.lost_count), 0.0, "the take never times out")
 	t.eq(s.caught, 0, "nothing was landed")
 
 
-## Dead centre is worth something the player FEELS rather than reads: the fight
-## opens with the needle already inside the band.
-func test_a_centred_set_starts_the_fight_further_along(t: TestHarness) -> void:
-	var centred := _hook_at_offset(0.0)
-	var edge := _hook_at_offset(0.95)
-	t.ok(centred != null and edge != null, "both a centred and an edge set are reachable")
-	if centred == null or edge == null:
+## The tease count must VARY, or a player counts tugs instead of watching the
+## float - which is the one way this mechanic can quietly stop being about
+## looking at anything.
+func test_the_number_of_teases_varies_between_bites(t: TestHarness) -> void:
+	var seen := {}
+	for seed_value in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+		var s := Sim.new(seed_value)
+		if _drive_to(s, Sim.NIBBLING, 60.0):
+			seen[s.teases_left] = true
+	t.gt(float(seen.size()), 1.0, "every bite offers the same number of teases")
+
+
+## Striking early in the take window is a clean set, and it is worth something
+## the player FEELS rather than reads.
+func test_a_clean_set_starts_the_fight_further_along(t: TestHarness) -> void:
+	var early := _strike_into_take(0.1)
+	var late := _strike_into_take(0.92)
+	t.ok(early != null and late != null, "both an early and a late set are reachable")
+	if early == null or late == null:
 		return
-	t.gt(centred.tension, edge.tension, "a centred set is worth nothing over an edge one")
-	t.ok(Tuning.in_band(centred.tension), "a centred set does not start inside the band")
+	t.gt(early.tension, late.tension, "a clean set is worth nothing over a late one")
+	t.ok(Tuning.in_band(early.tension), "a clean set does not start inside the band")
 
 
 ## MINIGAME 2 ------------------------------------------------------------------
@@ -469,15 +538,15 @@ func test_different_seeds_give_different_water(t: TestHarness) -> void:
 
 
 
-## Fish until the hook bar is up, and hand the sim back with it still showing.
-## Returns null if it never happened, so a test can assert its own setup rather
-## than quietly test nothing.
-func _sim_at_hook_bar(seeds: Array = [1, 2, 3, 4, 5, 6]) -> Sim:
+## Fish until the fish is nibbling, and hand the sim back mid-sequence. Returns
+## null if it never happened, so a test can assert its own setup rather than
+## quietly test nothing.
+func _sim_nibbling(seeds: Array = [1, 2, 3, 4, 5, 6]) -> Sim:
 	var step := 1.0 / 60.0
 	for seed_value in seeds:
 		var s := Sim.new(seed_value)
 		for i in int(round(90.0 / step)):
-			if s.state == Sim.HOOKING:
+			if s.state == Sim.NIBBLING:
 				return s
 			match s.state:
 				Sim.IDLE, Sim.HOLDING, Sim.LOST:
@@ -521,20 +590,23 @@ func _sim_running(seeds: Array = [1, 2, 3, 4, 5, 6, 7, 8]) -> Sim:
 
 ## Set the hook at a chosen distance off the centre of the zone, as a fraction of
 ## its half-width. Used to prove a centred set is worth more than an edge one.
-func _hook_at_offset(off: float) -> Sim:
-	var s := _sim_at_hook_bar()
+## Strike at a chosen fraction into the TAKE window. Used to prove a clean set is
+## worth more than a late scramble.
+func _strike_into_take(into: float) -> Sim:
+	var s := _sim_nibbling()
 	if s == null:
 		return null
-	var mid := (s.zone_lo + s.zone_hi) * 0.5
-	var half := (s.zone_hi - s.zone_lo) * 0.5
-	var want := mid + half * clampf(off, -0.99, 0.99)
 	var step := 1.0 / 60.0
-	for i in int(round(8.0 / step)):
-		if s.state != Sim.HOOKING:
+	for i in int(round(20.0 / step)):
+		if s.state != Sim.NIBBLING:
 			return null
-		if absf(s.sweep - want) < 0.012:
-			s.tap()
-			return s if s.state == Sim.FIGHTING else null
+		if s.can_hook():
+			var row := Species.by_id(s.fish_id)
+			var span: float = row["take_window"]
+			var elapsed := span - s.tug_timer
+			if elapsed >= span * clampf(into, 0.0, 0.98):
+				s.tap()
+				return s if s.state == Sim.FIGHTING else null
 		s.advance(step)
 	return null
 

@@ -61,7 +61,11 @@ const ALL := [IDLE_HANDS, MASHER, SLOWPOKE, BLIND, ANGLER, HUMAN]
 ## version of HUMAN was stateless and scored identically to ANGLER, which was the
 ## same mistake wearing a different hat.
 const REACTION := 0.30            ## seconds before HUMAN notices anything change
-const HOOK_ERROR := 0.085         ## how far off centre HUMAN aims on the hook bar
+## How much deeper than a tease the float has to look before HUMAN commits. A
+## person cannot read a boolean; they wait until it is obviously not a tease,
+## which costs them part of the take window on every fish.
+const HOOK_MARGIN := 0.16
+const HOOK_WOBBLE := 0.19        ## per-cast wobble, so it sometimes dips under a tease
 
 ## How the rhythm is held and corrected. A person adjusts their tapping rate a
 ## few times a second, not sixty - and that lag is the entire reason a run is
@@ -98,8 +102,8 @@ static func act(name: String, s: Sim, dt: float, mem: Dictionary = {}) -> void:
 		Sim.CHARGING:
 			if s.state_time >= CHARGE_HOLD:
 				s.release_cast()
-		Sim.HOOKING:
-			if _should_set_hook(name, s, mem):
+		Sim.NIBBLING:
+			if _should_strike(name, s, mem):
 				s.tap()
 		Sim.FIGHTING:
 			if _should_tap(name, s, dt, mem):
@@ -108,24 +112,40 @@ static func act(name: String, s: Sim, dt: float, mem: Dictionary = {}) -> void:
 			pass
 
 
-## MINIGAME 1. Everyone who tries at all aims at the middle of the green zone;
-## what differs is whether they aim at all.
-static func _should_set_hook(name: String, s: Sim, mem: Dictionary) -> bool:
+## MINIGAME 1: strike on the take, not on a tease.
+##
+## What separates the bots here is whether they can tell the two apart, which is
+## the whole skill the nibble tests.
+static func _should_strike(name: String, s: Sim, mem: Dictionary) -> bool:
 	match name:
 		IDLE_HANDS:
 			return false
 		MASHER:
-			# Taps the instant the bar appears, wherever the marker happens to
-			# be. Sometimes lucky, mostly not.
-			return true
+			# Strikes at the first movement it sees, which is almost always a
+			# tease. This is the mistake the mechanic exists to punish.
+			return s.tug > 0.05
 		HUMAN:
-			# Aims at the middle and is a little off, so a narrow zone is a real
-			# risk rather than a formality.
-			var mid := (s.zone_lo + s.zone_hi) * 0.5
-			var off := HOOK_ERROR * (1.0 if SimUtil.hash2(s.casts, 17) > 0.5 else -1.0)
-			return absf(s.sweep - (mid + off)) < 0.02
+			# Reads the DEPTH rather than knowing the flag, which is what a person
+			# does: a tease is shallow, a take is deep. It waits until the float
+			# is convincingly under, which costs part of the take window on every
+			# fish - and on a fish whose window is short that is a real risk.
+			#
+			# The threshold wobbles per cast, and that wobble matters: without it
+			# the model never once struck early, and the probe reported minigame 1
+			# as free. **Jumping the gun is the obvious human error here**, and a
+			# model that cannot make the obvious error is not measuring the thing.
+			# When the wobble runs low the threshold falls under a tease's depth
+			# and it strikes at one, exactly as a person does.
+			# Reads the float's depth RIGHT NOW, not a decaying memory of how deep
+			# it has been. The first version kept a peak that bled off over a few
+			# frames, which meant it could fire during the still water AFTER a tease
+			# - striking at nothing, over and over, for a 50% loss rate that was an
+			# artefact of the model rather than a fact about the game.
+			var wobble := (SimUtil.hash2(s.casts, 313) - 0.5) * 2.0 * HOOK_WOBBLE
+			return s.tug > Tuning.TEASE_DEPTH + HOOK_MARGIN + wobble
 		_:
-			return s.sweep_in_zone()
+			# Perfect information: strikes the instant the take begins.
+			return s.can_hook()
 
 
 ## MINIGAME 2. Tap to hold the needle at AIM, and - for everyone but BLIND -
