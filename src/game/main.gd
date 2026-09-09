@@ -52,6 +52,7 @@ var _sky_grey := 0.0
 var _sky_dark := 0.0
 var _sky_tint := Color(1, 1, 1)
 var _sky_cloud := 0.0
+var _fish_shown := ""
 var _grade: ColorRect
 var _rain: GPUParticles3D
 var _mist: GPUParticles3D
@@ -678,26 +679,42 @@ func _build_reeds() -> void:
 	_reeds = Node3D.new()
 	_reeds.name = "Reeds"
 	add_child(_reeds)
-	for i in 54:
-		var reed := MeshInstance3D.new()
-		var rr := BoxMesh.new()
-		var h := 0.9 + SimUtil.hash2(i, 3) * 1.5
-		rr.size = Vector3(0.045, h, 0.045)
-		reed.mesh = rr
-		reed.material_override = _mat(Color(0.31, 0.35, 0.17), 0.92)
+	# TAPERED BLADES, not sticks. A reed is a long triangle that leans and curls
+	# at the tip, and at this distance that silhouette is the entire read - which
+	# is exactly why it stays modelled in code rather than imported. `_sweep` is
+	# already here for the hull, so a reed is four points and a taper.
+	var blade := _mat(Color(0.255, 0.290, 0.150), 0.95)
+	blade.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var dry := _mat(Color(0.360, 0.330, 0.190), 0.95)
+	dry.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+	for i in 120:
+		var h := 0.85 + SimUtil.hash2(i, 3) * 1.7
 		var side := -1.0 if i % 2 == 0 else 1.0
 		# The bank sits well down the lake and spreads outward with distance, so
 		# it stays inside the horizontal cone the whole way.
-		var z := 17.0 + SimUtil.hash2(i, 17) * 30.0
+		var z := 14.0 + SimUtil.hash2(i, 17) * 34.0
 		var spread := 1.6 + z * 0.17
-		reed.position = Vector3(
-			side * (spread + SimUtil.hash2(i, 11) * 4.5),
-			h * 0.5 - 0.30,
+		var base := Vector3(
+			side * (spread + SimUtil.hash2(i, 11) * 6.0),
+			-0.30,
 			z
 		)
-		reed.rotation_degrees = Vector3(
-			SimUtil.hash2(i, 23) * 14.0 - 7.0, 0, SimUtil.hash2(i, 29) * 12.0 - 6.0
+		# The lean, and a curl at the top. A reed that is straight reads as a
+		# fence post; the curl is most of what makes a bank look alive.
+		var lean := Vector3(
+			(SimUtil.hash2(i, 23) - 0.5) * 0.5,
+			0.0,
+			(SimUtil.hash2(i, 29) - 0.5) * 0.5
 		)
+		var pts: Array[Vector3] = []
+		for k in 5:
+			var t := float(k) / 4.0
+			pts.append(base + Vector3(0, h * t, 0) + lean * (t * t * h))
+		var reed := MeshInstance3D.new()
+		# Swept with a width that closes to nothing, so the blade tapers.
+		reed.mesh = _sweep_tapered(pts, 0.055, 0.004)
+		reed.material_override = dry if SimUtil.hash2(i, 41) > 0.72 else blade
 		_reeds.add_child(reed)
 
 
@@ -713,40 +730,201 @@ func _build_reeds() -> void:
 ## exception applies: stationary, close to the camera, looked at while nothing
 ## else is happening. The real generator - spine, swept rib profile, fin set -
 ## arrives with the second water.
+## THE FISH GENERATOR.
+##
+## A spine, a swept rib profile and a fin set, all from `Species.look_of`. This
+## is the rule in ASSETS.md landing on the right side twice over: a landed fish
+## is stationary, close to the camera and looked at while nothing else is
+## happening, which is the exception that would allow an imported model - but the
+## shape of a fish here IS gameplay state, and that closes the question. A Thin
+## Perch is a perch with `long` at 4.1, a Blindfish has no iris, and the wrong
+## ones in the later acts are these same fields at values no fish has.
+##
+## Colour is baked into VERTEX COLOURS - back to belly down the flank, plus the
+## vertical bars - so a species needs no texture and no material of its own.
 func _build_fish() -> Node3D:
 	var f := Node3D.new()
 	f.name = "Fish"
 	f.visible = false
+	_fish = f
+	_rebuild_fish("bluegill")
+	return f
+
+
+const FISH_RINGS := 22        ## along the body
+const FISH_SIDES := 12        ## around it
+
+
+## How fat the fish is at `t` along its length, 0 at the nose and 1 at the tail
+## root. Peaks about a third back, which is where a fish is actually widest - a
+## symmetrical bulge reads as a submarine.
+func _fish_girth(t: float) -> float:
+	var x := clampf(t, 0.0, 1.0)
+	return pow(x, 0.42) * pow(1.0 - x * 0.92, 0.75) * 1.72
+
+
+func _rebuild_fish(id: String) -> void:
+	if _fish == null:
+		return
+	for c in _fish.get_children():
+		_fish.remove_child(c)
+		c.queue_free()
+
+	var look := Species.look_of(id)
+	var long: float = look["long"]
+	var deep: float = look["deep"]
+	var back: Color = look["back"]
+	var belly: Color = look["belly"]
+	var stripes: int = int(look["stripes"])
+
+	# Length is fixed and the body scaled around it, so every species arrives at
+	# the same size on screen - the landing shot is a portrait, not a size
+	# comparison. The weight is written underneath it in words.
+	var length := 1.35
+	var half_h := length / long * 0.5
+	var half_w := half_h * deep * 0.62
+
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var cols := PackedColorArray()
+	var idx := PackedInt32Array()
+
+	for i in FISH_RINGS:
+		var t := float(i) / float(FISH_RINGS - 1)
+		var g := _fish_girth(t)
+		var z := length * (0.5 - t)
+		for j in FISH_SIDES:
+			var a := TAU * float(j) / float(FISH_SIDES)
+			var cx := sin(a)
+			var cy := cos(a)
+			verts.append(Vector3(cx * half_w * g, cy * half_h * g, z))
+			norms.append(Vector3(cx * deep, cy, 0.0).normalized())
+			# Counter-shading: dark along the back, pale on the belly. It is the
+			# single thing that makes a generated body read as a fish rather than
+			# as a lozenge, because it is what every real fish does.
+			var down := clampf(0.5 - cy * 0.5, 0.0, 1.0)
+			# Squared, so the dark holds most of the upper flank and the pale is
+			# confined to the underside. A linear blend puts the midtone across
+			# the widest part of the body, which is where the eye looks.
+			var c := back.lerp(belly, pow(down, 2.1))
+			if stripes > 0:
+				var bar := sin(t * PI * float(stripes) * 1.15)
+				if bar > 0.45:
+					c = c.darkened(0.30 * (bar - 0.45) / 0.55)
+			cols.append(c)
+
+	for i in FISH_RINGS - 1:
+		for j in FISH_SIDES:
+			var a0 := i * FISH_SIDES + j
+			var a1 := i * FISH_SIDES + (j + 1) % FISH_SIDES
+			var b0 := (i + 1) * FISH_SIDES + j
+			var b1 := (i + 1) * FISH_SIDES + (j + 1) % FISH_SIDES
+			idx.append_array([a0, b0, a1, a1, b0, b1])
+
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = norms
+	arr[Mesh.ARRAY_COLOR] = cols
+	arr[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 
 	var body := MeshInstance3D.new()
-	var bm := SphereMesh.new()
-	bm.radius = 0.5
-	bm.height = 1.0
-	bm.radial_segments = 20
-	bm.rings = 12
-	body.mesh = bm
-	body.scale = Vector3(0.42, 0.78, 1.0)
+	body.mesh = mesh
+	var bmat := StandardMaterial3D.new()
+	bmat.vertex_color_use_as_albedo = true
+	# Wet, not chromed. Metallic at 0.12 with a low roughness put a sheen across
+	# the whole flank that flattened the counter-shading into one pale tube - and
+	# the counter-shading is the entire reason a generated body reads as a fish.
+	bmat.roughness = 0.42
+	bmat.metallic = 0.0
+	body.material_override = bmat
 	body.name = "Body"
-	f.add_child(body)
+	_fish.add_child(body)
 
-	var tail := MeshInstance3D.new()
-	var tm := PrismMesh.new()
-	tm.size = Vector3(0.06, 0.62, 0.52)
-	tail.mesh = tm
-	tail.position = Vector3(0, 0, -0.62)
-	tail.rotation_degrees = Vector3(0, 0, 90)
-	tail.name = "Tail"
-	f.add_child(tail)
+	# Fins, cut from the same two numbers as the body, so a long thin fish gets
+	# long thin fins without a second table.
+	var fin_col: Color = look["fin"]
+	var fmat := _mat(fin_col, 0.55)
+	fmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fmat.albedo_color = Color(fin_col.r, fin_col.g, fin_col.b, 0.90)
 
-	var dorsal := MeshInstance3D.new()
-	var dm := PrismMesh.new()
-	dm.size = Vector3(0.04, 0.30, 0.62)
-	dorsal.mesh = dm
-	dorsal.position = Vector3(0, 0.36, 0.02)
-	dorsal.name = "Dorsal"
-	f.add_child(dorsal)
+	# The tail, forked. The fork says "fish" at a glance more than the body does.
+	var tail_z := -length * 0.52
+	var tail_h := half_h * 1.30
+	_fish.add_child(_fin([
+		Vector3(0, 0, tail_z + 0.03),
+		Vector3(0, tail_h, tail_z - length * 0.19),
+		Vector3(0, tail_h * 0.26, tail_z - length * 0.10),
+		Vector3(0, -tail_h * 0.26, tail_z - length * 0.10),
+		Vector3(0, -tail_h, tail_z - length * 0.19),
+	], fmat, "Tail"))
 
-	return f
+	_fish.add_child(_fin([
+		Vector3(0, half_h * 0.88, length * 0.22),
+		Vector3(0, half_h * 1.34, length * 0.06),
+		Vector3(0, half_h * 1.22, -length * 0.12),
+		Vector3(0, half_h * 0.84, -length * 0.08),
+	], fmat, "Dorsal"))
+
+	# An anal fin as well as a dorsal. Two read as a built animal; one reads as
+	# a shark silhouette.
+	_fish.add_child(_fin([
+		Vector3(0, -half_h * 0.86, -length * 0.14),
+		Vector3(0, -half_h * 1.22, -length * 0.24),
+		Vector3(0, -half_h * 0.82, -length * 0.30),
+	], fmat, "Anal"))
+
+	for side in [-1.0, 1.0]:
+		var pec := _fin([
+			Vector3(0, 0, length * 0.20),
+			Vector3(0, half_h * 0.55, length * 0.05),
+			Vector3(0, -half_h * 0.25, length * 0.02),
+		], fmat, "Pectoral")
+		pec.rotation_degrees = Vector3(0, 0, side * 70.0)
+		pec.position = Vector3(side * half_w * 0.85, -half_h * 0.15, 0)
+		_fish.add_child(pec)
+
+	# The eye, and it is the first place a wrong fish gives itself away - the
+	# Blindfish has an iris the colour of its own skin, which reads before the
+	# player has worked out why.
+	for side2 in [-1.0, 1.0]:
+		var eye := MeshInstance3D.new()
+		var em := SphereMesh.new()
+		em.radius = half_h * 0.20
+		em.height = half_h * 0.40
+		em.radial_segments = 8
+		em.rings = 5
+		eye.mesh = em
+		var emat := _mat(look["eye"], 0.20)
+		emat.metallic = 0.35
+		eye.material_override = emat
+		eye.position = Vector3(side2 * half_w * 0.62, half_h * 0.34, length * 0.395)
+		eye.name = "Eye"
+		_fish.add_child(eye)
+
+
+## A flat fin from a fan of points in the YZ plane, double sided.
+func _fin(pts: Array, mat: Material, fin_name: String) -> MeshInstance3D:
+	var verts := PackedVector3Array()
+	var idx := PackedInt32Array()
+	for p in pts:
+		verts.append(p)
+	for i in range(1, pts.size() - 1):
+		idx.append_array([0, i, i + 1])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	mi.name = fin_name
+	return mi
 
 
 # --- HUD ------------------------------------------------------------------
@@ -1343,23 +1521,17 @@ func _sync_fish() -> void:
 	# Held up out of the water in front of the camera, turning slowly, with a
 	# little life left in it.
 	var t := sim.state_time
-	_fish.position = Vector3(0.10, 1.05 + sin(t * 2.4) * 0.02, 1.15)
+	# Lower and nearer than it was. Held at eye level in open air the fish read as
+	# levitating: with nothing behind it and nothing under it there was no scale
+	# and no place. Dropped to just above the gunwale it has both.
+	_fish.position = Vector3(0.13, 0.78 + sin(t * 2.4) * 0.02, 0.92)
 	_fish.rotation = Vector3(sin(t * 3.1) * 0.10, 1.45 + sin(t * 0.9) * 0.28, sin(t * 4.3) * 0.07)
-	var tint := _fish_colour(sim.fish_id)
-	for child in _fish.get_children():
-		(child as MeshInstance3D).material_override = _mat(tint, 0.35)
-
-
-func _fish_colour(id: String) -> Color:
-	match id:
-		"bluegill":
-			return Color(0.36, 0.48, 0.34)
-		"perch":
-			return Color(0.72, 0.58, 0.20)
-		"bass":
-			return Color(0.30, 0.40, 0.26)
-		_:
-			return Color(0.55, 0.58, 0.55)
+	# REBUILT, not recoloured. The old path tinted one sphere, so every species in
+	# the game was the same fish in a different colour - and only three of the
+	# twenty-six even had a colour.
+	if _fish_shown != sim.fish_id:
+		_fish_shown = sim.fish_id
+		_rebuild_fish(sim.fish_id)
 
 
 ## What the player is told, in the words the rules use.
@@ -2091,3 +2263,51 @@ func _sync_weather(look: Dictionary, k: float) -> void:
 		if mm != null:
 			var fogc2: Color = look["fog_color"]
 			mm.albedo_color = Color(fogc2.r, fogc2.g, fogc2.b, 0.030 + 0.055 * haze)
+
+
+## `_sweep` with a width that changes along the path. Split out rather than
+## folded in, because the hull wants a constant section and a plant wants a
+## taper, and one function doing both by flag reads worse than two.
+func _sweep_tapered(path: Array[Vector3], w0: float, w1: float) -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var idx := PackedInt32Array()
+	var n := path.size()
+	for i in n:
+		var t := float(i) / float(n - 1)
+		var here: Vector3 = path[i]
+		var tangent: Vector3
+		if i == 0:
+			tangent = path[1] - here
+		elif i == n - 1:
+			tangent = here - path[n - 2]
+		else:
+			tangent = path[i + 1] - path[i - 1]
+		tangent = tangent.normalized()
+		var right := tangent.cross(Vector3.FORWARD).normalized()
+		if right.length_squared() < 0.001:
+			right = Vector3.RIGHT
+		var hw := lerpf(w0, w1, t) * 0.5
+		verts.append(here - right * hw)
+		verts.append(here + right * hw)
+		var nrm := right.cross(tangent).normalized()
+		norms.append(nrm)
+		norms.append(nrm)
+		uvs.append(Vector2(0.0, t))
+		uvs.append(Vector2(1.0, t))
+	for i in n - 1:
+		var a0 := i * 2
+		var a1 := i * 2 + 1
+		var b0 := (i + 1) * 2
+		var b1 := (i + 1) * 2 + 1
+		idx.append_array([a0, b0, a1, a1, b0, b1])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = norms
+	arr[Mesh.ARRAY_TEX_UV] = uvs
+	arr[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return mesh

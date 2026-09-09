@@ -627,3 +627,111 @@ static func run_seconds(unit: float, stamina_left: float) -> float:
 	var base := Tuning.RUN_MIN + clampf(unit, 0.0, 1.0) * (Tuning.RUN_MAX - Tuning.RUN_MIN)
 	var tired := 1.0 - Tuning.TIRED_RELIEF * (1.0 - clampf(stamina_left, 0.0, 1.0))
 	return base * maxf(0.35, tired)
+
+
+## HOW EACH ONE LOOKS, as data, because the shape of a fish is gameplay state.
+##
+## The renderer builds every fish from these numbers - spine, swept rib profile,
+## fins - so a species is still a row and nothing has to learn about a new one.
+## That is the rule at the top of this file honoured rather than quoted: a Thin
+## Perch really is a perch with `long` pushed up and `deep` pulled down, and the
+## wrong ones in the later acts are these same fields at values no fish has.
+##
+##   back / belly  the two colours, blended down the flank
+##   long          body length against height. Low is a bream, high is a pike
+##   deep          body depth. How slab-sided it is
+##   stripes       vertical bars. 0 for none
+##   fin           fin colour, usually a darker or redder version of the back
+##   eye           iris. The one place a wrong fish gives itself away first
+const LOOKS := {
+	# --- The Reeds ---------------------------------------------------------
+	"bluegill": {"back": Color(0.24, 0.34, 0.26), "belly": Color(0.86, 0.74, 0.38),
+		"long": 1.55, "deep": 1.00, "stripes": 6, "fin": Color(0.18, 0.26, 0.22)},
+	"shiner": {"back": Color(0.52, 0.55, 0.46), "belly": Color(0.92, 0.90, 0.82),
+		"long": 2.60, "deep": 0.62, "stripes": 0, "fin": Color(0.62, 0.58, 0.44)},
+	"perch": {"back": Color(0.38, 0.42, 0.16), "belly": Color(0.88, 0.76, 0.32),
+		"long": 2.30, "deep": 0.78, "stripes": 7, "fin": Color(0.72, 0.34, 0.16)},
+	"bass": {"back": Color(0.26, 0.34, 0.22), "belly": Color(0.80, 0.82, 0.68),
+		"long": 2.80, "deep": 0.80, "stripes": 1, "fin": Color(0.22, 0.30, 0.20)},
+	"carp": {"back": Color(0.42, 0.32, 0.16), "belly": Color(0.82, 0.70, 0.42),
+		"long": 2.40, "deep": 0.95, "stripes": 0, "fin": Color(0.46, 0.28, 0.16)},
+
+	# --- The Channel -------------------------------------------------------
+	"smallmouth": {"back": Color(0.34, 0.30, 0.18), "belly": Color(0.84, 0.78, 0.60),
+		"long": 2.70, "deep": 0.78, "stripes": 5, "fin": Color(0.30, 0.26, 0.16)},
+	"sucker": {"back": Color(0.36, 0.34, 0.30), "belly": Color(0.86, 0.82, 0.72),
+		"long": 3.00, "deep": 0.66, "stripes": 0, "fin": Color(0.40, 0.36, 0.30)},
+	"walleye": {"back": Color(0.46, 0.42, 0.20), "belly": Color(0.90, 0.86, 0.66),
+		"long": 3.30, "deep": 0.62, "stripes": 0, "fin": Color(0.52, 0.46, 0.22),
+		"eye": Color(0.92, 0.86, 0.52)},
+	"pike": {"back": Color(0.28, 0.36, 0.20), "belly": Color(0.82, 0.82, 0.66),
+		"long": 4.40, "deep": 0.58, "stripes": 0, "fin": Color(0.44, 0.36, 0.18)},
+	"catfish": {"back": Color(0.26, 0.24, 0.20), "belly": Color(0.78, 0.74, 0.62),
+		"long": 3.10, "deep": 0.80, "stripes": 0, "fin": Color(0.22, 0.20, 0.17)},
+	"drum": {"back": Color(0.48, 0.48, 0.46), "belly": Color(0.90, 0.88, 0.84),
+		"long": 2.10, "deep": 0.92, "stripes": 0, "fin": Color(0.44, 0.44, 0.42)},
+
+	# --- The Drowned Road --------------------------------------------------
+	"bowfin": {"back": Color(0.28, 0.30, 0.20), "belly": Color(0.66, 0.68, 0.52),
+		"long": 3.60, "deep": 0.66, "stripes": 0, "fin": Color(0.24, 0.34, 0.24)},
+	"burbot": {"back": Color(0.36, 0.32, 0.22), "belly": Color(0.74, 0.70, 0.56),
+		"long": 3.90, "deep": 0.58, "stripes": 0, "fin": Color(0.32, 0.28, 0.20)},
+	"eel": {"back": Color(0.22, 0.24, 0.20), "belly": Color(0.62, 0.62, 0.52),
+		"long": 6.50, "deep": 0.42, "stripes": 0, "fin": Color(0.20, 0.22, 0.18)},
+	"trout": {"back": Color(0.26, 0.32, 0.30), "belly": Color(0.86, 0.84, 0.78),
+		"long": 3.20, "deep": 0.66, "stripes": 0, "fin": Color(0.30, 0.34, 0.32)},
+	"sturgeon": {"back": Color(0.34, 0.34, 0.28), "belly": Color(0.76, 0.74, 0.64),
+		"long": 4.60, "deep": 0.60, "stripes": 0, "fin": Color(0.30, 0.30, 0.26)},
+
+	# --- Old Town. The first ones that are not quite right ------------------
+	"chub": {"back": Color(0.52, 0.54, 0.52), "belly": Color(0.90, 0.90, 0.88),
+		"long": 2.80, "deep": 0.66, "stripes": 0, "fin": Color(0.56, 0.52, 0.48)},
+	"pale_walleye": {"back": Color(0.62, 0.60, 0.52), "belly": Color(0.92, 0.90, 0.84),
+		"long": 3.40, "deep": 0.60, "stripes": 0, "fin": Color(0.64, 0.60, 0.52),
+		"eye": Color(0.94, 0.94, 0.90)},
+	"thin_perch": {"back": Color(0.44, 0.44, 0.26), "belly": Color(0.86, 0.82, 0.60),
+		# A perch with a wrong length. That is the whole design of this species
+		# and it is one number.
+		"long": 4.10, "deep": 0.48, "stripes": 7, "fin": Color(0.60, 0.34, 0.22)},
+	"gar": {"back": Color(0.34, 0.32, 0.22), "belly": Color(0.74, 0.72, 0.58),
+		"long": 6.00, "deep": 0.46, "stripes": 0, "fin": Color(0.32, 0.30, 0.20)},
+	"bell_carp": {"back": Color(0.40, 0.36, 0.22), "belly": Color(0.78, 0.72, 0.50),
+		"long": 2.30, "deep": 1.05, "stripes": 0, "fin": Color(0.42, 0.34, 0.20)},
+
+	# --- The Quarry. Nothing down here has seen daylight --------------------
+	"lamprey": {"back": Color(0.30, 0.26, 0.26), "belly": Color(0.52, 0.46, 0.44),
+		"long": 7.00, "deep": 0.40, "stripes": 0, "fin": Color(0.28, 0.24, 0.24),
+		"eye": Color(0.22, 0.16, 0.16)},
+	"blindfish": {"back": Color(0.80, 0.78, 0.76), "belly": Color(0.92, 0.90, 0.88),
+		"long": 3.00, "deep": 0.58, "stripes": 0, "fin": Color(0.84, 0.82, 0.80),
+		# No iris at all. The eye is the first place a wrong fish gives itself
+		# away, and this one has nothing there to give away.
+		"eye": Color(0.86, 0.84, 0.82)},
+	"paddlefish": {"back": Color(0.36, 0.38, 0.36), "belly": Color(0.72, 0.72, 0.68),
+		"long": 4.80, "deep": 0.62, "stripes": 0, "fin": Color(0.34, 0.36, 0.34)},
+	"white_sturgeon": {"back": Color(0.78, 0.76, 0.70), "belly": Color(0.90, 0.88, 0.84),
+		"long": 5.20, "deep": 0.62, "stripes": 0, "fin": Color(0.74, 0.72, 0.66),
+		"eye": Color(0.88, 0.86, 0.80)},
+
+	# --- The Spring ---------------------------------------------------------
+	"old_fish": {"back": Color(0.20, 0.21, 0.20), "belly": Color(0.34, 0.35, 0.33),
+		"long": 3.80, "deep": 0.90, "stripes": 0, "fin": Color(0.17, 0.18, 0.17),
+		"eye": Color(0.62, 0.60, 0.34)},
+}
+
+const LOOK_DEFAULT := {
+	"back": Color(0.42, 0.44, 0.40), "belly": Color(0.82, 0.82, 0.76),
+	"long": 3.00, "deep": 0.70, "stripes": 0, "fin": Color(0.40, 0.42, 0.38),
+}
+
+
+## Never fails and never returns empty - a species with no entry gets a plain
+## fish rather than nothing, because a missing row must not be an invisible fish.
+static func look_of(id: String) -> Dictionary:
+	var out := LOOK_DEFAULT.duplicate()
+	var row: Dictionary = LOOKS.get(id, {})
+	for k in row:
+		out[k] = row[k]
+	if not out.has("eye"):
+		out["eye"] = Color(0.10, 0.09, 0.08)
+	return out
