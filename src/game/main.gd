@@ -4990,7 +4990,13 @@ func _open_book() -> void:
 	# framed it at, and it cannot drift out of frame, because the framing is the
 	# same arithmetic that used to place the camera.
 	var pose := _book_pose()
-	var read_cam := Transform3D(Basis.IDENTITY, pose[0]).looking_at(pose[1], Vector3.UP)
+	# THE PAGE'S UP, not the world's. `frame_pose` returns it as a third element
+	# precisely because the book lies at an angle in the hull - it is put down,
+	# not filed - and building the reference camera with `Vector3.UP` instead
+	# bakes that 14 degrees of yaw in as a ROLL. Photographed: the held book came
+	# up with the text running visibly downhill.
+	var up: Vector3 = pose[2] if pose.size() > 2 else _boat_pose.basis.y
+	var read_cam := Transform3D(Basis.IDENTITY, pose[0]).looking_at(pose[1], up)
 	_book_rel = read_cam.affine_inverse() * (_boat_pose * _book_rest)
 	# ...but only its ORIENTATION. `frame_pose` measures the open mesh's bounds,
 	# and it is called here while the lid is still animating, so the distance it

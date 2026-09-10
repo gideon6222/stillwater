@@ -72,8 +72,16 @@ func _initialize() -> void:
 			_main.advance(1.0 / 60.0, 1.0 / 60.0)
 			bt += 1.0 / 60.0
 		if _seconds > 3.0:
-			# A second tap turns a page, so `-- 5 book` photographs page two.
-			_main._tap_page(Vector2(360, 500))
+			# `-- 5 book` photographs page two.
+			#
+			# This used to tap a fixed screen point, and it broke silently the day
+			# the book started being HELD rather than read on the floor: the page
+			# moved, the ray missed it, and a miss shuts the book - so every
+			# screenshot of "the logbook" came back as an empty boat with no
+			# error anywhere. Ask for the page turn directly. A tool that reaches
+			# a state through screen coordinates breaks whenever the picture
+			# changes, which is exactly when the tool is needed.
+			_main._turn_page(1)
 			for i in 30:
 				_main.advance(1.0 / 60.0, 1.0 / 60.0)
 	elif _until == "gate" or _until == "arrive":
