@@ -891,7 +891,7 @@ only here. A resuming session works from the first unticked box.
 
 - [x] **R1 The logbook is picked up and held.** Into a reading pose over the lake, not a camera dive onto the sole. Front matter added: fish counted, biggest by species, days kept, deepest cast, spots visited, offerings kept
 - [x] **R2 Pages are swiped, and they turn.** *(swipe done; the rotating two-sided quad is still to do)* One rotating quad with the next page on its back. The one place a drag survives now the stick owns looking. Subsumes 11.9d
-- [ ] **R3 The tackle box replaces the Kit panel.** Look at the box, the lid opens, the gear is in the trays, tap to equip. The line ladder becomes a picture of itself. Subsumes 11.9b
+- [x] **R3 The tackle box replaces the Kit panel.** Look at the box, the lid opens, the gear is in the trays, tap to equip. The line ladder becomes a picture of itself. Subsumes 11.9b
 - [ ] **R4 The shed is a room you are taken to.** Shop button, rowed to the bank, walked in, no cut. Three fixed poses; it is the gate sequence pointed at a building. Subsumes 11.9c and P3
 - [ ] **R5 The dock disappears.** Shed / Lake / Log / Kit exists only because there was nowhere else to put four buttons. Once each is a thing, the HUD is the action button and the stick
 
