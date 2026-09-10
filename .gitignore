@@ -4,6 +4,11 @@
 
 # Export output.
 build/
+# ...except the marker that stops Godot importing everything the tools write there.
+# Without this exception the .gdignore is missing on every fresh clone, and the first
+# editor open imports thousands of film frames.
+!build/
+!build/.gdignore
 *.apk
 *.aab
 *.idsig
