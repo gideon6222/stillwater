@@ -4025,7 +4025,13 @@ func _hint_for_state() -> String:
 		Sim.NIBBLING:
 			return "tap when it goes under"
 		Sim.FIGHTING:
-			return "tap to reel   -   stop when it runs"
+			# HOLD, not tap - and this line taught the wrong control for one
+			# build after the fight changed, exactly as the look hint did. A hint
+			# that names a control the game no longer has is worse than no hint,
+			# because the player trusts it and concludes the game is broken.
+			if sim.running or sim.tell > 0.0:
+				return "LET GO   -   it is running"
+			return "hold to reel   -   let go when it runs"
 	return ""
 
 
