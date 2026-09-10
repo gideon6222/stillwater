@@ -702,6 +702,7 @@ func _build_boat() -> void:
 
 	_build_shore()
 	_build_props()
+	_build_book()
 	_build_things()
 	_build_reeds()
 
@@ -1724,6 +1725,11 @@ func _on_cast_input(event: InputEvent) -> void:
 	else:
 		return
 
+	if pressed and _reading and not _in_sequence:
+		_tap_page(at)
+		_cast_area.accept_event()
+		return
+
 	if pressed and _in_sequence:
 		# Any touch cuts the sequence, and does nothing else with that touch -
 		# skipping and casting on the same press would fire a cast the player
@@ -1855,6 +1861,14 @@ func freeze(seed_value: int = 1) -> void:
 	# not the state any test wants to measure.
 	_in_sequence = false
 	_seq.running = false
+	# And the book shut. `freeze` means "the game, now, in a known state" - an
+	# open logbook is as much a front door as the title is, and leaving it open
+	# hid the HUD from every test that ran after one which used it.
+	_reading = false
+	if _book != null:
+		_book.state = Room3D.State.SHUT
+		_book.openness = 0.0
+		_book.page = 0
 	_gate_open = 1.0
 	if _seq_line != null:
 		_seq_line.text = ""
@@ -1905,7 +1919,15 @@ func _sync() -> void:
 	# the sky and the hour are already right because they are the same water,
 	# sky and hour. It also means the hand-over at the end is invisible: the last
 	# shot rests exactly on the seat the player is about to be given.
-	if _in_sequence:
+	if _reading and not _in_sequence and _book != null:
+		# HELD OVER THE PAGE. The move that brings the camera down is a sequence,
+		# and a sequence ends - so without this the camera snapped back to the
+		# seat the instant it arrived, and the book was open somewhere behind the
+		# player. Recomputed every frame so the page rides the swell with
+		# everything else rather than floating still above a moving boat.
+		var pose := _book_pose()
+		_cam.transform = Transform3D(Basis.IDENTITY, pose[0]).looking_at(pose[1], Vector3.UP)
+	elif _in_sequence:
 		# The camera goes on rails and NOTHING ELSE IS SKIPPED. An early return
 		# here meant the rest of `_sync` never ran during a sequence - so the
 		# HUD, which stands down on exactly that condition, was never told to.
@@ -2269,6 +2291,8 @@ func _sync_mood(dt: float) -> void:
 		var want_lamp := 2.6 * (1.0 - clampf(float(look["ambient"]) / 0.9, 0.0, 1.0))
 		_lamp.light_energy = lerpf(_lamp.light_energy, maxf(0.35, want_lamp), k)
 	_sync_gate()
+	if _book != null:
+		_book.advance(dt)
 	_sync_grade(k)
 
 	if _water_mat != null:
@@ -3457,6 +3481,16 @@ func _build_things() -> void:
 					_audio.play("page", -6.0),
 		},
 		{
+			"id": "logbook",
+			"name": "The logbook",
+			"at": Vector3(0.20, _hull_floor_y(0.10) + 0.11, 0.10),
+			"look": func() -> String:
+				var met := Keepers.hands_met(sim.deepest_ever)
+				return "The keeper's logbook   -   %d of %d hands" % [met, Keepers.total_hands()],
+			"use": func() -> void:
+				_open_book(),
+		},
+		{
 			"id": "rope",
 			"name": "The rope",
 			"at": Vector3(-0.34, _hull_rim_y(-0.16) + 0.03, -0.16),
@@ -3472,6 +3506,10 @@ var _lamp_on := false
 var _lamp: OmniLight3D
 var _lamp_prop: Node3D
 var _shore: Node3D
+var _book: Room3D
+var _book_page: VBoxContainer
+var _book_pages := 1
+var _reading := false
 var _gate_left: Node3D
 var _gate_right: Node3D
 var _gate_open := 0.0
@@ -3588,6 +3626,8 @@ const PROPS := {
 	"baitbox": "res://assets/props/wooden_crate_01/wooden_crate_01_1k.gltf",
 	"lamp": "res://assets/props/Lantern_01/Lantern_01_1k.gltf",
 	"lifebuoy": "res://assets/props/lifebuoy/lifebuoy_1k.gltf",
+	"book": "res://assets/props/binder_notebook/binder_notebook_1k.gltf",
+	"toolbox": "res://assets/props/metal_toolbox/metal_toolbox_1k.gltf",
 }
 
 
@@ -4092,4 +4132,180 @@ func _hud_is_down() -> bool:
 		return true
 	if _title != null and _title.is_up():
 		return true
-	return _in_sequence
+	return _in_sequence or _reading
+
+
+# --- the book, as a thing in the boat ---------------------------------------
+
+## Paper, ink and rule for the page. Same values the flat room used, because it
+## is the same paper - only now it is printed onto a page instead of the screen.
+const PAGE_WARM := Color(0.878, 0.847, 0.773)
+const PAGE_INK := Color(0.145, 0.130, 0.110)
+const PAGE_INK_DIM := Color(0.145, 0.130, 0.110, 0.58)
+const PAGE_RULE := Color(0.145, 0.130, 0.110, 0.18)
+
+
+## THE LOGBOOK LIES ON THE THWART.
+##
+## It is a real notebook, at a real place in the hull, and the page is a
+## SubViewport printed onto a quad just above the cover. Look at it, press Use,
+## and the camera comes down over it while it opens.
+func _build_book() -> void:
+	var model := _prop("book")
+	if model == null:
+		push_warning("the logbook model is missing - the book will not open")
+		return
+	# Real size. The mesh is 36 cm across open, which is about right for a
+	# keeper's ledger, so it needs no scaling at all.
+	model.rotation_degrees = Vector3(0, 14, 0)
+
+	_book = Room3D.new()
+	_book.name = "Logbook"
+	# On the sole, on the clear side. It was on the thwart at first and the rope
+	# coil sat straight across the open page.
+	# ABOVE THE FLOORBOARDS. The planks are 30 mm thick and sit 20 mm off the
+	# sole, so their top face is at floor + 35 mm - and the book was at +12 with
+	# its page at +32, which buried the page INSIDE the floor. Only the corner
+	# poking past a plank edge was visible, and it cost four rounds of blaming
+	# the camera, the quad, the viewport and the anchors in turn. The texture had
+	# been correct the whole time.
+	_book.position = Vector3(0.20, _hull_floor_y(0.10) + 0.052, 0.10)
+	# Read from just above and behind, looking down - the pose of somebody
+	# leaning over a book that was already here rather than holding their own.
+	# FAR ENOUGH BACK TO SEE THE WHOLE SPREAD. The page is 33 cm wide and the
+	# frame is portrait, so the visible width at distance d is only about 0.51*d
+	# - at 40 cm that is 20 cm and two thirds of the book is off screen, which is
+	# exactly how the first pass came out. 80 cm fits it with room to spare.
+	_book.read_from = Vector3(0.02, 0.72, -0.36)
+	_book.read_at = Vector3(0.026, 0.02, 0.02)
+
+	var page := _page_root()
+	# A5-ish, and the pixel size is what decides whether the ink is crisp when
+	# the camera is 40 cm off it.
+	# The page is sized and placed off the OPEN mesh's own bounds - 36 x 20 cm,
+	# centred at x = 2.6 cm - rather than guessed at. A quad that does not match
+	# the book it is printed on reads as a sheet lying beside it, which is
+	# exactly how the first attempt came out.
+	# THE PAGE FACES THE READER. Laying the quad flat with a -90 turn about X
+	# leaves its up-axis pointing at a camera that is BEHIND the book, so the
+	# whole page came out upside down. The extra half turn about the page's own
+	# normal is what puts the top of the text at the far edge.
+	var lie_flat := Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, deg_to_rad(-90.0))
+	_book.build(model, Vector2(0.335, 0.185),
+		Transform3D(lie_flat, Vector3(0.026, 0.020, 0.0)),
+		page, Vector2i(1024, 566))
+	_boat.add_child(_book)
+	_refresh_book()
+
+
+## The Control tree that becomes the page texture.
+## THE ROOT *IS* THE PAPER.
+##
+## It was a bare Control with a full-rect ColorRect inside it, and the anchoring
+## did not resolve against a SubViewport the way it does against a Control - so
+## the paper covered only part of the page and the rest of the quad showed the
+## viewport's own dark clear colour. A ColorRect sized directly cannot have that
+## problem: there is no anchor to fail to resolve.
+func _page_root() -> Control:
+	var root := ColorRect.new()
+	root.color = PAGE_WARM
+
+	var pad := MarginContainer.new()
+	pad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pad.add_theme_constant_override("margin_left", 64)
+	pad.add_theme_constant_override("margin_right", 48)
+	pad.add_theme_constant_override("margin_top", 54)
+	pad.add_theme_constant_override("margin_bottom", 54)
+	root.add_child(pad)
+
+	_book_page = VBoxContainer.new()
+	_book_page.add_theme_constant_override("separation", 14)
+	pad.add_child(_book_page)
+	return root
+
+
+func _refresh_book() -> void:
+	if _book_page == null:
+		return
+	_book_pages = Book3D.fill(_book_page, sim, _book.page if _book != null else 0,
+		PAGE_INK, PAGE_INK_DIM, PAGE_RULE)
+
+
+## Open the book: the object opens and the camera comes down to read it.
+func _open_book() -> void:
+	if _book == null or _reading:
+		return
+	_reading = true
+	_book.page = 0
+	_refresh_book()
+	_book.open()
+	var pose := _book_pose()
+	_play_sequence([
+		{"at": _cam.transform.origin, "look": _cam.transform.origin - _cam.transform.basis.z * 3.0,
+			"for": 0.55, "gate": _gate_open, "ease": "inout"},
+		{"at": pose[0], "look": pose[1], "for": 0.4, "gate": _gate_open, "ease": "out"},
+	])
+	if _audio != null:
+		_audio.play("page", -3.0)
+
+
+func _shut_book() -> void:
+	if _book == null or not _reading:
+		return
+	_reading = false
+	_book.close()
+	_play_sequence([
+		{"at": _cam.transform.origin, "look": _cam.transform.origin - _cam.transform.basis.z * 3.0,
+			"for": 0.45, "gate": _gate_open, "ease": "inout"},
+		{"at": Sequence.SEAT, "look": Sequence.SEAT_LOOK, "for": 0.4, "gate": _gate_open, "ease": "out"},
+	])
+	if _audio != null:
+		_audio.play("page", -6.0)
+
+
+## A tap while reading: the left third goes back, the right two thirds go on,
+## and past the last page it shuts. That is how a person holds a book - you
+## reach for the outside edge to turn forward - and it needs no buttons drawn
+## over the page.
+func _tap_page(at: Vector2) -> void:
+	if _book == null:
+		return
+	var from := _cam.transform.origin
+	var dir := _screen_ray(at)
+	var on_page := _book.hit_page(from, dir, _boat_pose)
+	if on_page.x < 0.0:
+		# Tapped away from the page. Shut it - the whole screen outside the book
+		# is a way out, which is what a reader expects from a thing they picked
+		# up rather than a menu they opened.
+		_shut_book()
+		return
+	var frac := on_page.x / 768.0
+	if frac < 0.34:
+		_book.page = maxi(0, _book.page - 1)
+	else:
+		_book.page += 1
+		if _book.page >= _book_pages:
+			_shut_book()
+			return
+	_refresh_book()
+	if _audio != null:
+		_audio.play("page", -5.0)
+
+
+## Where the camera reads the book from, framed off the page's real size and the
+## camera's real field of view.
+func _book_pose() -> Array:
+	var aspect := 0.46
+	if _cam != null and _cam.get_viewport() != null:
+		var vs := _cam.get_viewport().get_visible_rect().size
+		if vs.y > 1.0:
+			aspect = vs.x / vs.y
+	return _book.frame_pose(_boat_pose, _cam.fov if _cam != null else 58.0, aspect)
+
+
+## A ray from the camera through a point on the screen.
+func _screen_ray(at: Vector2) -> Vector3:
+	if _cam == null:
+		return Vector3.FORWARD
+	return _cam.project_ray_normal(at)
+

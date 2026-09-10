@@ -67,6 +67,7 @@ func _initialize() -> void:
 	_check_a_wrong_fish_is_drawn_wrong(main)
 	_check_the_walk_to_the_boat_always_arrives(main)
 	_check_every_room_looks_like_the_thing_it_is(main)
+	_check_the_logbook_is_a_real_object(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -1038,7 +1039,11 @@ func _check_the_walk_to_the_boat_always_arrives(main) -> void:
 		_t.approx(main._seq_at.distance_to(Sequence.SEAT), 0.0, 0.01,
 			"the walk does not end at the seat - the hand-over into play would jump")
 		_t.eq(main._gate_open, 1.0, "the gate is not open at the end of the walk")
-		_t.ok(not main._hud_is_down(), "the HUD never comes back after the walk")
+		# Say WHICH condition is still holding it down. An assertion that only
+		# reports "it is down" sends you probing for the one of three that did it.
+		_t.ok(not main._hud_is_down(),
+			"the HUD never comes back after the walk (menus=%s title=%s seq=%s reading=%s)" % [
+				main._menus.is_open(), main._title.is_up(), main._in_sequence, main._reading])
 
 		# And a touch cuts it, from the very first frame.
 		main.freeze(1)
@@ -1104,3 +1109,56 @@ func _check_every_room_looks_like_the_thing_it_is(main) -> void:
 
 func _luma(c: Color) -> float:
 	return c.r * 0.299 + c.g * 0.587 + c.b * 0.114
+
+
+## THE LOGBOOK IS A REAL OBJECT, AND ITS PAGE IS NOT INSIDE THE FLOOR.
+##
+## The page is a quad printed with a SubViewport, and it spent four rounds of
+## debugging BURIED IN THE FLOORBOARDS - the planks are 30 mm thick sitting 20 mm
+## off the sole, so their top face is above where the page was. The texture was
+## correct the entire time; only the corner poking past a plank edge was visible.
+##
+## Nothing about the camera, the quad or the anchors could have found that. What
+## finds it is the arithmetic: whatever else is true, the page has to be ABOVE
+## everything else lying on the sole.
+func _check_the_logbook_is_a_real_object(main) -> void:
+	_t.begin("smoke > the logbook is a real object above the floor")
+	main.freeze(1)
+	_t.ok(main._book != null, "there is no logbook in the boat")
+	if main._book == null:
+		return
+
+	# The page, in boat space.
+	var surface: MeshInstance3D = null
+	for c in main._book.get_children():
+		if c is MeshInstance3D:
+			surface = c
+	_t.ok(surface != null, "the logbook has no page to print on")
+	if surface == null:
+		return
+	var page_y: float = (main._book.transform * surface.transform).origin.y
+
+	# The top of the floorboards at the same station.
+	var z: float = main._book.position.z
+	var plank_top: float = main._hull_floor_y(z) + 0.020 + 0.015
+	_t.gt(page_y, plank_top + 0.005,
+		"the page sits at %.3f and the floorboards reach %.3f - it is inside the floor" % [
+			page_y, plank_top])
+
+	# It opens, shows a page, and turns.
+	main.sim.deepest_ever = 60.0
+	main._open_book()
+	_t.ok(main._reading, "the logbook did not open")
+	for i in 200:
+		main.advance(1.0 / 60.0)
+	_t.ok(main._book.is_open(), "the logbook never finished opening")
+	_t.gt(float(main._book_pages), 1.0, "the whole book fits on one page")
+
+	var was: int = main._book.page
+	main._book.page += 1
+	main._refresh_book()
+	_t.eq(main._book.page, was + 1, "the page did not turn")
+
+	# And tapping away from it shuts it.
+	main._tap_page(Vector2(20, 20))
+	_t.ok(not main._reading, "tapping off the page does not shut the book")

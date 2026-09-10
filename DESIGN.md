@@ -409,7 +409,48 @@ The Old Fish at the Spring, the blank page, and NG+ where the lake remembers.
 
 ---
 
-### 11.8 Rooms as objects **[done, bar page turns]**
+### 11.9 Rooms as objects IN THE WORLD **[book done]**
+
+*What.* Gideon: "I was wanting real physical objects and places... I want to
+physically see the book in the boat. When you click on it, it opens and zooms in
+on the pages, then you flip each page." And the tackle box as a real 3D model
+you open to choose gear, and the shed as a building the camera flies to.
+
+*The architecture that makes it affordable.* `room3d.gd`. A room is a Node3D in
+the boat with a model, a **SubViewport** whose Control tree is rendered onto a
+quad on the object, and a computed camera pose. So the page content is still
+ordinary Control layout — the same paper, ink and entries — but it becomes the
+SURFACE of a physical thing rather than a panel over the screen. Laying text out
+as 3D nodes instead would mean re-solving wrapping and hit-testing in a space
+that has neither.
+
+*The book — DONE.* A Poly Haven notebook on the sole. The asset ships BOTH an
+open and a closed mesh, so opening it is a swap between the model's own two
+states rather than an animation nobody has to author. The camera distance is
+**computed** from the page size and the camera's own fov — hand-tuned poses were
+wrong three times running. Taps land on the page by ray: left third goes back,
+the rest goes on, past the last page it shuts, and tapping off the book shuts
+it too.
+
+*Hard-won:* the page spent four rounds of debugging **buried in the
+floorboards** — planks are 30 mm thick sitting 20 mm off the sole, and the page
+was below their top face. The texture was correct the whole time. A test now
+asserts the page clears everything lying on the sole, which is the only thing
+that could have found it.
+
+*The tackle box — NEXT.* `metal_toolbox` is already downloaded. Same Room3D:
+it sits by the thwart, the lid opens, and the inside of the lid is the surface.
+Gear as objects in the trays rather than rows — spools for line, a card of hooks
+for rods, the bait tins already modelled.
+
+*The shed — NEXT.* Not a Room3D: a place. Build it beyond the gate from the
+stone and timber already in the project, and make Shed a camera SEQUENCE that
+lifts off the water, turns, and drops into the doorway — the same rig the gate
+walk uses.
+
+---
+
+### 11.8 Rooms as flat skins **[superseded by 11.9 for the book]**
 
 *What.* Gideon: "I want the menus to feel more interactive, like a physical book
 with pages that turn, a store front, a lunch box with items, not just text
