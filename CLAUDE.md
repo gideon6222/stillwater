@@ -22,6 +22,22 @@ game.** `NOTES.md` has the decisions and measurements; `PLAN.md` the milestones;
 
 ## Commands
 
+**`scripts\check.ps1` is the gate.** Import, pure tests, smoke and the size guard, in the
+order that fails fastest, exiting non-zero on the first failure. About fifteen seconds. Run
+it before every commit that touches `src/` or `test/`; the individual commands below are for
+when it has already told you which one to look at.
+
+```powershell
+scripts\check.ps1                     # the whole local gate (~15 s)
+scripts\check.ps1 -Export             # ...and export the APK, then check its size
+
+scripts\movie.ps1 -Seconds 10 -Name idle                      # film the attract state
+scripts\movie.ps1 -Replay test\replays\first-cast.json -Seconds 20   # film a scripted run
+godot --path . --resolution 460x996 -- record=test/replays/<name>.json touch   # record one
+
+scripts\device.ps1 install | launch | log | shot | record 30 | perf   # the phone, over adb
+```
+
 ```powershell
 $godot = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe"
 
@@ -69,6 +85,12 @@ something to read.
 | `scripts/shot.gd` | Screenshot of the real game, at the PHONE's aspect ratio |
 | `scripts/check_size.gd` | APK size guard, fails in both directions |
 | `scripts/stamp.ps1` | Writes the build stamp from git |
+| `scripts/check.ps1` | **The local gate.** Everything that runs on the desk, fastest failure first |
+| `scripts/movie.ps1` | Films a deterministic run into a contact sheet. Movie Maker mode, fixed fps |
+| `scripts/device.ps1` | The phone over adb: install, launch, log, shot, record, perf, poke |
+| `scripts/replay_player.gd` | The `ReplayPlayer` autoload. Records and replays touches by physics frame |
+| `scripts/probe_prop.gd` | Prints an imported prop's mesh names and real bounds in metres |
+| `test/replays/` | Recorded touch scenarios for `movie.ps1`. `idle.json` is empty on purpose |
 
 ## Invariants
 
@@ -80,6 +102,13 @@ Shared invariants (pure sim, no `randf()` in state, the hash, `_ensure_booted`, 
   is indistinguishable from a crash. `run_smoke.gd` drives THROUGH each terminal state rather
   than stopping at it, because a suite that always stops where the content stops cannot see
   past the end of the content.
+- **The Android back button unwinds ONE layer and never quits out of an open screen.**
+  `quit_on_go_back=false` takes it off Godot and `_go_back()` in `main.gd` handles it: book,
+  room, cinematic, title, then out. The two failures here are opposites and both ship easily —
+  left at the default, back throws the morning away from inside the logbook; turned off with
+  nothing handling it, back does nothing at all and a dead system button reads as a hung app.
+  Which is why the project setting and the handler belong in one commit, and why
+  `run_smoke.gd` asserts the unwinding rather than the setting.
 - **A species is a row in `Species.TABLE`, never a class or a scene**, and **every row must be
   reachable at a real fishing depth.** The lure sinks to the bed, so a species whose range sits
   entirely above it can never be caught — it is in the table, it is a blank page in the

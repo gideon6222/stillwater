@@ -1,11 +1,18 @@
-# Stillwater — the whole design
+# Stillwater — the plan
 
 The complete specification: what the game is, how every part of it behaves, and
 what is built versus what is not. `NOTES.md` records what was *learned*;
 `CLAUDE.md` records the toolchain. **This file is what the game is meant to be.**
 
+**Section 12 is the milestone list** — the checkboxes a resuming session works
+from. Sections 1–11 say what each milestone is; section 12 says whether it
+exists, and it is the only place that says so.
+
 Where a section says MEASURED, the number came from a run, not a guess.
 Where it says OPEN, it is not built yet.
+
+(This file was `DESIGN.md` until 2026-09-09. It is `PLAN.md` because that is the
+name every skill in the framework looks for when it resumes a game.)
 
 ---
 
@@ -264,7 +271,7 @@ Legend: **[done]** shipped · **[now]** this pass · **[next]** ordered after.
 
 ---
 
-### 11.0 The gate **[done]**
+### 11.0 The gate
 
 *What.* The game begins on the WRONG SIDE of a wooden gate in a stone wall, at
 the end of the keeper's bank. Continue opens it and walks you down to the boat.
@@ -291,7 +298,7 @@ tap on the first frame cuts either one and fires nothing.
 
 ---
 
-### 11.1 The title **[done]**
+### 11.1 The title
 
 *What.* First thing on launch: the lake at dawn behind the game's name, with
 **Continue**, **New game** and **Settings**. Continue is greyed with no save.
@@ -311,7 +318,7 @@ New game leaves a fresh boat, and every button leads somewhere.
 
 ---
 
-### 11.2 The first morning **[done]**
+### 11.2 The first morning
 
 *What.* The intro. Teaches look → cast → watch → strike → reel → keep, in that
 order, and plants the story on the last beat.
@@ -347,7 +354,7 @@ it; every beat's condition is reachable; and the intro never reappears once done
 
 ---
 
-### 11.3 The keeper's logbook **[done]**
+### 11.3 The keeper's logbook
 
 *What.* The story's spine. Entries in five hands, unlocked by DEPTH.
 
@@ -361,7 +368,7 @@ writing all along: the species records.
 
 ---
 
-### 11.4 The radio **[next]**
+### 11.4 The radio
 
 *What.* The one speaking character.
 
@@ -375,7 +382,7 @@ By the Quarry it reads the day's catch back to you.
 
 ---
 
-### 11.5 Wrong fish **[done]**
+### 11.5 Wrong fish
 
 *What.* `wrong` exists in the species data and changes nothing on screen.
 
@@ -396,20 +403,20 @@ off and the Quarry is not subtle.
 
 ---
 
-### 11.6 First-run polish **[next]**
+### 11.6 First-run polish
 
 Orientation lock, a pause that actually pauses, a proper app icon, and the
 audio starting on first touch rather than on boot.
 
 ---
 
-### 11.7 The ending **[next]**
+### 11.7 The ending
 
 The Old Fish at the Spring, the blank page, and NG+ where the lake remembers.
 
 ---
 
-### 11.9 Rooms as objects IN THE WORLD **[book done]**
+### 11.9 Rooms as objects IN THE WORLD
 
 *What.* Gideon: "I was wanting real physical objects and places... I want to
 physically see the book in the boat. When you click on it, it opens and zooms in
@@ -501,23 +508,45 @@ own.
 
 ---
 
-## 12. Build order
+## 12. The milestones
 
-**Done:** the world, economy, four rooms, save, sounder, audio, mood arc, boat
-motion, look control, action button, juice layer, feel tests, Kit settings,
-imported props, the title, and the first morning.
+**This list is the single record of what is built.** Section 11 says what each
+one IS; this says whether it exists. The status used to be written in both
+places and they drifted — section 12 was still calling the logbook "next" after
+11.3 shipped it — so the markers came out of the section 11 headings and live
+only here. A resuming session works from the first unticked box.
 
-**Next, in order:** (detail in section 11)
+### Foundations
 
-1. **In-boat interaction.** Look at the livewell, the lamp, the bait box, the
-   rope — a prompt appears, tapping uses it. This is the "small details" note:
-   the boat should be a place with things in it, not a camera mount.
-2. **The keeper's logbook.** Entries in five hands, unlocked by depth. The story
-   currently lives only in object notes.
-3. **The radio.** The one speaking character. Weather reports that stop being
-   weather reports.
-4. **The lamp** doing something: fishing after dark is currently identical.
-5. **First-run flow.** No title, no settings prompt, no orientation.
-6. **Wrong fish visuals.** The `wrong` flag exists in data and changes nothing
-   on screen.
-7. **NG+.** The lake remembers.
+- [x] The stack: pure sim, headless tests, whole-run golden, size guard, CI, build stamp, changelog
+- [x] The world — bands, spots, clock, weather, `BOTTOMS` (§5)
+- [x] The economy and the gear ladders, LINE as the only progression (§6)
+- [x] The three minigames: cast, nibble, fight (§4)
+- [x] Save and restore, including a malformed save leaving a playable boat
+- [x] The sounder — the bed's own silhouette, and no fishing advantage at all
+- [x] Audio and the mood arc, both driven by `dread` and both asserted (§9)
+- [x] Boat motion, look control, action button, the juice layer, feel tests
+- [x] Imported props, mipmaps and anisotropic filtering, `test_assets.gd` (§8)
+- [x] The four rooms: Shed, Lake, Log, Kit
+- [x] In-boat interaction — the livewell, lamp, bait box and rope answer a look
+
+### The build, section by section
+
+- [x] **11.0 The gate.** The game begins on the wrong side of it; Continue is the walk down
+- [x] **11.1 The title.** The real scene running behind it, not a separate scene
+- [x] **11.2 The first morning.** The intro that teaches by being played
+- [x] **11.3 The keeper's logbook.** Entries in five hands, unlocked by depth
+- [x] **11.5 Wrong fish.** The same generator with worse numbers, and they look it
+- [x] **11.9 Rooms as objects in the world** — the logbook, as a real notebook in the boat
+- [ ] **11.9b The tackle box as a Room3D.** `assets/props/metal_toolbox/` is already down; the lid opens and the gear sits in the trays. Same pattern as the book, which is the proof it works
+- [ ] **11.9c The shed as a place, not a room.** A building beyond the gate, built from the stone and timber that exist; "Shed" becomes a camera sequence, not a panel
+- [ ] **11.9d Real page turns.** The book paginates and a tap turns it, but the page swaps rather than turning. One rotating quad with the next page on its back
+- [ ] **11.4 The radio.** The one speaking character. Weather reports that stop being weather reports
+- [ ] **11.6 First-run polish.** Orientation lock, pause, app icon, audio on first touch
+- [ ] **11.7 The ending, and NG+.** The lake remembers
+
+### Open questions that are not milestones
+
+- [ ] **Does the fight feel good on the phone?** Does the needle's overshoot read as weight or as lag, is the tap rate comfortable rather than frantic, is a run obvious without a caption. `/playtest phone` answers this; "it looks fine" does not
+- [ ] **The lamp doing something.** Fishing after dark is currently identical to fishing at noon
+- [ ] **The sheer hairline remnant** on the near port rail at a low sun. Mechanism understood (NOTES.md); the fix is one number in two places

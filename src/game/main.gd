@@ -2616,6 +2616,46 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
 		if sim != null and _booted:
 			_save_game()
+	elif what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		_go_back()
+
+
+## THE ANDROID BACK BUTTON, which `quit_on_go_back=false` hands to us.
+##
+## It unwinds ONE layer, the same order `_hud_is_down` layers them in, and only
+## leaves the game when there is nothing left to back out of. Godot's default is
+## to quit the app on this button, which from inside an open logbook or the shed
+## is indistinguishable from a crash - the player meant "shut this", not "throw
+## the morning away".
+##
+## The opposite mistake is just as easy and it is why the project setting and this
+## function belong in the same commit: turning the default off and handling nothing
+## makes the button DEAD, and a dead system button reads as a hung app.
+func _go_back() -> bool:
+	if not _booted:
+		return false
+	if _reading:
+		_shut_book()
+		return true
+	if _menus != null and _menus.is_open():
+		_menus.close()
+		return true
+	if _in_sequence:
+		# Same courtesy a touch gets: a cinematic you cannot leave is the worst
+		# thing in the game by the fifth time through it.
+		_in_sequence = false
+		_seq.running = false
+		return true
+	if _title != null and _title.is_up():
+		# The title IS the front door. Back from here is the way out of the app.
+		_save_game()
+		get_tree().quit()
+		return false
+	# On the seat with nothing open: save, then go. The save matters because
+	# NOTIFICATION_WM_CLOSE_REQUEST does not arrive on an Android back-out.
+	_save_game()
+	get_tree().quit()
+	return false
 
 
 ## THE SOUNDER, and it is the game's best storytelling instrument.

@@ -69,6 +69,7 @@ func _initialize() -> void:
 	_check_the_walk_to_the_boat_always_arrives(main)
 	_check_every_room_looks_like_the_thing_it_is(main)
 	_check_the_logbook_is_a_real_object(main)
+	_check_the_back_button_unwinds_one_layer(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -417,6 +418,60 @@ func _check_every_room_opens_and_closes(main) -> void:
 		_t.ok(menus._title.text != "", "%s has no title" % screen)
 		menus.close()
 		_t.ok(not menus.is_open(), "there is no way out of %s" % screen)
+
+
+## THE ANDROID BACK BUTTON, which the project now takes off Godot and hands to
+## `main._go_back()`.
+##
+## Two failures live here and they are opposites, which is why the setting and the
+## handler had to arrive together. Left at Godot's default, back QUITS the app from
+## inside an open logbook - the player meant "shut this" and lost the morning.
+## Turned off with nothing handling it, back does NOTHING, and a dead system button
+## reads as a hung app.
+##
+## So what is asserted is that it unwinds exactly ONE layer per press, in the order
+## `_hud_is_down` stacks them. The quit branch is deliberately not driven: calling it
+## would take the test process down with it, and the layer that reaches it is the one
+## with nothing left open.
+func _check_the_back_button_unwinds_one_layer(main) -> void:
+	_t.begin("smoke > the back button shuts what is open instead of the game")
+	main.freeze(1)
+	var menus = main._menus
+	if menus == null:
+		return
+
+	# A room: back closes it and does not touch anything else.
+	for screen in [Menus.SHED, Menus.MAP, Menus.LOG, Menus.KIT]:
+		menus.open(screen)
+		_t.ok(menus.is_open(), "%s did not open" % screen)
+		_t.ok(main._go_back(), "back was ignored with %s open" % screen)
+		_t.ok(not menus.is_open(), "back did not close %s" % screen)
+
+	# The logbook, which is an object in the boat rather than a menu, and the one
+	# a stray back press was most expensive in.
+	main.freeze(1)
+	main._open_book()
+	_t.ok(main._reading, "the logbook did not open")
+	_t.ok(main._go_back(), "back was ignored with the logbook open")
+	_t.ok(not main._reading, "back did not shut the logbook")
+
+	# A cinematic gets the same courtesy a touch gets.
+	main.freeze(1)
+	main._open_book()
+	main._in_sequence = true
+	main._seq.running = true
+	_t.ok(main._go_back(), "back was ignored during a cinematic")
+	main._in_sequence = false
+	main._seq.running = false
+
+	# And it is one layer per press, never a cascade: with the shed open on top of
+	# nothing, one press leaves the player on the seat and still in the game.
+	main.freeze(1)
+	menus.open(Menus.SHED)
+	main._go_back()
+	_t.ok(not menus.is_open(), "back did not close the shed")
+	_t.ok(not main._reading, "back closed the shed AND something else")
+	_t.ok(main.sim != null, "back tore the game down instead of a screen")
 
 
 ## Buying goes through the same `econ` the tests use, so this checks the WIRING:

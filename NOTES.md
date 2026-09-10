@@ -28,8 +28,10 @@ passing: the answer is not "they score less", it is "they cannot continue".
 - The fresh template copy passed its own gate before a line of game code — 28 tests, 4,410
   assertions — so nothing that fails from here is inherited.
 - Cast → hook → reel → land, end to end, through the real scene and the real input seam.
-- 66 tests, 5,137 assertions, about a second, no display. Plus 56 smoke assertions that boot
-  the actual scene and catch a whole fish through it.
+- 96 tests, 10,804 assertions, under five seconds, no display. Plus 327 smoke assertions that
+  boot the actual scene and catch a whole fish through it. (This line said 66/5,137 for a
+  while after it stopped being true — a count in prose is stale the moment a test is added,
+  so read it as an order of magnitude and run `scripts\check.ps1` for the number.)
 - A whole-run golden over seven scripted sessions, which has earned its place twice: the first
   recording exposed stale fish state leaking through a cast made straight out of a loss, and a
   later one showed a bot that was never tapping at all.
@@ -307,25 +309,21 @@ Two tools came out of that, both worth keeping:
   Godot renamed the second on `add_child`, and `SHOT_HIDE=Gunwale` then hid one rail, printed
   success, and sent a whole pass looking at the wrong side of the boat.
 
-## Open, in rough priority order
+## Open
 
-1. **Does the fight feel good on the phone?** Specifically: does the needle's overshoot read as
-   weight or as lag, is the tap rate comfortable rather than frantic, and is a run obvious
-   without being captioned. "It looks fine" will not cover any of those.
-2. **The tackle box as a Room3D.** `assets/props/metal_toolbox/` is already downloaded. The lid
-   opens, the inside of the lid is the printed surface, and the gear sits in the trays as
-   objects. Same pattern as the logbook, which is the proof it works.
-3. **The shed as a place, not a room.** It should be a building beyond the gate, built from the
-   stone and timber that already exist, and "Shed" should be a camera sequence that lifts off the
-   water and drops into the doorway - not a panel and not a Room3D.
-4. **Real page turns.** The logbook paginates and a tap turns it, but the page swaps rather than
-   turning. A single rotating quad with the next page printed on its back would do it.
-5. DESIGN 11.4 the radio, 11.6 first-run polish (orientation lock, pause, app icon, audio on
-   first touch), 11.7 the ending and NG+.
-6. **A short remnant of the sheer hairline survives** on the near port rail where the sun is low
-   and the geometry is closest to the camera. The mechanism is understood (see above); the fix
-   is a lip whose upstand and a rail whose depth are one number in two places, and the remnant is
-   the case where perspective makes the sliver subtend more than a pixel.
+**The list moved to `PLAN.md` section 12**, which is now the milestone checklist the
+framework's skills read when they resume this game. It was kept here as well and the two
+drifted, which is the whole argument for one of them: `PLAN.md` §12 was still calling the
+logbook "next" months after it shipped. What stays here is only what a milestone cannot
+carry — the reasoning behind a fix, and the numbers.
+
+The first unticked boxes are the tackle box as a Room3D, the shed as a place rather than a
+room, and real page turns. The one that is not a milestone and matters most is whether the
+fight feels good **on the phone**: `/playtest phone` answers it and "it looks fine" does not.
+
+The sheer-hairline remnant on the near port rail is understood rather than fixed — see the
+diagnosis above. The fix is a lip whose upstand and a rail whose depth are one number in two
+places; the remnant is the case where perspective makes the sliver subtend more than a pixel.
 
 ## Invariants specific to this game
 

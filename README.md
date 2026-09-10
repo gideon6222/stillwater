@@ -8,19 +8,21 @@ Built on the phone-game stack: a pure simulation core with no renderer in it, he
 tests, a whole-run golden, an APK size guard, CI, a build stamp and a changelog.
 
 ```powershell
-$godot = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe"
+scripts\check.ps1                     # the gate: import, tests, smoke, size. ~15 s
+scripts\check.ps1 -Export             # ...and build the APK, then check its size
 
-& $godot --headless --path . --import                                 # after adding files
-& $godot --headless --path . --script res://test/run_tests.gd         # pure tests
-& $godot --headless --path . --script res://test/run_smoke.gd         # boots the real scene
+scripts\movie.ps1 -Seconds 10 -Name idle    # film a run into a contact sheet
+scripts\device.ps1 install ; scripts\device.ps1 launch   # onto the phone over adb
+
+$godot = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe"
 & $godot --headless --path . --script res://test/run_probe.gd         # balance readings
-& $godot --headless --path . --export-debug "Android" build/stillwater.apk
-& $godot --headless --path . --script res://scripts/check_size.gd     # size guard
+& $godot --headless --path . --script res://scripts/balance.gd        # the difficulty table
 & $godot --path .                                                     # open the editor
 ```
 
 Every one exits non-zero on failure, which is what makes them a gate rather than something
 to read.
 
+`PLAN.md` is what the game is meant to be, and its section 12 is the milestone list.
 `CLAUDE.md` has the toolchain paths and the invariants — read it before writing game code.
-`NOTES.md` has what is proven, what is not, and what to do next.
+`NOTES.md` has what is proven, what is not, and why each decision went the way it did.

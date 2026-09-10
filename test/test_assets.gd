@@ -46,6 +46,41 @@ func test_every_imported_texture_is_sized_for_a_phone(t: TestHarness) -> void:
 		"not VRAM compressed: %s" % ", ".join(loose))
 
 
+## THE VERSION IS WRITTEN IN TWO PLACES AND THEY MUST AGREE.
+##
+## `Changelog.VERSION` is what the game shows the player; `version/name` in
+## export_presets.cfg is what Android records for the APK it installs. Nothing
+## derives one from the other - Godot will not read a constant out of a script
+## when it exports - so the only thing keeping them in step is this assertion.
+##
+## They had already drifted once, silently, and the shape of that failure is the
+## reason it is worth a test: the game says 0.5.2 on its own title screen while
+## the phone's app info says 0.5.1, so "did my build land" gets two different
+## answers depending on where you look, which is exactly the question the build
+## stamp and the changelog exist to answer.
+##
+## Both presets are checked, because the debug APK and the Play AAB each carry
+## their own copy and only one of them is ever in front of you.
+func test_the_version_agrees_everywhere_it_is_written(t: TestHarness) -> void:
+	var text := FileAccess.get_file_as_string("res://export_presets.cfg")
+	t.ok(text != "", "export_presets.cfg could not be read")
+	var found: Array[String] = []
+	for line in text.split("\n"):
+		var s := line.strip_edges()
+		if s.begins_with("version/name="):
+			found.append(s.trim_prefix("version/name=").replace("\"", ""))
+	t.gt(float(found.size()), 1.0,
+		"expected a version/name in each preset, found %d" % found.size())
+	for v in found:
+		t.eq(v, Changelog.VERSION,
+			"export_presets.cfg says %s but Changelog.VERSION says %s" % [v, Changelog.VERSION])
+	# And the newest release in the changelog is the version being shipped, since
+	# a bumped constant with no entry under it is a build the player cannot read.
+	t.gt(float(Changelog.RELEASES.size()), 0.0, "the changelog is empty")
+	t.eq(String(Changelog.RELEASES[0]["version"]), Changelog.VERSION,
+		"the newest changelog entry is not the version being built")
+
+
 func _import_files(dir: String) -> Array[String]:
 	var out: Array[String] = []
 	var d := DirAccess.open(dir)

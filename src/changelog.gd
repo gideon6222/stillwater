@@ -12,9 +12,20 @@ extends RefCounted
 ## refactored; one line each; newest first. Add this from day one. On an
 ## earlier game it arrived far too late to be as useful as it should have been.
 
-const VERSION := "0.5.1"
+const VERSION := "0.5.2"
 
 const RELEASES := [
+	{
+		"version": "0.5.2",
+		"date": "2026-09-09",
+		"title": "The back button shuts what is open",
+		"notes": [
+			"THE BACK BUTTON no longer throws the morning away.",
+			"It shuts the logbook, or the shed, or whatever you have open - one at a time.",
+			"It skips the walk down to the boat, the same as a touch does.",
+			"From the seat with nothing open it still saves and leaves.",
+		],
+	},
 	{
 		"version": "0.5.1",
 		"date": "2026-09-09",
