@@ -1404,10 +1404,52 @@ func _check_the_logbook_is_a_real_object(main) -> void:
 	_t.ok(main._book.is_open(), "the logbook never finished opening")
 	_t.gt(float(main._book_pages), 1.0, "the whole book fits on one page")
 
+	# IT IS IN THE HANDS, not on the floor with the camera bent over it.
+	#
+	# The distinction is invisible to every other assertion here - the book opens,
+	# paginates and hit-tests identically either way - so without this the whole
+	# feature could be reverted and the suite would stay green.
+	var cam: Transform3D = main._cam.transform
+	var held: Vector3 = (main._boat_pose * main._book.transform).origin
+	var in_cam: Vector3 = cam.affine_inverse() * held
+	_t.gt(-in_cam.z, 0.20, "the open logbook is not in front of the reader")
+	_t.lt(-in_cam.z, 1.10,
+		"the open logbook is %.2f m away - it is being looked AT rather than held" % -in_cam.z)
+	_in_frame(main, held, "the held logbook")
+
+	# And the camera did not go anywhere to read it. That is the half that makes
+	# it reading-in-the-boat rather than a menu: the lake stays over the top of
+	# the page, and the player's head is still their own.
+	_t.approx(cam.origin.distance_to(Sequence.SEAT), 0.0, 0.25,
+		"the camera left the seat to read the book - it should have been picked up instead")
+
 	var was: int = main._book.page
 	main._book.page += 1
 	main._refresh_book()
 	_t.eq(main._book.page, was + 1, "the page did not turn")
+
+	# SWIPED, in both directions, and the direction matters. Right-to-left goes
+	# ON - the way the paper moves under the thumb - and getting that backwards
+	# is the commonest way this gesture is built wrong, so it is asserted rather
+	# than assumed. A press that does not travel must stay a tap.
+	main._book.page = 1
+	main._refresh_book()
+	var start: int = main._book.page
+	main._page_from = Vector2(700, 1200)
+	main._release_page(Vector2(700 - main.PAGE_SWIPE - 20.0, 1210))
+	_t.eq(main._book.page, start + 1, "swiping right-to-left did not go on a page")
+
+	main._page_from = Vector2(300, 1200)
+	main._release_page(Vector2(300 + main.PAGE_SWIPE + 20.0, 1190))
+	_t.eq(main._book.page, start, "swiping left-to-right did not go back a page")
+
+	# A short press is a tap, not a swipe - otherwise a thumb that drifts four
+	# pixels while tapping turns a page nobody asked for.
+	var held_page: int = main._book.page
+	main._page_from = Vector2(500, 1200)
+	main._release_page(Vector2(508, 1204))
+	_t.eq(main._book.page, held_page,
+		"an eight pixel drift turned a page - the swipe threshold is not being applied")
 
 	# A ray that misses the page must report a miss - which is what makes
 	# tapping off the book a way out. Asserted on `hit_page` directly, because

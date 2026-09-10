@@ -1952,8 +1952,14 @@ func _on_cast_input(event: InputEvent) -> void:
 	else:
 		return
 
-	if pressed and _reading and not _in_sequence:
-		_tap_page(at)
+	# READING: a press starts a gesture, a release decides what it was. Swiping is
+	# how a page turns now - see `_release_page`.
+	if _reading and not _in_sequence:
+		if pressed:
+			_page_from = at
+			_page_swiped = false
+		else:
+			_release_page(at)
 		_cast_area.accept_event()
 		return
 
@@ -2255,19 +2261,14 @@ func _sync() -> void:
 	# the sky and the hour are already right because they are the same water,
 	# sky and hour. It also means the hand-over at the end is invisible: the last
 	# shot rests exactly on the seat the player is about to be given.
-	if _reading and not _in_sequence and _book != null:
-		# HELD OVER THE PAGE. The move that brings the camera down is a sequence,
-		# and a sequence ends - so without this the camera snapped back to the
-		# seat the instant it arrived, and the book was open somewhere behind the
-		# player. Recomputed every frame so the page rides the swell with
-		# everything else rather than floating still above a moving boat.
-		var pose := _book_pose()
-		# The PAGE's up - see `Room3D.frame_pose`. It rides the swell with the
-		# boat because the page does, and it keeps the text level in the frame
-		# even though the book is lying at an angle in the hull.
-		var up: Vector3 = pose[2] if pose.size() > 2 else _boat_pose.basis.y
-		_cam.transform = Transform3D(Basis.IDENTITY, pose[0]).looking_at(pose[1], up)
-	elif _in_sequence:
+	#
+	# THERE IS NO LONGER A READING CAMERA. It used to be the first branch here,
+	# recomputing `_book_pose()` every frame to hold the eye over the page. Now
+	# that the book is picked up instead, that branch became a feedback loop -
+	# the book hangs off the camera and the camera hung off the book, so the two
+	# chased each other; measured, they were sixteen metres away at the gate
+	# within two hundred frames. The camera stays on the seat. The book moves.
+	if _in_sequence:
 		# The camera goes on rails and NOTHING ELSE IS SKIPPED. An early return
 		# here meant the rest of `_sync` never ran during a sequence - so the
 		# HUD, which stands down on exactly that condition, was never told to.
@@ -2751,6 +2752,7 @@ func _sync_mood(dt: float) -> void:
 	_sync_gate()
 	if _book != null:
 		_book.advance(dt)
+		_sync_book_hold(dt)
 	_sync_grade(k)
 
 	if _water_mat != null:
@@ -4183,6 +4185,16 @@ var _book: Room3D
 var _book_page: VBoxContainer
 var _book_pages := 1
 var _reading := false
+## THE BOOK IS PICKED UP, so it needs a resting place to be picked up FROM and a
+## pose to be held in. See `_sync_book_hold`.
+var _book_rest := Transform3D.IDENTITY
+var _book_hold := 0.0        ## 0 on the sole, 1 in the hands
+var _book_hold_want := 0.0
+var _book_rel := Transform3D.IDENTITY
+## The swipe that turns a page, and the little kick the paper gives afterwards.
+var _page_from := Vector2.ZERO
+var _page_swiped := false
+var _page_turn := 0.0
 var _gate_left: Node3D
 var _gate_right: Node3D
 var _gate_open := 0.0
@@ -4863,6 +4875,7 @@ func _build_book() -> void:
 	# frame is portrait, so the visible width at distance d is only about 0.51*d
 	# - at 40 cm that is 20 cm and two thirds of the book is off screen, which is
 	# exactly how the first pass came out. 80 cm fits it with room to spare.
+	_book_rest = _book.transform
 	_book.read_from = Vector3(0.02, 0.72, -0.36)
 	_book.read_at = Vector3(0.026, 0.02, 0.02)
 
@@ -4918,6 +4931,47 @@ func _refresh_book() -> void:
 		PAGE_INK, PAGE_INK_DIM, PAGE_RULE)
 
 
+## THE BOOK IS PICKED UP AND HELD, rather than the camera diving onto the floor.
+##
+## Gideon: "When you look at the log book and hit the interact button, can you make
+## it so that you actually pick up and view the log book."
+##
+## The difference is not cosmetic. Flying the camera down to a book on the sole
+## says "this is a menu, rendered in the world"; the hands lifting it says "you are
+## a person in a boat holding your own book". It is also the gesture the game ENDS
+## on - in Act III the logbook is the last offering - and handing over a thing you
+## have never held costs nothing.
+##
+## Mechanically it is the same move inverted. `_book_rel` is the camera-to-book
+## transform the old reading pose produced, so hanging the book off the live camera
+## by that transform frames it identically while leaving the player's head free:
+## the lake stays visible over the top of the page, which is the whole point of
+## reading in the boat rather than in a screen.
+const BOOK_HOLD_RATE := 3.4    ## how fast it comes up. About 0.3 s, hand speed
+## Where it sits in the hands, in CAMERA space: a little below the view axis so
+## the lake stays visible over the top of it. 0.92 m rather than a real reading
+## distance of 0.45 because the spread is 36 cm wide and the frame is portrait -
+## the horizontal half-angle here is only 14 degrees, so a book any closer runs
+## off both sides. That is a phone constraint, not an anatomy one.
+const BOOK_HELD_AT := Vector3(0.02, -0.10, -0.92)
+
+
+func _sync_book_hold(dt: float) -> void:
+	if _book == null:
+		return
+	if is_equal_approx(_book_hold, _book_hold_want) and _book_hold <= 0.0:
+		return
+	_book_hold = move_toward(_book_hold, _book_hold_want, BOOK_HOLD_RATE * dt)
+	# Eased, so it lifts away and settles rather than sliding at one speed.
+	var k := _book_hold * _book_hold * (3.0 - 2.0 * _book_hold)
+	var held_local := _boat_pose.affine_inverse() * (_cam.transform * _book_rel)
+	_book.transform = _book_rest.interpolate_with(held_local, k)
+	if _book_hold <= 0.0 and not _reading:
+		# Back on the sole before it shuts, so it is never seen closing in mid air.
+		_book.transform = _book_rest
+		_book.close()
+
+
 ## Open the book: the object opens and the camera comes down to read it.
 func _open_book() -> void:
 	if _book == null or _reading:
@@ -4926,12 +4980,27 @@ func _open_book() -> void:
 	_book.page = 0
 	_refresh_book()
 	_book.open()
+	# THE RELATIVE POSE THAT ALREADY FRAMES IT, reused rather than re-derived.
+	#
+	# `frame_pose` computes where a camera must STAND to fit the whole spread at
+	# this aspect - it is measured off the open mesh's own bounds and it is
+	# already correct. So instead of moving the camera there, take the
+	# camera-to-book relationship it implies and hang the book off the live
+	# camera by it. The book arrives at exactly the size and angle the old dive
+	# framed it at, and it cannot drift out of frame, because the framing is the
+	# same arithmetic that used to place the camera.
 	var pose := _book_pose()
-	_play_sequence([
-		{"at": _cam.transform.origin, "look": _cam.transform.origin - _cam.transform.basis.z * 3.0,
-			"for": 0.55, "gate": _gate_open, "ease": "inout"},
-		{"at": pose[0], "look": pose[1], "for": 0.4, "gate": _gate_open, "ease": "out"},
-	])
+	var read_cam := Transform3D(Basis.IDENTITY, pose[0]).looking_at(pose[1], Vector3.UP)
+	_book_rel = read_cam.affine_inverse() * (_boat_pose * _book_rest)
+	# ...but only its ORIENTATION. `frame_pose` measures the open mesh's bounds,
+	# and it is called here while the lid is still animating, so the distance it
+	# implies depends on WHEN it was asked - measured, the same call gave 0.73 m
+	# from a fresh boot and 1.29 m after the book had been opened a few times.
+	# A held book is at a fixed, comfortable distance by definition, so the
+	# distance is stated rather than derived, and only the angle that faces it at
+	# the reader is kept.
+	_book_rel = Transform3D(_book_rel.basis, BOOK_HELD_AT)
+	_book_hold_want = 1.0
 	if _audio != null:
 		_audio.play("page", -3.0)
 
@@ -4940,14 +5009,59 @@ func _shut_book() -> void:
 	if _book == null or not _reading:
 		return
 	_reading = false
-	_book.close()
-	_play_sequence([
-		{"at": _cam.transform.origin, "look": _cam.transform.origin - _cam.transform.basis.z * 3.0,
-			"for": 0.45, "gate": _gate_open, "ease": "inout"},
-		{"at": Sequence.SEAT, "look": Sequence.SEAT_LOOK, "for": 0.4, "gate": _gate_open, "ease": "out"},
-	])
+	_book_hold_want = 0.0
+	# The lid shuts only once the book is back down, so it is not seen closing in
+	# mid air. `_sync_book_hold` calls `close()` when the hold reaches zero.
 	if _audio != null:
 		_audio.play("page", -6.0)
+
+
+## PAGES ARE SWIPED, and this is the one place a drag survives in the game.
+##
+## Gideon: "you physically swipe the pages to read through it, rather than a
+## scroll page." He asked for the swipe and the removal of drag-to-look in the same
+## message, which sounds contradictory and is not: a drag means "turn the view"
+## nowhere and "turn the page" here, so the gesture has exactly one meaning in
+## each context and never two at once. That is only possible BECAUSE the stick
+## took over looking.
+##
+## Right-to-left goes on, left-to-right goes back - the direction the paper
+## physically moves under the thumb, not the direction of travel through the book.
+## Getting that backwards is the single most common way this gesture is got wrong.
+##
+## A press that never travels is still a tap, and a tap off the page still shuts
+## the book, because that is what a reader expects from a thing they picked up.
+const PAGE_SWIPE := 46.0   ## px of travel before a press becomes a swipe
+
+
+func _release_page(at: Vector2) -> void:
+	if _book == null:
+		return
+	var moved := at - _page_from
+	if absf(moved.x) >= PAGE_SWIPE and absf(moved.x) > absf(moved.y):
+		if moved.x < 0.0:
+			_turn_page(1)
+		else:
+			_turn_page(-1)
+		return
+	# Not a swipe. Treat it as the tap it was, at the point it started - using
+	# the release point would mis-place a tap that drifted a few pixels.
+	_tap_page(_page_from)
+
+
+## One page, in either direction, with the sound and the shut at the end.
+func _turn_page(by: int) -> void:
+	var want := _book.page + by
+	if want < 0:
+		return
+	if want >= _book_pages:
+		_shut_book()
+		return
+	_book.page = want
+	_refresh_book()
+	_page_turn = 1.0 * signf(float(by))
+	if _audio != null:
+		_audio.play("page", -5.0)
 
 
 ## A tap while reading: the left third goes back, the right two thirds go on,
