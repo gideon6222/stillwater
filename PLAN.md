@@ -135,6 +135,56 @@ reach cannot be travelled to at all.
 Five hours (dawn → night), five weathers. Sleeping advances the hour; a new dawn
 advances the day. **Time is the tension resource** — no fuel, no stamina.
 
+### 5.1 The lake has to be a PLACE, not a spot with six numbers
+
+Gideon: *"I don't want the whole game to take place in that one boat and in that
+one spot."*
+
+This is the largest structural note the game has had, and the care needed is that
+**pillar 3 says it stays the same lake.** Those are not in conflict, and reading
+them as if they were would break the game: he is not asking for a second location.
+He is asking for the one location to have SIZE. Six spots currently differ by the
+number on the depth readout, the palette, and which fish bite — everything the eye
+uses to tell one place from another is identical.
+
+Three answers, cheapest first, and the ordering is deliberate because the first is
+most of the effect for almost none of the work.
+
+**One unique landmark per spot, visible from the seat, never repeated.** Not
+terrain — a silhouette. A single dead oak still standing in four metres of water;
+the collapsed jetty; the road's guard rail running out of the water and back into
+it; the steeple; the quarry's cut face; nothing at all at the Spring, which is
+what makes the Spring the Spring. This is what a player will actually use to know
+where they are, and it is one mesh each.
+
+**The bank becomes somewhere you stand.** The gate, the wall and the shed already
+exist in the fiction and the player already walks through them once, on the way in
+(11.0). Turning that walk into a place you can stop in costs one camera mode and
+no new fiction: the jetty to cast from, the shed to go inside, the bank to walk
+along. **The first minute of the game already proves the machinery works** — the
+gate sequence is a list of shots over the real scene, and standing still is a shot
+that does not end.
+
+**Two spots let you off the boat, and the second one is the image the act turns
+on.** Reed Bay has the keeper's jetty. And at Old Town, at low water, **the
+steeple's roof breaks the surface** — you can tie up to it and stand on a rooftop
+in the middle of a lake, forty metres above a street. Nothing needs to be said
+about that, which is exactly how this game says everything.
+
+**And the same spot at a different hour or weather is content.** It is already
+free — the mood arc runs on depth and the sky runs on the clock — and it is
+currently spent only on atmosphere. A storm at the Drowned Road, or the Reeds at
+night, should be a reason to go rather than a thing that happens to you.
+
+| Spot | Landmark | Off the boat? |
+|---|---|---|
+| Reed Bay | the keeper's jetty and the gate above it | **yes** — the bank, the shed |
+| The Narrows | a dead oak, still standing, in four metres | no |
+| The Drowned Road | a guard rail entering and leaving the water | no |
+| The Steeple | the steeple, and at low water its roof | **yes** — the roof |
+| The Quarry Wall | the cut face, too regular to be a cliff | no |
+| The Spring | nothing. Open water in every direction | no |
+
 ---
 
 ## 6. Progression and economy
@@ -191,7 +241,130 @@ second progression. Read in book order that is most-recent first, working back
 toward the keeper who was here before the water was. Each hand fades with its
 age. **DONE.**
 
-**The blank page ending.** The Old Fish is at the Spring, which has no date. OPEN.
+### 7.1 The three acts, and what turns each one
+
+The story had a table of objects and an ending marked OPEN. That is a list of
+beats, not a shape — nothing said when a player moves from one feeling to the
+next, or what does it. Here is the shape. **Every turn below is a thing the player
+DOES, never a thing they are told**, because the second pillar forbids the other
+kind.
+
+**Act I — a good morning's fishing.** The reeds, the Channel. It is pretty, the
+fish are generous, the radio gives the weather. The junk is junk: a bike frame, a
+kettle, a boot. One thing is faintly off and nothing draws attention to it — the
+phone that still charges has photographs of this lake on it, taken from an angle
+you cannot stand in, because the place it was taken from is underwater.
+
+*The turn:* **the licence plate, and the county that does not exist.** It is the
+first object whose date and whose place cannot both be true. Most players will
+shrug. It is meant to be shrugged at; it is the one they remember later.
+
+**Act II — the town.** The Drowned Road and Old Town. The bells stop. The junk
+stops being junk and starts being belongings: a suitcase packed by somebody who
+expected to arrive, a mailbox with a compensation notice and the date everyone had
+to be out by. The sounder — bought for fishing — is drawing rooftops.
+
+*The turn:* **the school desk with a name cut into it, and the name is the one
+written in your logbook.** This is the moment the game has been building to, and
+it costs nothing but the player's own attention: they have been writing in that
+book for hours.
+
+**Act III — the keepers.** The Quarry and below. Every fish is wrong in a way that
+is the same wrongness — same generator, worse numbers. The rope has no other end.
+The ledger has five hands in it and you have been reading four of them since Act I
+without noticing they were a list of people who did this job before you.
+
+*The turn:* **you find the offering that opens the bottom, and it is personal.** Up
+to here, an offering has been an object you chose not to sell. The last one is not
+found — it is the thing you have been carrying: the logbook itself, with your
+entries in it, which is what the previous four keepers each did in their turn.
+That is why there are five hands, why each fades with age, and why the ledger's
+wages run out.
+
+### 7.2 The ending, which was OPEN
+
+**The Old Fish at the Spring, and the blank page.** The Spring has no date because
+it predates the town, the quarry and the water. Reaching it needs the last
+offering, so the ending cannot be stumbled into — it is bought with the book.
+
+What happens is deliberately small. The fight is the game's normal fight, at the
+game's hardest numbers, with **no music at all** — the absence the score has been
+building toward since the bells went. Land it and the logbook opens to the next
+blank page, in a fifth hand that is not yours, dated after today.
+
+**NG+ is the same lake, and you are the hand before last.** The book now opens
+with your entries in it, one hand older and faded one step, and the keeper writing
+now is somebody else. Nothing else changes, which is the point: the horror was
+never that the lake was strange, it is that the job is a rota.
+
+*Why this and not a revelation:* a game that has refused to explain itself for six
+hours cannot end by explaining itself. The blank page is the only ending that
+keeps the promise.
+
+### 7.3 Progression, and how far it is really fleshed out
+
+The ladders in §6 are sound and stay. What was missing is what each ACT feels like
+to progress through, and the honest answer was that Acts II and III have the same
+texture as Act I with bigger numbers.
+
+- **Act I progresses on money.** Buy line, reach deeper, catch better fish, sell
+  them. Familiar, and it should be.
+- **Act II progresses on money and stops.** 40 m is the wall. The wallet keeps
+  filling and buys nothing, which the player feels before they understand it.
+- **Act III progresses on objects.** Money is now worthless and offerings are the
+  currency, and offerings are finite. The economy inverts, and **the player who
+  sold everything interesting in Act I has to go back and fish shallow water for
+  things they threw away.** That is the design paying for itself: the pillar said
+  money cannot buy the bottom, and this is what that costs.
+
+**The one number.** Line length gates depth, depth gates era, era gates the story,
+and the deepest cast ever made gates the logbook. Nothing is unlocked by a
+separate counter, and nothing should be.
+
+---
+
+## 7.5 Making it more fun to actually play
+
+Gideon: *"Look into ways to make the fishing game more fun and interactive."*
+Researched against what shipped fishing games do, and filtered hard — most of what
+the genre uses on mobile is live-service scaffolding this game has no use for.
+
+**Taken, in the order they are worth building:**
+
+- **The livewell becomes a space, not a number.** It is a weight cap today, which
+  is a number that says no. Dredge's hold is a grid you pack, and it turns every
+  catch into a decision — keep the good one and throw back two, or carry junk you
+  suspect is an offering. This game already has the perfect tension for it,
+  because **objects and fish compete for the same room**, and in Act III the
+  objects are the currency. One mechanic, and it sharpens the economy inversion
+  above rather than sitting beside it.
+- **A second beat after the fight.** Ridiculous Fishing's lesson is that the catch
+  should not end on the instant the rules resolve. Here the beat already exists in
+  the fiction and is skipped in the code: **the fish comes over the gunwale and
+  you decide.** Give it a moment, a weight in the hands, and the choice — keep, or
+  put it back. Landing should feel like arriving, not like a state change.
+- **Bait that visibly matters.** The bait table exists and does almost nothing the
+  player can see. Make the choice read at the moment it pays: the right bait for
+  the water gets more teases and a longer take, which is a change to the minigame
+  the player is already watching rather than a hidden multiplier.
+- **Daylight as the pressure, sharpened.** Time is already the resource. What is
+  missing is the squeeze: the good fish are at dawn and dusk, the lamp only buys
+  a little, and running out of light should feel like running out of light rather
+  than like a number rolling over.
+- **The wrongness of an object relative to its depth.** In Act III, objects begin
+  surfacing from the wrong era for the water they came out of. The logbook records
+  depth and date, so **the player's own records are what contradict each other** —
+  the game never says a word. This is the one idea here that no other fishing game
+  is doing, and it exists because "depth is time" is this game's alone.
+
+**Rejected, and why, so they do not come back:**
+
+- *Tackle as collectible cards, gacha, weekly legendary fish.* Live-service pacing
+  for a game with no live service. It would add a second progression ladder, which
+  pillar 1 forbids.
+- *Full rod/line physics.* The rules are arithmetic. A physics body would be a
+  second model of the same world — see the note in `_draw_line_between`.
+- *A hunger/stamina bar.* Time is already the resource and two is one too many.
 
 ---
 
@@ -232,6 +405,47 @@ Style matters more than licence: Kenney, Quaternius and KayKit are CC0 and
 excellent, and all stylised low-poly — any of them beside a photographic HDRI
 and PBR timber reads as a different game leaking in.
 
+### 8.1 The art pass, as a list of things to fetch
+
+Gideon: *"Update all of the models, textures, sounds, graphics in general."* The
+first across-the-board art note the game has had. Scouted; everything below is
+CC0 or MIT unless marked, and everything below stays inside the photoreal family
+the existing Poly Haven props and HDRIs already set.
+
+**The single biggest change is the water.** It is a shaded plane with a specular
+path on it, and it is most of what the eye reads as "this looks unfinished",
+because it is half the screen at all times.
+
+| What | Source | Licence | Why |
+|---|---|---|---|
+| **Water shader** — Gerstner ripple, foam round the hull, shore foam | `Chrisknyfe/boujie_water_shader` | MIT | Half the screen. Drive its colour and foam from `dread`, so it is the same one number as the fog and the palette, never a second state |
+| Overcast sky | Poly Haven `overcast_soil_puresky` | CC0 | The one hour the six existing HDRIs do not cover, and the right sky for the middle bands |
+| Weathered planking | ambientCG `WoodSiding008` | CC0 | Reads as a boat that has sat wet for years rather than a lumberyard board |
+| Rope | ambientCG `Rope001` | CC0 | The painter line, and the rope that has no other end |
+| Jetty | Poly Haven `modular_wooden_pier` | CC0 | Reed Bay's landmark, and the thing you stand on |
+| Roof tiles | ambientCG `RoofingTiles014B` | CC0 | The steeple's roof, at the moment you stand on it |
+| Wet asphalt | ambientCG `Asphalt025C` | CC0 | The Drowned Road, which should read as a road |
+| Quarry rock | ambientCG `Rock058` | CC0 | The cut face |
+| Brick | ambientCG `Bricks089` | CC0 | The shed, and the town |
+| Torn net | ambientCG `Net002B` | CC0 | Deep-water dressing. The intact variant nearer the surface |
+| **Five handwriting faces** | Google Fonts `Caveat`, `Kalam`, `Dancing Script`, `IM Fell English`, `Homemade Apple` | OFL / Apache | The five keepers differ by WEIGHT AND COLOUR today, which is not five hands. Five real faces is about 20 KB each and is the cheapest large improvement in the game |
+| UI face | Google Fonts `Manrope` | OFL | So UI chrome can never be mistaken for the logbook |
+| UI kit, icons | Kenney `ui-pack`, Lucide | CC0 / ISC | Recolour the one atlas to the game's palette rather than tinting per button |
+| Oars | Freesound `585312` | CC0 | Real oarlock creak. The travel-between-spots sound, which does not exist |
+| Dawn birds | Freesound `852696` | CC0 | Lakeside, not generic woodland. Fades out entirely by mid-depth, beside the bells |
+
+**What is deliberately NOT being imported, and this is a decision, not a gap:**
+the hull, rod, float, fish and reeds stay generated. Their shape IS game state —
+the rod's bend is the tension gauge, the float's dip is the whole nibble minigame
+— and every candidate mesh found was either the wrong style family or would delete
+the mechanism. The nineteen generated sounds also stay: they crossfade on `dread`,
+and static loops would reintroduce a second thing that has to agree with the score.
+
+**Misses worth knowing:** there is no CC0 photoreal rowboat, no freshwater fish, no
+reeds, no stone wall, gate, church or steeple anywhere. Those are generated
+geometry skinned with the textures above — which is what the existing hull already
+does, so this is the established pattern rather than a compromise.
+
 ---
 
 ## 9. Audio
@@ -242,6 +456,39 @@ Four music beds run **continuously** from the first second to the last; only
 their levels change, on the same `dread` = depth the picture uses. The bells are
 most of the first hour and gone by Old Town, and nothing replaces them — **an
 absence is the loudest thing you can put in a score.**
+
+---
+
+## 9.5 The seams, which are where it currently stops being a place
+
+Gideon: *"make sure each part moves smoothly into the next."*
+
+Read as a note about SEAMS it is precise and actionable. The game has one
+beautiful transition — the walk down through the gate — and everywhere else a
+screen replaces another screen instantly. The gate proves the machinery: a
+sequence is a list of shots over the real scene, so the world never has to be
+kept in step with itself and the hand-back is invisible.
+
+Every seam below is currently a cut, and every one of them already has the tool
+to be a move.
+
+| Seam | Now | Should be |
+|---|---|---|
+| Travel between spots | the map closes, you are elsewhere | you row. Oars, the bank sliding past, the landmark you are leaving and the one you are arriving at |
+| Sleeping | the hour changes | the light goes, the boat is tied up, dawn |
+| Opening the shed | a panel | the walk up the jetty and in through the door (11.9c) |
+| Landing a fish | a state change | over the gunwale, weight in the hands, then the decision (7.5) |
+| Buying line | a list row | spooled onto the reel, which is the one purchase that changes the story |
+| Going to the title | a fade | there should be no title after the first launch. Continue IS the walk down |
+
+**The rule this comes down to:** a cut is acceptable when the player asked to be
+somewhere else immediately, and never when the game is moving them. Rowing is the
+game moving you and it is currently a menu closing.
+
+**And a seam has a cost.** The gate sequence is under five seconds because it
+plays every session, and any touch cuts it. Every transition above inherits both
+rules — a beautiful thing you cannot skip is the worst thing in the game by the
+fifth time.
 
 ---
 
@@ -538,15 +785,73 @@ only here. A resuming session works from the first unticked box.
 - [x] **11.3 The keeper's logbook.** Entries in five hands, unlocked by depth
 - [x] **11.5 Wrong fish.** The same generator with worse numbers, and they look it
 - [x] **11.9 Rooms as objects in the world** — the logbook, as a real notebook in the boat
-- [ ] **11.9b The tackle box as a Room3D.** `assets/props/metal_toolbox/` is already down; the lid opens and the gear sits in the trays. Same pattern as the book, which is the proof it works
-- [ ] **11.9c The shed as a place, not a room.** A building beyond the gate, built from the stone and timber that exist; "Shed" becomes a camera sequence, not a panel
-- [ ] **11.9d Real page turns.** The book paginates and a tap turns it, but the page swaps rather than turning. One rotating quad with the next page on its back
-- [ ] **11.4 The radio.** The one speaking character. Weather reports that stop being weather reports
-- [ ] **11.6 First-run polish.** Orientation lock, pause, app icon, audio on first touch
-- [ ] **11.7 The ending, and NG+.** The lake remembers
 
-### Open questions that are not milestones
+---
 
-- [ ] **Does the fight feel good on the phone?** Does the needle's overshoot read as weight or as lag, is the tap rate comfortable rather than frantic, is a run obvious without a caption. `/playtest phone` answers this; "it looks fine" does not
-- [ ] **The lamp doing something.** Fishing after dark is currently identical to fishing at noon
+## Phase F — feel. *"The movement has felt odd"* (2026-09-10)
+
+- [x] **F1 The hull and the head are two transforms.** Camera pitch 20.0° → 1.1° peak-to-peak, peak rate 41.9 → 3.1 °/s, hull back to rolling further than it pitches. Measured with `scripts/probe_motion.gd`
+- [x] **F2 The rod lags the boat.** Driven by the hull's angular velocity, not its angle
+- [x] **F3 The line is a line under tension.** Ten segments along a sag whose depth is the fight's own tension
+- [x] **F4 The stick has a gradient dead zone and a response curve.** The hard 0.14 cutoff is gone
+- [ ] **F5 The cast is smooth.** The charge, the throw and the settle are three eases that do not share a curve; the release should carry momentum into the flight rather than restarting it
+- [ ] **F6 The fight is smooth.** The needle's overshoot should read as weight rather than lag — this is the one that needs the phone, not the desk
+- [ ] **F7 Judge F1–F6 on the phone.** `/playtest phone`. Nothing in this phase is finished until it has been held
+
+## Phase W — the water and the art pass. *"Update all of the models, textures, sounds, graphics"*
+
+- [ ] **W1 The water shader.** `boujie_water_shader` (MIT), foam round the hull, colour and foam driven from `dread` so it is not a second state. Half the screen at all times; the biggest single change in the game
+- [ ] **W2 The overcast sky**, and the middle bands moved onto it
+- [ ] **W3 The surfaces of the drowned town.** Roof tiles, wet asphalt, quarry rock, brick, torn net — the textures the generated geometry in Phase P will be skinned with
+- [ ] **W4 Five real hands in the logbook.** Five typefaces, not one at five weights. About 20 KB each and the cheapest large improvement available
+- [ ] **W5 UI face, kit and icons**, with the atlas recoloured once to the game's palette
+- [ ] **W6 Oars and dawn birds.** The two sounds that genuinely do not exist. Everything else generated stays generated
+- [ ] **W7 The planking and rope textures** on the hull that already exists
+
+## Phase P — the lake as a place. *"Not that one boat in that one spot"*
+
+- [ ] **P1 One landmark per spot.** Six silhouettes, each visible from the seat and never repeated. Most of the effect for almost none of the work — do this first
+- [ ] **P2 Rowing between spots.** The map stops being a teleport. Oars, the landmark you leave, the one you arrive at, skippable like the gate
+- [ ] **P3 The bank you can stand on.** Reed Bay: the jetty, the wall, the gate, walkable. Subsumes 11.9c, the shed as a place
+- [ ] **P4 The roof of the steeple.** At low water at Old Town, tie up and stand on a rooftop forty metres above a street. The image Act II turns on
+- [ ] **P5 Sleeping, and the light going.** The hour change becomes a transition rather than a number
+- [ ] **P6 The same spot at a different hour is a reason to go**, not just something that happens to you
+
+## Phase G — the game underneath. *"More fun and interactive"*
+
+- [ ] **G1 The livewell becomes a space you pack**, where fish and objects compete for the same room. Sharpens the Act III economy inversion rather than sitting beside it
+- [ ] **G2 A second beat after the fight.** Over the gunwale, weight in the hands, then keep or return
+- [ ] **G3 Bait that visibly matters** — more teases and a longer take, read in the minigame the player is already watching
+- [ ] **G4 Daylight as a squeeze.** The good fish at dawn and dusk; the lamp buys a little; running out of light should feel like it
+- [ ] **G5 Objects from the wrong era for their depth**, in Act III. The player's own logbook is what contradicts itself
+
+## Phase S — the story finished. *"Make the story and progression fleshed out"*
+
+- [ ] **S1 The three act turns land**, each as a thing the player does: the licence plate, the school desk, the logbook as the last offering (§7.1)
+- [ ] **S2 The radio** (11.4). The one speaking character; weather reports that stop being weather reports
+- [ ] **S3 The economy inverts in Act III.** Money worthless, offerings finite, and the player who sold everything in Act I goes back for it
+- [ ] **S4 The ending** (§7.2). The Old Fish, no music at all, the blank page in a hand that is not yours
+- [ ] **S5 NG+.** The same lake, your entries one hand older, somebody else writing now
+
+## Phase T — the seams (§9.5)
+
+- [ ] **T1 Travel, sleep, shed, landing and the line purchase all become moves rather than cuts.** Every one already has the tool: a sequence is a list of shots over the real scene
+- [ ] **T2 No title after the first launch.** Continue IS the walk down
+- [ ] **T3 11.9b The tackle box as a Room3D**, and **11.9d real page turns** — the two remaining room seams
+- [ ] **T4 11.6 First-run polish.** Orientation lock, pause, app icon, audio on first touch
+
+### Open, and not milestones
+
+- [ ] **The lamp doing something.** Fishing after dark is currently identical to fishing at noon. Folded into G4
 - [ ] **The sheer hairline remnant** on the near port rail at a low sun. Mechanism understood (NOTES.md); the fix is one number in two places
+
+### The order, and why
+
+**F, then W1, then P1.** Feel first because he raised it first and because
+everything else is judged through it. Then the water, because it is half the
+screen and the whole game looks unfinished until it is fixed. Then the landmarks,
+because they are one mesh each and they are what makes six spots six places.
+
+After that the phases interleave rather than run in order: P2 rowing wants W6 oars,
+G2 wants T1's landing transition, S1 wants G5's wrong-era objects. The dependencies
+are named in each line so a session can pick up any of them.
