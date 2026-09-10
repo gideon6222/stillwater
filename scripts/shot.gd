@@ -43,7 +43,7 @@ var _until := ""
 var _tag := ""
 
 ## Second-argument values that name a ROOM rather than a fishing state.
-const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", "book"]
+const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", "book", "box"]
 
 
 func _initialize() -> void:
@@ -61,7 +61,16 @@ func _initialize() -> void:
 	_main.freeze()
 	# Past the title, and past the intro. Both are worth photographing on their
 	# own - `-- 2 title` does that - but every other shot wants the game.
-	if _until == "book":
+	if _until == "box":
+		# Open the tackle box and let the lid and the camera settle over it.
+		if _main._title != null:
+			_main._title.skip()
+		_main._open_tacklebox()
+		var xt := 0.0
+		while xt < 2.0:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+			xt += 1.0 / 60.0
+	elif _until == "book":
 		# Open the logbook and let the camera settle on the page.
 		if _main._title != null:
 			_main._title.skip()

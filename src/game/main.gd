@@ -757,7 +757,7 @@ func _build_boat() -> void:
 	tm.ring_segments = 12
 	rope.mesh = tm
 	rope.material_override = _mat(Color(0.44, 0.39, 0.29), 0.95)
-	rope.position = Vector3(-0.30, _hull_rim_y(1.15) + 0.030, 1.15)
+	rope.position = Vector3(-0.34, _hull_rim_y(0.85) + 0.030, 0.85)
 	rope.name = "Rope"
 	rope.rotation_degrees = Vector3(4, 18, 0)
 	_boat.add_child(rope)
@@ -796,6 +796,7 @@ func _build_boat() -> void:
 	_build_shore()
 	_build_props()
 	_build_book()
+	_build_tacklebox()
 	_build_things()
 	_build_reeds()
 
@@ -1952,6 +1953,13 @@ func _on_cast_input(event: InputEvent) -> void:
 	else:
 		return
 
+	# THE BOX: a tap picks a row, or shuts it if it lands outside.
+	if _at_box and not _in_sequence:
+		if pressed:
+			_tap_box(at)
+		_cast_area.accept_event()
+		return
+
 	# READING: a press starts a gesture, a release decides what it was. Swiping is
 	# how a page turns now - see `_release_page`.
 	if _reading and not _in_sequence:
@@ -2207,6 +2215,13 @@ func freeze(seed_value: int = 1) -> void:
 	# open logbook is as much a front door as the title is, and leaving it open
 	# hid the HUD from every test that ran after one which used it.
 	_reading = false
+	# The box shut too. `freeze` means "the game, now, in a known state", and an
+	# open toolbox is as much a front door as the title is - leaving it open hid
+	# the HUD from every test that ran after one which used it.
+	_at_box = false
+	if _tacklebox != null:
+		_tacklebox.state = Room3D.State.SHUT
+		_tacklebox.openness = 0.0
 	if _book != null:
 		_book.state = Room3D.State.SHUT
 		_book.openness = 0.0
@@ -2268,7 +2283,16 @@ func _sync() -> void:
 	# the book hangs off the camera and the camera hung off the book, so the two
 	# chased each other; measured, they were sixteen metres away at the gate
 	# within two hundred frames. The camera stays on the seat. The book moves.
-	if _in_sequence:
+	if _at_box and not _in_sequence and _tacklebox != null:
+		# LEANING OVER THE BOX. A toolbox on the sole is not picked up, so unlike
+		# the logbook the camera comes to it - which is safe here for the reason
+		# it was not there: the box does not move, so there is no pair to chase
+		# each other. Recomputed every frame so the view rides the swell with the
+		# boat rather than hanging still above a moving hull.
+		var bp := _box_pose()
+		var bup: Vector3 = bp[2] if bp.size() > 2 else _boat_pose.basis.y
+		_cam.transform = Transform3D(Basis.IDENTITY, bp[0]).looking_at(bp[1], bup)
+	elif _in_sequence:
 		# The camera goes on rails and NOTHING ELSE IS SKIPPED. An early return
 		# here meant the rest of `_sync` never ran during a sequence - so the
 		# HUD, which stands down on exactly that condition, was never told to.
@@ -2753,6 +2777,8 @@ func _sync_mood(dt: float) -> void:
 	if _book != null:
 		_book.advance(dt)
 		_sync_book_hold(dt)
+	if _tacklebox != null:
+		_tacklebox.advance(dt)
 	_sync_grade(k)
 
 	if _water_mat != null:
@@ -2846,6 +2872,9 @@ func _go_back() -> bool:
 		return false
 	if _reading:
 		_shut_book()
+		return true
+	if _at_box:
+		_shut_tacklebox()
 		return true
 	if _menus != null and _menus.is_open():
 		_menus.close()
@@ -4119,7 +4148,7 @@ func _build_things() -> void:
 		{
 			"id": "livewell",
 			"name": "The livewell",
-			"at": Vector3(0.30, _hull_floor_y(1.25) + 0.14, 1.25),
+			"at": Vector3(-0.30, _hull_floor_y(1.15) + 0.14, 1.15),
 			"look": func() -> String:
 				if sim.econ.held.is_empty():
 					return "The livewell   -   empty"
@@ -4131,7 +4160,7 @@ func _build_things() -> void:
 		{
 			"id": "baitbox",
 			"name": "The bait box",
-			"at": Vector3(-0.26, _hull_floor_y(1.70) + 0.10, 1.70),
+			"at": Vector3(-0.28, _hull_floor_y(1.78) + 0.10, 1.78),
 			"look": func() -> String:
 				var b := Gear.bait_by_id(sim.econ.bait)
 				return "%s on the hook   -   tap to change" % str(b["name"]),
@@ -4158,7 +4187,7 @@ func _build_things() -> void:
 		{
 			"id": "logbook",
 			"name": "The logbook",
-			"at": Vector3(0.10, _hull_floor_y(1.70) + 0.11, 1.70),
+			"at": Vector3(0.06, _hull_floor_y(1.80) + 0.11, 1.80),
 			"look": func() -> String:
 				var met := Keepers.hands_met(sim.deepest_ever)
 				return "The keeper's logbook   -   %d of %d hands" % [met, Keepers.total_hands()],
@@ -4166,9 +4195,19 @@ func _build_things() -> void:
 				_open_book(),
 		},
 		{
+			"id": "tacklebox",
+			"name": "The tackle box",
+			"at": Vector3(0.16, _hull_floor_y(1.40) + 0.14, 1.40),
+			"look": func() -> String:
+				return "The tackle box   -   %s on the hook" % str(
+					Gear.bait_by_id(sim.econ.bait)["name"]),
+			"use": func() -> void:
+				_open_tacklebox(),
+		},
+		{
 			"id": "rope",
 			"name": "The rope",
-			"at": Vector3(-0.30, _hull_rim_y(1.15) + 0.06, 1.15),
+			"at": Vector3(-0.34, _hull_rim_y(0.85) + 0.06, 0.85),
 			"look": func() -> String:
 				return "A coil of rope. Somebody else's knot.",
 			"use": func() -> void:
@@ -4195,6 +4234,11 @@ var _book_rel := Transform3D.IDENTITY
 var _page_from := Vector2.ZERO
 var _page_swiped := false
 var _page_turn := 0.0
+## THE TACKLE BOX. See `_build_tacklebox`.
+var _tacklebox: Room3D
+var _box_list: VBoxContainer
+var _box_rows: Array = []
+var _at_box := false
 var _gate_left: Node3D
 var _gate_right: Node3D
 var _gate_open := 0.0
@@ -4352,8 +4396,8 @@ func _build_props() -> void:
 	# frame while the lantern hid behind the rod. Spread along the hull, none of
 	# them across the water the player is casting into, and none of them large
 	# enough to be the subject.
-	_place_prop("livewell", Vector3(0.30, _hull_floor_y(1.25), 1.25), 0.80, 18.0)
-	_place_prop("baitbox", Vector3(-0.26, _hull_floor_y(1.70), 1.70), 0.50, -12.0)
+	_place_prop("livewell", Vector3(-0.30, _hull_floor_y(1.15), 1.15), 0.80, 18.0)
+	_place_prop("baitbox", Vector3(-0.28, _hull_floor_y(1.78), 1.78), 0.50, -12.0)
 	# The lantern goes on the STEM, where it lights the water ahead rather than
 	# the boards - and where it is a silhouette against the sky at night.
 	var lamp := _place_prop("lamp", Vector3(0.0, _hull_rim_y(2.05) + 0.03, 2.05), 1.05, 0.0)
@@ -4819,7 +4863,7 @@ func _hud_is_down() -> bool:
 		return true
 	if _title != null and _title.is_up():
 		return true
-	return _in_sequence or _reading
+	return _in_sequence or _reading or _at_box
 
 
 # --- the book, as a thing in the boat ---------------------------------------
@@ -4865,7 +4909,7 @@ func _build_book() -> void:
 	# degrees below the view axis - the very bottom edge of a 58 degree frame,
 	# behind the near thwart. "I dont see the log book in the game" was literally
 	# true: the object existed, in shot, and off the bottom of the picture.
-	_book.position = Vector3(0.10, _hull_floor_y(1.70) + 0.052, 1.70)
+	_book.position = Vector3(0.06, _hull_floor_y(1.80) + 0.052, 1.80)
 	# Not square to the boat. A book somebody put down is never square to
 	# anything, and this is the whole difference between a prop and a menu.
 	_book.rotation_degrees = Vector3(0, 14, 0)
@@ -5236,3 +5280,236 @@ func _draw_charge_ring() -> void:
 		HORIZONTAL_ALIGNMENT_CENTER, int(_charge_ring.size.x), 46,
 		Color(1.0, 0.93, 0.74, 0.95))
 
+
+
+# --- the tackle box -------------------------------------------------------
+
+## THE EQUIPMENT MENU IS A TACKLE BOX YOU OPEN.
+##
+## Gideon: "Can you also make your equipment menu a tackle box that you look at
+## and click to view. This should open the tackle box and show all of your
+## current equitable equipment."
+##
+## Third time he has asked for this shape - the logbook, this, and the shed - so
+## it is written in PLAN.md 9.4 as a rule rather than answered three times: a
+## screen the player opens is an object in the boat, or a place the boat takes
+## them. There are no panels.
+##
+## What it buys beyond looking better: a panel has to be TOLD what it contains,
+## and an object simply is what it contains. Line is the story's only ladder, and
+## in a list it is a row reading "40 lb braid". In a box it is a spool sitting
+## next to the four you have outgrown, with an empty slot where the one you
+## cannot afford yet would go - the progression becomes a picture of itself.
+##
+## Unlike the logbook, the box is NOT picked up. A book is held and a toolbox on
+## the sole is leaned over, so here the camera comes down to it. That is safe for
+## the reason the book's version was not: the box does not move, so there is no
+## chance of the pair chasing each other (see `_sync_play_camera`).
+## 1024x512 matches the surface's own 0.360 x 0.180 aspect exactly, so the print
+## is not squashed - and the TYPE is then sized to fit inside it. The first pass
+## overflowed by one row and clipped "Reel" off the bottom silently, which is the
+## failure mode of a SubViewport: it does not scroll, it does not warn, it just
+## ends. Count the rows against the height before choosing a font size.
+const BOX_PAGE_PX := Vector2i(1024, 512)
+const BOX_LID_DEGREES := -104.0   ## negative turns the lid AWAY from the reader
+
+
+func _build_tacklebox() -> void:
+	var model := _prop("toolbox")
+	if model == null:
+		push_warning("the toolbox model is missing - the tackle box will not open")
+		return
+	_tacklebox = Room3D.new()
+	_tacklebox.name = "TackleBox"
+	# On the sole, INBOARD, ahead of the seat and clear of the logbook. Sized and
+	# placed off the model's own bounds (scripts/probe_prop.gd): the body is
+	# 40 x 12 x 22 cm, a real toolbox, and it needs no scaling.
+	#
+	# x = 0.15 rather than 0.34, and that number is the whole of a bug worth
+	# recording. `frame_pose` puts the camera on the surface's normal, straight
+	# up, so a box against the hull side puts the CAMERA above the gunwale - and
+	# the photograph came back as a wall of planking with the panel split down the
+	# middle by a rail. The hull is only 0.337 m half-wide at z = 1.62 (M), so a
+	# 0.40 m box at x = 0.34 was inside the boat's side. Check `_hull_half_width`
+	# at the station before placing anything against the beam.
+	_tacklebox.position = Vector3(0.16, _hull_floor_y(1.40) + 0.035, 1.40)
+	_tacklebox.rotation_degrees = Vector3(0, -24, 0)
+	_boat.add_child(_tacklebox)
+
+	# The printed surface lies in the open box, facing up, the same way the page
+	# lies on the book - and for the same reason: the camera reads it from above,
+	# and a surface standing up inside the lid faces the wrong way at that angle.
+	var lie_flat := Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, deg_to_rad(-90.0))
+	_tacklebox.build(model, Vector2(0.360, 0.180),
+		# ABOVE THE TRAY, not in it. The model's lift-out tray sits at y = 0.152 and
+		# is 0.087 tall (M, scripts/probe_prop.gd), so a surface at 0.150 is
+		# coplanar with it - photographed, the tray's centre divider ran straight
+		# across the panel and hid a whole heading. 0.205 clears its top face.
+		Transform3D(lie_flat, Vector3(0.0, 0.205, 0.0)),
+		_box_root(), BOX_PAGE_PX)
+
+	# The lid turns about its BACK EDGE. The mesh spans z from -0.106 to +0.111
+	# about its own origin, so the hinge line is at z = -0.106; turning it about
+	# the origin instead swings the lid down through the box.
+	var lid := _tacklebox.find_part("lid")
+	if lid != null:
+		_tacklebox.set_hinge(lid, Vector3(0.0, 0.0, -0.106), Vector3.RIGHT, BOX_LID_DEGREES)
+	_refresh_tacklebox()
+
+
+## The Control tree printed on the inside of the box. Same trick as the page: the
+## layout is ordinary Controls rendered to a SubViewport and used as a texture,
+## so none of the layout work has to be redone in world space.
+func _box_root() -> Control:
+	var root := ColorRect.new()
+	root.color = Color(0.128, 0.132, 0.138)
+	root.size = Vector2(BOX_PAGE_PX)
+	var pad := MarginContainer.new()
+	pad.set_anchors_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		pad.add_theme_constant_override("margin_" + side, 30)
+	root.add_child(pad)
+	_box_list = VBoxContainer.new()
+	_box_list.add_theme_constant_override("separation", 8)
+	pad.add_child(_box_list)
+	return root
+
+
+## What is in the box, right now. Rebuilt on every open and every change, from
+## `sim` - so it cannot describe gear the player does not have.
+func _refresh_tacklebox() -> void:
+	if _box_list == null:
+		return
+	for c in _box_list.get_children():
+		c.queue_free()
+	_box_rows.clear()
+
+	_box_heading("on the rod")
+	_box_row("Line", Gear.line_name(sim.econ.line), "", false)
+	_box_row("Rod", str(Gear.ROD[sim.econ.rod]["name"]), "", false)
+	_box_row("Reel", str(Gear.REEL[sim.econ.reel]["name"]), "", false)
+
+	# THE BAITS ARE THE PART YOU CAN ACTUALLY CHANGE, so they are the part that
+	# is tappable. Everything above is bought in the shed and only shown here.
+	_box_heading("in the tray")
+	for b in Gear.BAIT:
+		var id := str(b["id"])
+		var owned: bool = sim.econ.has_bait(id)
+		var chosen: bool = str(sim.econ.bait) == id
+		var left: int = int(sim.econ.bait_left.get(id, 0))
+		var state := "on the hook"
+		if not chosen:
+			# THREE READINGS OF ONE STATE, so it survives a colour-blind player and
+			# a dim phone in daylight: the ink, the words, and the count.
+			state = ("%d left" % left) if owned and not bool(b.get("reusable", false)) else 				("spare" if owned else "none left")
+		_box_row(str(b["name"]), state, id, owned and not chosen)
+
+
+func _box_heading(text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 26)
+	l.add_theme_color_override("font_color", Color(0.62, 0.60, 0.55))
+	_box_list.add_child(l)
+
+
+## One row, and its hit rectangle recorded in PAGE pixels so a tap on the
+## physical surface can be turned back into the thing it landed on.
+func _box_row(name: String, state: String, id: String, tappable: bool) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	var left := Label.new()
+	left.text = name
+	left.add_theme_font_size_override("font_size", 34)
+	# SAY THE STATE MORE THAN ONE WAY. Colour alone fails a colour-blind player
+	# and fails again on a dim phone in daylight, so the chosen bait carries the
+	# words "on the hook" as well as the brighter ink.
+	left.add_theme_color_override("font_color",
+		Color(0.94, 0.92, 0.86) if (tappable or state == "on the hook") else Color(0.52, 0.50, 0.47))
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(left)
+	var right := Label.new()
+	right.text = state
+	right.add_theme_font_size_override("font_size", 28)
+	right.add_theme_color_override("font_color",
+		Color(0.78, 0.68, 0.42) if state == "on the hook" else Color(0.55, 0.53, 0.50))
+	row.add_child(right)
+	_box_list.add_child(row)
+	if tappable and id != "":
+		_box_rows.append({"id": id, "row": row})
+
+
+## Where the camera sits to read the open box. Computed by `frame_pose` off the
+## surface's own size, not typed - the same arithmetic that frames the logbook,
+## and the reason a hand-tuned offset is wrong three times running.
+func _box_pose() -> Array:
+	var aspect := 0.46
+	if _cam != null and is_inside_tree() and _cam.get_viewport() != null:
+		var vs := _cam.get_viewport().get_visible_rect().size
+		if vs.y > 1.0:
+			aspect = vs.x / vs.y
+	return _tacklebox.frame_pose(_boat_pose, _cam.fov if _cam != null else 58.0, aspect)
+
+
+func _open_tacklebox() -> void:
+	if _tacklebox == null or _at_box:
+		return
+	_at_box = true
+	_refresh_tacklebox()
+	_tacklebox.open()
+	if _audio != null:
+		_audio.play("clunk", -4.0)
+
+
+func _shut_tacklebox() -> void:
+	if _tacklebox == null or not _at_box:
+		return
+	_at_box = false
+	_tacklebox.close()
+	_play_sequence([
+		{"at": _cam.transform.origin, "look": _cam.transform.origin - _cam.transform.basis.z * 3.0,
+			"for": 0.40, "gate": _gate_open, "ease": "inout"},
+		{"at": Sequence.SEAT, "look": Sequence.SEAT_LOOK, "for": 0.35, "gate": _gate_open, "ease": "out"},
+	])
+	if _audio != null:
+		_audio.play("clunk", -8.0)
+
+
+## A tap on the open box: work out which row it landed on, and equip it.
+##
+## The hit test goes through `Room3D.hit_page`, which returns the point in PAGE
+## PIXELS - so the row rectangles recorded during layout can be compared against
+## it directly. That is the whole reason the surface is a SubViewport of ordinary
+## Controls: the layout already knows where everything is, and none of it has to
+## be re-solved in world space.
+func _tap_box(at: Vector2) -> void:
+	if _tacklebox == null:
+		return
+	var from := _cam.transform.origin
+	var dir := _screen_ray(at)
+	var on := _tacklebox.hit_page(from, dir, _boat_pose)
+	if on.x < 0.0:
+		# Tapped off the box. Everything outside it is a way out, which is what a
+		# person expects from a thing they opened rather than a menu.
+		_shut_tacklebox()
+		return
+	for entry in _box_rows:
+		var row: Control = entry["row"]
+		var r := row.get_global_rect()
+		if r.has_point(on):
+			_set_bait(str(entry["id"]))
+			_refresh_tacklebox()
+			if _audio != null:
+				_audio.play("clunk", -10.0)
+			return
+
+
+## Put a bait on the hook, from the box. The shed is still where bait is BOUGHT -
+## this is the thing an angler does twenty times an hour, and it is why the tray
+## is the tappable part of the box and the rod's gear above it is only shown.
+func _set_bait(id: String) -> void:
+	if not sim.econ.has_bait(id) or str(sim.econ.bait) == id:
+		return
+	sim.econ.bait = id
+	_say_hint("%s on the hook." % str(Gear.bait_by_id(id)["name"]))
+	_want_save()

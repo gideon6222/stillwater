@@ -111,6 +111,51 @@ func build(model: Node3D, surface_size: Vector2, surface_at: Transform3D,
 	_find_states(_model)
 
 
+## A HINGED PART, for a model that has a lid rather than two whole states.
+##
+## The notebook ships an open mesh and a closed one, so opening it is a swap. A
+## toolbox ships one body and one LID, which is the commoner shape and the more
+## useful one - the lid can be caught halfway, and the same mechanism will open a
+## shed door later.
+##
+## The pivot is in the PART's own local space, and is the hinge line rather than
+## the part's origin: a lid turns about its back edge, not about its middle.
+## Rotating about the origin swings the lid through the box.
+var _hinge: Node3D
+var _hinge_rest := Transform3D.IDENTITY
+var _hinge_pivot := Vector3.ZERO
+var _hinge_axis := Vector3.RIGHT
+var _hinge_degrees := 0.0
+
+
+func set_hinge(part: Node3D, pivot_local: Vector3, axis: Vector3, degrees: float) -> void:
+	_hinge = part
+	if part == null:
+		return
+	_hinge_rest = part.transform
+	_hinge_pivot = pivot_local
+	_hinge_axis = axis.normalized()
+	_hinge_degrees = degrees
+
+
+## Find a child by name anywhere under the model, so a caller can name the lid
+## without knowing how the exporter nested it.
+func find_part(name_part: String) -> Node3D:
+	return _find_named(_model, name_part)
+
+
+func _find_named(node: Node, want: String) -> Node3D:
+	if node == null:
+		return null
+	for c in node.get_children():
+		if str(c.name).findn(want) >= 0 and c is Node3D:
+			return c as Node3D
+		var deeper := _find_named(c, want)
+		if deeper != null:
+			return deeper
+	return null
+
+
 ## Look for a pair of meshes named "<thing>" and "<thing>_closed".
 func _find_states(node: Node) -> void:
 	if node == null:
@@ -161,6 +206,14 @@ func advance(dt: float) -> void:
 	if _mesh_open != null and _mesh_shut != null:
 		_mesh_open.visible = openness > 0.5
 		_mesh_shut.visible = openness <= 0.5
+	# A hinged lid, turned about its hinge LINE rather than its own origin. Eased
+	# so it falls open and settles instead of sweeping at one rate - a lid is on
+	# a spring or it is on gravity, and neither is linear.
+	if _hinge != null:
+		var k := openness * openness * (3.0 - 2.0 * openness)
+		var b := Basis(_hinge_axis, deg_to_rad(_hinge_degrees * k))
+		var about_pivot := Transform3D(b, _hinge_pivot - b * _hinge_pivot)
+		_hinge.transform = about_pivot * _hinge_rest
 	if _surface != null:
 		_surface.visible = openness > 0.55
 		var m := _surface.material_override as StandardMaterial3D

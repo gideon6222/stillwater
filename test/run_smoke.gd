@@ -72,6 +72,7 @@ func _initialize() -> void:
 	_check_the_back_button_unwinds_one_layer(main)
 	_check_the_float_floats_on_the_water(main)
 	_check_a_swipe_does_not_turn_the_view(main)
+	_check_the_tackle_box_is_the_equipment_menu(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -895,6 +896,85 @@ func _check_the_water_never_casts_and_the_button_always_does(main) -> void:
 	for i in 200:
 		main.advance(1.0 / 60.0)
 	_t.gt(float(main.sim.casts), 0.0, "the cast never happened")
+
+
+## THE TACKLE BOX IS THE EQUIPMENT MENU, and it is an object rather than a panel.
+##
+## Gideon asked for this shape three times in one message - the logbook, this, and
+## the shed - so PLAN.md 9.4 states it as a rule. What is asserted here is the part
+## a panel could not do: the box IS its contents. The rows are built from `econ`
+## every time it opens, so it cannot describe gear the player does not have, and
+## tapping a row changes the same `econ` the fight reads.
+func _check_the_tackle_box_is_the_equipment_menu(main) -> void:
+	_t.begin("smoke > the tackle box opens, shows the gear, and changes it")
+	main.freeze(1)
+	_t.ok(main._tacklebox != null, "there is no tackle box in the boat")
+	if main._tacklebox == null:
+		return
+
+	main._open_tacklebox()
+	_t.ok(main._at_box, "the tackle box did not open")
+	for i in 120:
+		main.advance(1.0 / 60.0)
+	_t.ok(main._tacklebox.is_open(), "the tackle box never finished opening")
+	_t.gt(float(main._box_list.get_child_count()), 4.0,
+		"the tackle box opened as a blank panel")
+
+	# THE LID ACTUALLY MOVES, asserted as a DIFFERENCE between open and shut
+	# rather than against an absolute angle.
+	#
+	# The first version of this compared the open lid's rotation against a
+	# threshold, and it passed with the hinge completely disconnected - the
+	# model's lid has a rest rotation of its own that already cleared the bar. A
+	# rest pose is exactly the confounder that makes an absolute-angle assertion
+	# vacuous, and the only reason it was caught is that it was verified by
+	# disconnecting the hinge.
+	var lid = main._tacklebox.find_part("lid")
+	_t.ok(lid != null, "the toolbox model has no lid to open")
+	if lid != null:
+		var open_basis: Basis = lid.transform.basis
+		main._tacklebox.state = Room3D.State.SHUT
+		main._tacklebox.openness = 0.0
+		main._tacklebox.advance(1.0 / 60.0)
+		var shut_basis: Basis = lid.transform.basis
+		# The angle between the two orientations, which is zero if nothing moved.
+		var swung := rad_to_deg((open_basis.get_rotation_quaternion()).angle_to(
+			shut_basis.get_rotation_quaternion())) * 2.0
+		_t.gt(swung, 60.0,
+			"the lid swung %.0f degrees between shut and open - the hinge is not driving it" % swung)
+		# Put it back the way the rest of this check expects to find it.
+		main._tacklebox.state = Room3D.State.OPEN
+		main._tacklebox.openness = 1.0
+		main._tacklebox.advance(1.0 / 60.0)
+
+	# IT IS INSIDE THE BOAT. The first placement put a 0.40 m box at x = 0.34
+	# where the hull is only 0.337 m half-wide, so the camera that frames it from
+	# straight above sat over the gunwale and photographed the planking.
+	var bx: float = main._tacklebox.position.x
+	var bz: float = main._tacklebox.position.z
+	_t.lt(absf(bx) + 0.20, main._hull_half_width(bz),
+		"the tackle box is in the hull side: |x| %.2f + half its width is past the beam %.2f at that station" % [
+			absf(bx), main._hull_half_width(bz)])
+
+	# TAPPING A ROW EQUIPS IT, through the same econ the fight reads.
+	main.sim.econ.bait_left["corn"] = 5
+	main._refresh_tacklebox()
+	var target := ""
+	for entry in main._box_rows:
+		if str(entry["id"]) == "corn":
+			target = "corn"
+	_t.eq(target, "corn", "an owned bait that is not on the hook is not tappable")
+	if target != "":
+		main._set_bait("corn")
+		_t.eq(str(main.sim.econ.bait), "corn", "tapping a bait did not put it on the hook")
+		main._refresh_tacklebox()
+		for entry in main._box_rows:
+			_t.ok(str(entry["id"]) != "corn",
+				"the bait already on the hook is still offered as a choice")
+
+	# And there is a way out, from the box and from the back button.
+	_t.ok(main._go_back(), "back was ignored with the tackle box open")
+	_t.ok(not main._at_box, "back did not shut the tackle box")
 
 
 ## THE FLOAT FLOATS ON THE WATER, and this is the assertion that it reads the same
