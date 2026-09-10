@@ -82,6 +82,76 @@ visible in a still frame. `scripts/probe_motion.gd` reports peak-to-peak, RMS,
 frequency and peak angular RATE for the hull and the camera; the rate is the number
 that predicts discomfort and it is the one nobody looks at.
 
+## The FOURTH fight: hold to reel, and greed is the risk dial (2026-09-10)
+
+Gideon: *"there is no dedicated button to fill the bar. I want a button instead of just
+tapping the screen. it is also not obvious that the fish will pull back and add pressure to
+the bar... I want an obvious mechanic change, that uses the same principle but implements it
+in a better way."*
+
+Three changes. Researched against shipped fishing games; Ace Fishing is the closest one-thumb
+analogue and is hold-to-reel for the same reason.
+
+**1. Held, not tapped.** One dedicated control, one resting state. `HOLD_RISE` replaces the
+tap's instant kick, and `tap()` lost its FIGHTING branch rather than being left as a second
+way to add tension.
+
+**2. The haul scales with height in the band** (`Tuning.greed`, 0.62 at the bottom to 1.62 at
+the top). The band was pass-or-fail, so the correct play was the middle and there was nothing
+to weigh. Now the fastest water is the inch below the strain zone. This is the change that
+makes it risk/reward rather than maintenance.
+
+**3. The run is telegraphed on four channels** - the wake, the tell lengthened to 0.65 s, the
+action button going cold, and its caption changing to LET GO. Research puts a readable
+telegraph at 0.25 s minimum and 0.25-1 s of wind-up.
+
+### The trap that cost the most, and it is the first fight in disguise
+
+A held button settles where rise balances decay: `HOLD_RISE / TAP_DECAY`. The first attempt
+derived HOLD_RISE from the old tap rate and landed that at **0.60 - inside the band**. So
+holding the button down parked the needle in the green and reeled the fish in with no further
+input. That is "one correct sustained input", which is exactly what killed fight 1, arrived at
+from the opposite direction and while adding a feature meant to improve things.
+
+**What caught it was the invariant that every policy must fail for a different reason**:
+`blind` and `angler` posted identical 5.83/0.00. The settle point is now 1.10, above
+`TENSION_MAX`, so a held button always ends in a snapped line.
+
+And the old test would not have caught it either. `test_there_is_no_setting_that_wins_on_its_own`
+checked two tap rates, zero and thirty, and passed. **Swept across the whole range it would
+have failed** - tension settles in proportion to input rate, so some middle rate has always
+parked the needle in the band. That was as true of tapping as of holding; the test was never
+asked. It now sweeps eleven duty cycles, in DEEP water, and compares against active play
+rather than a typed-in number of seconds.
+
+### Measured after the change
+
+| policy | caught | lost | what it proves |
+|---|---|---|---|
+| `idle_hands` | 0.00 | 7.33 | both minigames are mechanics |
+| `masher` | 0.00 | 14.17 | holding the button forever always parts the line |
+| `slowpoke` | 0.00 | 4.00 | too timid to reel is still a loss |
+| `blind` | 5.17 | 1.33 | ignoring the tell costs fish |
+| `angler` | 5.33 | 0.83 | perfect play - read `human`, never this |
+| `human` | **4.83** | **1.50** | a plausible player loses about one in four |
+
+Land rate by band, from `scripts/balance.gd`: **100 / 83 / 63 / 38 / 23 / 17 %**. Monotonic
+with real gaps. The old ladder was 91/72/58/50/43/25, so deep water is harder than it was -
+the shape is right and the depths want another pass with the species table, which was tuned
+for the old dynamics and has only been nudged here (channel run_power +18%, reeds -12%, and
+the Spring hardened on stamina and haul rather than on runs, which do not govern it).
+
+**`jolt_scale` is what keeps the tutorial forgiving**: at 0.55 + 0.45p a reeds fish still took
+70% of the jolt and the reeds took five fish off a beginner. At 0.18 + 0.82p a weak fish takes
+half and a strong one takes more, which widens the ladder from both ends at once.
+
+**And the tell is measured in two different waters now**, which is what this file has always
+said and what that test had stopped doing: forgiveness in the reeds (a beginner loses no
+fish), a real cost on the Drowned Road (they land fewer). Measuring it in TIME stopped working,
+and the reason is the mechanic itself - letting go on the tell decays the needle to about 0.47
+and the jolt then lands it near the TOP of the band, where greed hauls hardest, so reacting
+correctly is not merely safe, it is briefly faster.
+
 ## The fight, and why it is built this way
 
 **This is the THIRD fight.** The first two are worth knowing about, because both

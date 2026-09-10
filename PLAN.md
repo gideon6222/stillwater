@@ -103,6 +103,64 @@ under completely for `take_window` seconds. Strike in that window and you are on
   2 for most, 1 for each band's prize fish. Dredge's rule: fishing must not be
   frustrating.
 
+### 4.3b The fourth fight: hold to reel, and greed is the risk dial
+
+Gideon, after playing it on the phone: *"you still tap on the screen to fight the
+fish, there is no dedicated button to fill the bar. I want a button instead of just
+tapping the screen. it is also not obvious that the fish will pull back and add
+pressure to the bar... I want an obvious mechanic change, that uses the same
+principle but implements it in a better way."*
+
+Researched against shipped fishing games. Three changes, and the third is the one
+that makes it a risk/reward system rather than a maintenance task.
+
+**1. A REEL button you hold.** Tapping anywhere becomes holding one dedicated
+control in the thumb zone. Tension rises while it is held and decays while it is
+not — the same arithmetic, one input instead of a rate the player has to guess at.
+Ace Fishing, the closest shipped one-thumb analogue, is hold-to-reel for exactly
+this reason: the thumb gets one job and one resting state, and "am I tapping fast
+enough" stops being a question.
+
+*The property that must survive* is the one that killed fight 1: **no sustained
+input may win.** Holding forever breaks the line, releasing forever loses the
+fish, so there is still no setting to find — the player modulates a duty cycle
+instead of a tap rate. `test_there_is_no_setting_that_wins_on_its_own` still
+governs, and it is the reason this is a safe change rather than a return to a
+threshold fight.
+
+**2. Progress scales with how HIGH in the band you are.** Today the band is pass or
+fail: anywhere inside it reels at one rate, so the correct play is the middle and
+there is nothing to weigh. Now the top of the band hauls fastest and sits closest
+to the strain zone, and the bottom is safe and slow.
+
+That single line is what turns the fight into a risk/reward system. **The greedy
+option is genuinely better and genuinely near the edge** — a rule already in the
+shared notes and not previously honoured here. A cautious player lands
+everything slowly; a greedy one lands more per minute and loses some; and in deep
+water, where time is the resource, the choice actually costs something.
+
+**3. The run is telegraphed on four channels, not one.** The complaint is that the
+fish pulling back is not obvious, and that is fair: the tell exists but it is a
+wake on the water, which is exactly where the player is not looking during a
+fight. Research puts a readable telegraph at 0.25 s minimum and 0.25–1 s of
+wind-up; `TELL_TIME` is already inside that, so the timing is right and the
+signalling is not. During the tell:
+
+- the wake appears (kept — it is the diegetic one)
+- the safe band pulses on the gauge
+- the REEL button goes dark and reads LET GO
+- a rising tone plays, and the phone buzzes
+
+Redundant on purpose: Sea of Thieves carries strain in a continuous creak and
+Animal Crossing counts its nibbles with vibration, and both work because no single
+channel has to be the one the player happens to be watching.
+
+**What is deliberately NOT changed.** `run_chance` and `run_power` stay two knobs
+(NOTES.md explains what it cost to learn that). The band, the strain model and the
+slip are untouched. And the fight is not replaced with a two-button reel/give: the
+research ranks it third, it costs a second thumb target in portrait, and it is two
+buttons doing one job.
+
 ### 4.3 The fight — hold the tension band
 
 Tap to raise tension, it decays on its own, keep it inside the safe band. During

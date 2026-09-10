@@ -76,7 +76,15 @@ const GAIN := 0.55
 ## Where the bots aim on the tension gauge - the middle of the band, so the
 ## reading is about the game rather than about how close to the edge a bot was
 ## willing to sit.
-const AIM := (Tuning.SAFE_LO + Tuning.SAFE_HI) * 0.5
+## WHERE A COMPETENT PLAYER AIMS, and it moved up the band when greed arrived.
+##
+## The haul now scales with height (Tuning.greed), so the middle of the band is
+## no longer the right answer - it is the timid one. A bot aiming there would
+## measure the game as slower and safer than it is for anyone trying to win, and
+## every balance number in the repo would inherit that. 0.80 of the way up leaves
+## room for the jolt at the start of a run without giving away most of the haul.
+const AIM := Tuning.SAFE_LO + (Tuning.SAFE_HI - Tuning.SAFE_LO) * 0.55
+const CYCLE := 0.85               ## seconds of one hold-and-release cycle
 
 ## How long every bot holds the cast. Fixed, so all six fish the same water at
 ## the same distance and the only variable left is the fight.
@@ -106,8 +114,10 @@ static func act(name: String, s: Sim, dt: float, mem: Dictionary = {}) -> void:
 			if _should_strike(name, s, mem):
 				s.tap()
 		Sim.FIGHTING:
-			if _should_tap(name, s, dt, mem):
-				s.tap()
+			# HOLD, rather than tap. The bots are the model of a player, so when
+			# the control changed they had to change with it - a bot still
+			# tapping would have measured a game nobody can play any more.
+			s.set_reeling(_should_reel(name, s, dt, mem))
 		_:
 			pass
 
@@ -150,15 +160,18 @@ static func _should_strike(name: String, s: Sim, mem: Dictionary) -> bool:
 
 ## MINIGAME 2. Tap to hold the needle at AIM, and - for everyone but BLIND -
 ## stop tapping when the water says a run is coming.
-static func _should_tap(name: String, s: Sim, dt: float, mem: Dictionary) -> bool:
+static func _should_reel(name: String, s: Sim, dt: float, mem: Dictionary) -> bool:
 	match name:
 		IDLE_HANDS:
 			return false
 		MASHER:
+			# Holds the button down and never lets go. Breaks the line, every
+			# time, which is the same failure it always had for the same reason.
 			return true
 		SLOWPOKE:
-			# Taps at about half the rate the band needs. Never breaks anything;
-			# loses every fish to the line going slack and the fish taking it.
+			# Reels far too timidly - lets go the moment there is any tension at
+			# all. Never breaks anything; loses every fish to the line going
+			# slack and the fish taking line back.
 			return s.tension < Tuning.SAFE_LO * 0.55
 		BLIND:
 			# Plays the gauge well and never looks at the water, so it learns
@@ -192,8 +205,12 @@ static func _should_tap(name: String, s: Sim, dt: float, mem: Dictionary) -> boo
 ## takes to notice. Those two arguments are the ONLY difference between BLIND,
 ## ANGLER and HUMAN, so the gaps between them are claims about the game.
 static func _rhythm(s: Sim, dt: float, mem: Dictionary, watches: bool, delay: float = 0.0) -> bool:
-	if not mem.has("gap"):
-		mem["gap"] = 1.0 / maxf(0.5, Tuning.taps_per_second_for(AIM))
+	if not mem.has("duty"):
+		# The duty that HOLDS the aim point, from the sim's own arithmetic:
+		# tension settles at `duty * HOLD_RISE / TAP_DECAY`, so the duty needed
+		# for a tension is that ratio inverted. Derived rather than guessed, so a
+		# change to either constant moves the bot with the game.
+		mem["duty"] = clampf(AIM / (Tuning.HOLD_RISE / Tuning.TAP_DECAY), 0.0, 1.0)
 		mem["since"] = 0.0
 		mem["think"] = 0.0
 		mem["hold"] = false
@@ -209,22 +226,32 @@ static func _rhythm(s: Sim, dt: float, mem: Dictionary, watches: bool, delay: fl
 	else:
 		mem["lag"] = 0.0
 
-	# Correct the rate every so often rather than every frame.
+	# Correct the duty every so often rather than every frame. This is the part
+	# that makes a run dangerous: the bot is still holding the button for a moment
+	# after the fish starts pulling, exactly as a person would be.
 	mem["think"] = float(mem["think"]) + dt
 	if float(mem["think"]) >= THINK_EVERY:
 		mem["think"] = 0.0
 		var err := AIM - s.tension
-		var gap: float = float(mem["gap"]) - err * GAIN
-		mem["gap"] = clampf(gap, 0.16, 2.5)
+		mem["duty"] = clampf(float(mem["duty"]) + err * GAIN, 0.0, 1.0)
 
 	if bool(mem["hold"]):
 		return false
 
+	# A DUTY CYCLE, which is what a tap rhythm becomes when the control is a
+	# hold. The bot still commits to a rate and corrects it on a slow cadence -
+	# that is the part that matters, and the reason the run stays a threat - but
+	# it now expresses that rate as "button down for this fraction of each
+	# cycle" rather than "one instant press every `gap` seconds".
+	#
+	# Aiming HIGH in the band on purpose. The haul now scales with height (see
+	# Tuning.greed), so a player who parks in the middle is leaving half the
+	# fight on the table, and a bot that did so would measure the game as slower
+	# and safer than it is for anyone actually trying to win.
 	mem["since"] = float(mem["since"]) + dt
-	if float(mem["since"]) < float(mem["gap"]):
-		return false
-	mem["since"] = 0.0
-	return true
+	if float(mem["since"]) >= CYCLE:
+		mem["since"] = float(mem["since"]) - CYCLE
+	return float(mem["since"]) < CYCLE * float(mem["duty"])
 
 
 ## Fish one session with one policy and hand back the final state, plus the

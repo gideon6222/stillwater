@@ -32,22 +32,22 @@ const GOLDEN := [
 		"expect": {
 			"cast_distance": 12.609000,
 			"casts": 5,
-			"caught": 3,
-			"draws": 45,
-			"fighting": 25.033000,
-			"fish_distance": 12.609000,
-			"fish_id": "",
-			"fish_stamina": 1.000000,
+			"caught": 2,
+			"draws": 46,
+			"fighting": 23.333000,
+			"fish_distance": 4.796000,
+			"fish_id": "carp",
+			"fish_stamina": 0.000000,
 			"lost": 0,
-			"lure_depth": 2.089000,
+			"lure_depth": 2.330000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "sinking",
+			"state": "fighting",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.000000,
-			"total_weight": 11.135000,
+			"tension": 0.502000,
+			"total_weight": 10.878000,
 			"tug": 0.000000,
 		},
 	},
@@ -58,22 +58,22 @@ const GOLDEN := [
 		"expect": {
 			"cast_distance": 12.609000,
 			"casts": 5,
-			"caught": 3,
-			"draws": 45,
-			"fighting": 25.217000,
-			"fish_distance": 12.609000,
-			"fish_id": "",
-			"fish_stamina": 1.000000,
+			"caught": 2,
+			"draws": 46,
+			"fighting": 22.967000,
+			"fish_distance": 5.119000,
+			"fish_id": "carp",
+			"fish_stamina": 0.026000,
 			"lost": 0,
-			"lure_depth": 1.514000,
+			"lure_depth": 2.330000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "sinking",
+			"state": "fighting",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.000000,
-			"total_weight": 11.135000,
+			"tension": 0.631000,
+			"total_weight": 10.878000,
 			"tug": 0.000000,
 		},
 	},
@@ -83,24 +83,24 @@ const GOLDEN := [
 		"seed": 4,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 4,
+			"casts": 5,
 			"caught": 4,
-			"draws": 54,
-			"fighting": 30.300000,
-			"fish_distance": 0.000000,
-			"fish_id": "",
+			"draws": 58,
+			"fighting": 25.900000,
+			"fish_distance": 12.609000,
+			"fish_id": "perch",
 			"fish_stamina": 1.000000,
 			"lost": 0,
-			"lure_depth": 0.000000,
+			"lure_depth": 2.330000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "charging",
+			"state": "nibbling",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
 			"tension": 0.000000,
 			"total_weight": 4.652000,
-			"tug": 0.000000,
+			"tug": 0.108000,
 		},
 	},
 	{
@@ -110,22 +110,22 @@ const GOLDEN := [
 		"expect": {
 			"cast_distance": 12.609000,
 			"casts": 5,
-			"caught": 3,
+			"caught": 2,
 			"draws": 45,
-			"fighting": 25.683000,
-			"fish_distance": 12.609000,
-			"fish_id": "",
-			"fish_stamina": 1.000000,
+			"fighting": 23.333000,
+			"fish_distance": 5.839000,
+			"fish_id": "carp",
+			"fish_stamina": 0.119000,
 			"lost": 0,
-			"lure_depth": 1.342000,
+			"lure_depth": 2.330000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "sinking",
+			"state": "fighting",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.000000,
-			"total_weight": 11.135000,
+			"tension": 0.654000,
+			"total_weight": 10.878000,
 			"tug": 0.000000,
 		},
 	},
@@ -189,20 +189,20 @@ const GOLDEN := [
 			"cast_distance": 12.609000,
 			"casts": 4,
 			"caught": 0,
-			"draws": 40,
-			"fighting": 33.450000,
-			"fish_distance": 12.609000,
-			"fish_id": "",
-			"fish_stamina": 1.000000,
+			"draws": 45,
+			"fighting": 28.550000,
+			"fish_distance": 12.902000,
+			"fish_id": "bluegill",
+			"fish_stamina": 0.628000,
 			"lost": 2,
-			"lure_depth": 1.725000,
+			"lure_depth": 2.330000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "sinking",
+			"state": "fighting",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.000000,
+			"tension": 0.233000,
 			"total_weight": 0.000000,
 			"tug": 0.000000,
 		},
@@ -279,16 +279,44 @@ func test_the_reeds_charge_for_a_missed_tell_in_time_not_fish(t: TestHarness) ->
 	var watched := 0.0
 	var blind := 0.0
 	var blind_lost := 0
+	var watched_caught := 0
+	var blind_caught := 0
 	for seed_value in [1, 2, 3, 4, 5, 6]:
-		watched += float(Policies.play(Policies.ANGLER, 90.0, seed_value)["fighting"])
+		var a := Policies.play(Policies.ANGLER, 90.0, seed_value)
+		watched += float(a["fighting"])
+		watched_caught += int(a["caught"])
 		var b := Policies.play(Policies.BLIND, 90.0, seed_value)
 		blind += float(b["fighting"])
 		blind_lost += int(b["lost"])
-	t.lt(watched, blind,
-		"a beginner who ignores the tell spends no longer on the fish (%.1fs vs %.1fs), so the tell is invisible" % [
-			watched, blind])
+		blind_caught += int(b["caught"])
+	# THE TWO HALVES ARE MEASURED IN DIFFERENT WATER, which is what NOTES.md has
+	# always said and what this test had stopped doing.
+	#
+	# In the REEDS the claim is forgiveness: a beginner who has not yet learned to
+	# let go must not be punished in fish. That is the whole job of the tutorial
+	# band, and `jolt_scale` compressing a weak fish's jolt is the mechanism.
 	t.eq(blind_lost, 0,
 		"the reeds take %d fish off a beginner for missing a tell they are still learning" % blind_lost)
+
+	# On the DROWNED ROAD the claim is the opposite one, and it is the reason the
+	# reeds are allowed to be gentle: ignoring the tell has to cost something
+	# somewhere, or the tell is decoration everywhere.
+	#
+	# Measured in fish rather than in seconds, and that changed when the fight
+	# became a hold. Letting go on the tell now decays the needle to about 0.47
+	# and the jolt lands it near the TOP of the band - where the greed dial hauls
+	# hardest - so reacting correctly is not merely safe, it is briefly faster,
+	# and "who spent longer fighting" stopped separating the bots at all: 218.8 s
+	# against 216.7 s, one per cent on six seeds, well inside the noise NOTES.md
+	# warns about.
+	var deep_watch := 0
+	var deep_blind := 0
+	for seed_value in [1, 2, 3, 4, 5, 6]:
+		deep_watch += int(Policies.play(Policies.ANGLER, 120.0, seed_value, "road", 3)["caught"])
+		deep_blind += int(Policies.play(Policies.BLIND, 120.0, seed_value, "road", 3)["caught"])
+	t.lt(deep_blind, deep_watch,
+		"on the Drowned Road a beginner who ignores the tell lands just as much (%d vs %d), so the tell is decoration" % [
+			deep_blind, deep_watch])
 
 
 ## THE test that answers Gideon's note about the first fight.

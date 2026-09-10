@@ -803,13 +803,24 @@ func _check_every_action_answers_within_two_frames(main) -> void:
 	main.advance(step)
 	_t.gt(main.sim.charge, 0.0, "holding to cast does nothing on the first frame")
 
-	# A tap during a fight moves the needle on the same frame.
+	# HOLDING REEL moves the needle on the very next frame. The claim is
+	# unchanged - an input must be answered within two frames - but the input is
+	# a hold now, so a single frame of advance is what has to show it.
 	main.freeze(1)
 	if _drive_until(main, Sim.FIGHTING, 180.0):
 		var before: float = main.sim.tension
-		main.sim.tap()
+		main.sim.set_reeling(true)
+		main.sim.advance(step)
 		_t.gt(main.sim.tension, before,
-			"a tap during a fight does not move the tension until later")
+			"holding REEL during a fight does not move the tension on the next frame")
+		# ...and letting go is answered just as fast, which is the half that
+		# matters during a run: a control that is slow to STOP is a control the
+		# player cannot use to avoid anything.
+		main.sim.set_reeling(false)
+		var high: float = main.sim.tension
+		main.sim.advance(step)
+		_t.lt(main.sim.tension, high,
+			"letting go of REEL does not lower the tension on the next frame")
 
 	# And the gauge the player is reading redraws with it, rather than a frame
 	# behind - a needle that lags its own input is the classic mushy control.

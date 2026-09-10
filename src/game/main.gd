@@ -1694,6 +1694,12 @@ func _sync_bars() -> void:
 	if _action != null:
 		var label := _action_for_state()
 		_action.visible = label != "" and not in_room
+		# ...and it goes cold when the fish is about to pull. Colour, caption and
+		# the wake are three readings of one state: no single channel has to be
+		# the one the player happens to be watching.
+		var letting_go := sim.state == Sim.FIGHTING and (sim.running or sim.tell > 0.0)
+		_action.add_theme_color_override("font_color",
+			Color(0.99, 0.80, 0.44) if letting_go else Color(0.93, 0.90, 0.82))
 		_action.text = label
 	if _hint != null:
 		_hint.visible = not in_room
@@ -1991,6 +1997,12 @@ func _on_cast_input(event: InputEvent) -> void:
 		match sim.state:
 			Sim.IDLE, Sim.HOLDING, Sim.LOST:
 				pass
+			Sim.FIGHTING:
+				# NOT THE WHOLE SCREEN ANY MORE. Gideon: "there is no dedicated
+				# button to fill the bar. I want a button instead of just tapping
+				# the screen." The REEL button owns the fight; the water is for
+				# casting and for striking.
+				pass
 			_:
 				sim.tap()
 	else:
@@ -2010,6 +2022,12 @@ func _cast_pressed() -> void:
 			_charging = true
 		Sim.NIBBLING:
 			sim.tap()
+		Sim.FIGHTING:
+			# HELD, and that is the whole change. The same button that charges a
+			# cast reels the fish, because they are the same gesture - press and
+			# hold, let go when you have enough - and one button that means "do
+			# the thing this moment wants" is the rule the caption already follows.
+			sim.set_reeling(true)
 		_:
 			# Anything else: the button is a "reel in", and that happens on
 			# release so the press can still show as a press.
@@ -2017,6 +2035,9 @@ func _cast_pressed() -> void:
 
 
 func _cast_released() -> void:
+	if sim.state == Sim.FIGHTING:
+		sim.set_reeling(false)
+		return
 	if _charging:
 		_charging = false
 		if _audio != null and sim.state == Sim.CHARGING:
@@ -3951,7 +3972,14 @@ func _action_for_state() -> String:
 		Sim.NIBBLING:
 			return "Strike"
 		Sim.FIGHTING:
-			return "Reel in"
+			# THE CAPTION IS THE TELEGRAPH. During the tell and the run, the same
+			# button that says REEL says LET GO instead - so the instruction is on
+			# the control the thumb is already on, not only on a wake out on the
+			# water where nobody is looking during a fight. Gideon: "it is also
+			# not obvious that the fish will pull back and add pressure to the bar."
+			if sim.running or sim.tell > 0.0:
+				return "LET GO"
+			return "Reel"
 	return ""
 
 

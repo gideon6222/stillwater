@@ -42,12 +42,25 @@ func test_flight_time_is_a_playable_length(t: TestHarness) -> void:
 ## point of this version of the fight: it should feel like a fun minigame, not a
 ## dexterity test. A band that needs eleven taps a second is unplayable on a
 ## phone however good the numbers look on paper.
-func test_the_band_is_tappable_at_a_human_rate(t: TestHarness) -> void:
-	var lo := Tuning.taps_per_second_for(Tuning.SAFE_LO)
-	var hi := Tuning.taps_per_second_for(Tuning.SAFE_HI)
-	t.gt(lo, 0.8, "the bottom of the band holds itself with almost no tapping")
-	t.lt(hi, 5.0, "the top of the band needs %.1f taps a second, which is a dexterity test" % hi)
-	t.gt(hi, lo, "tapping faster does not raise the needle")
+func test_the_band_is_crossed_at_a_human_pace(t: TestHarness) -> void:
+	# The claim survived the change from tapping to holding, and only its units
+	# moved: the fight must be a rhythm, not a dexterity test. A band crossed in
+	# a third of a second is a reflex check; one that takes six is a chore.
+	var down := Tuning.hold_seconds_across_band()
+	var up := Tuning.release_seconds_across_band()
+	t.gt(down, 0.6, "the band is crossed in %.2f s with the thumb down - too fast to aim" % down)
+	t.lt(down, 3.0, "the band takes %.2f s to cross with the thumb down, which drags" % down)
+	t.gt(up, 0.5, "the needle falls back across the band in %.2f s - the thumb can never rest" % up)
+	t.lt(up, 3.0, "the needle takes %.2f s to fall back across the band" % up)
+
+	# AND A HELD BUTTON MUST NOT SETTLE INSIDE THE BAND. This is the one that
+	# matters: the settle point is HOLD_RISE / TAP_DECAY, and the first attempt
+	# put it at 0.60 - in the green - so holding the button down reeled the fish
+	# in with no further input. That is the "one correct sustained input" that
+	# killed the first fight, arriving from the other direction.
+	var settle := Tuning.HOLD_RISE / Tuning.TAP_DECAY
+	t.gt(settle, Tuning.SAFE_HI,
+		"holding the button settles at %.2f, inside the band - a held thumb wins on its own" % settle)
 
 
 func test_the_safe_band_is_a_real_target(t: TestHarness) -> void:

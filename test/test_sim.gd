@@ -285,40 +285,97 @@ func test_a_clean_set_starts_the_fight_further_along(t: TestHarness) -> void:
 
 ## MINIGAME 2 ------------------------------------------------------------------
 
-func test_the_band_is_physically_tappable(t: TestHarness) -> void:
-	# The one property no bot and no screenshot would ever reveal. A band that
-	# needs eleven taps a second is unplayable on a phone however good the
-	# numbers look, and the whole point of this version was that it should feel
-	# like a fun minigame rather than a dexterity test.
-	var lo := Tuning.taps_per_second_for(Tuning.SAFE_LO)
-	var hi := Tuning.taps_per_second_for(Tuning.SAFE_HI)
-	t.gt(lo, 0.8, "holding the bottom of the band needs almost no tapping at all")
-	t.lt(hi, 5.0, "holding the top of the band needs %.1f taps a second" % hi)
-	t.gt(hi, lo, "tapping faster does not raise the needle")
+func test_the_band_is_physically_crossable(t: TestHarness) -> void:
+	# The one property no bot and no screenshot would ever reveal: whether the
+	# fight is a rhythm or a dexterity test. Driven through the real sim rather
+	# than the closed form in Tuning, so the two cannot drift apart.
+	var s := _sim_fighting()
+	t.ok(s != null, "a fish can be hooked")
+	if s == null:
+		return
+	s.tension = Tuning.SAFE_LO
+	var step := 1.0 / 60.0
+	var held := 0.0
+	s.set_reeling(true)
+	while s.tension < Tuning.SAFE_HI and held < 8.0:
+		s.advance(step)
+		held += step
+	t.gt(held, 0.6, "the band is crossed in %.2f s with the thumb down - too fast to aim" % held)
+	t.lt(held, 3.0, "the band takes %.2f s to cross with the thumb down, which drags" % held)
 
 
-func test_tapping_raises_the_needle_and_it_falls_on_its_own(t: TestHarness) -> void:
+func test_holding_raises_the_needle_and_it_falls_when_let_go(t: TestHarness) -> void:
 	var s := _sim_fighting()
 	t.ok(s != null, "a fish can be hooked")
 	if s == null:
 		return
 	var before := s.tension
-	s.tap()
-	t.gt(s.tension, before, "a tap does not raise the tension")
-	t.eq(s.taps, 1, "the tap was not counted")
+	s.set_reeling(true)
+	_step(s, 0.5)
+	t.gt(s.tension, before, "holding REEL does not raise the tension")
 	var peak := s.tension
+	s.set_reeling(false)
 	_step(s, 1.2)
-	t.lt(s.tension, peak, "the tension does not fall between taps")
+	t.lt(s.tension, peak, "the tension does not fall when the button is let go")
+
+	# AND THE BUTTON MUST NOT STAY DOWN ACROSS A STATE CHANGE. A thumb can still
+	# be on the glass when the fish lands or the line parts, and a `reeling` left
+	# true would then be pulling on the next cast before it was made. Driven by
+	# ending the fight for real rather than by calling `reel_in`, which does
+	# nothing at all during a fight - the first version of this test called it and
+	# was asserting against a no-op.
+	s.set_reeling(true)
+	var step2 := 1.0 / 60.0
+	for i in int(round(30.0 / step2)):
+		if s.state != Sim.FIGHTING:
+			break
+		s.advance(step2)
+	t.ok(s.state != Sim.FIGHTING, "holding the button forever never ends the fight")
+	t.ok(not s.reeling, "the fight ended with the reel button still held down")
 
 
 ## The fault that killed the FIRST fight, asserted directly: there must be no
 ## input the player can hold to win. Tapping is a rate, so doing nothing decays
 ## and doing everything overshoots.
 func test_there_is_no_setting_that_wins_on_its_own(t: TestHarness) -> void:
-	var idle := _play_fight_with_taps(0.0)
-	var frantic := _play_fight_with_taps(30.0)
-	t.ok(idle != Sim.HOLDING, "never tapping lands the fish")
-	t.ok(frantic != Sim.HOLDING, "tapping as fast as possible lands the fish")
+	# Swept across the WHOLE range rather than at the two ends, which is the
+	# change the hold made necessary. With a tap rate, only the extremes were
+	# plausible mistakes. With a held button, every fixed duty cycle in between
+	# is a setting a player could find and sit on - and one of them landing the
+	# fish unaided would be the first fight returning without anyone noticing.
+	# THE CLAIM HAD TO BE RESTATED WHEN THE CONTROL CHANGED, and the restatement
+	# is more honest than what it replaced.
+	#
+	# The old version checked two tap rates, zero and thirty, and passed. Swept
+	# across the whole range it would have failed: tension settles in proportion
+	# to the input rate, so SOME middle rate has always parked the needle in the
+	# band. That was as true of tapping as it is of holding - the test was simply
+	# never asked.
+	#
+	# So the property that actually matters is not "no setting wins" but "no
+	# setting wins WELL". A cautious fixed duty is meant to land fish slowly:
+	# that is the risk dial working, since the haul scales with height in the
+	# band. What must not exist is a setting that is both safe AND fast.
+	# Compared against ACTIVE PLAY on the same fish rather than against a magic
+	# number of seconds. A threshold typed in by hand is a second thing to tune,
+	# and it drifts the moment any constant moves - the first version of this
+	# used 12.0 s and started failing at 11.9 s the day the reeds were softened,
+	# which says nothing about the game.
+	var active := _play_fight_actively()
+	t.gt(active, 0.0, "active play never landed the fish, so there is nothing to compare against")
+	var landed_fast: Array[String] = []
+	for i in 11:
+		var duty := float(i) / 10.0
+		var out := _play_fight_at_duty_timed(duty)
+		if str(out["state"]) == Sim.HOLDING and float(out["seconds"]) < active * 1.25:
+			landed_fast.append("%.1f in %.1fs" % [duty, float(out["seconds"])])
+	t.eq(landed_fast.size(), 0,
+		"a fixed duty cycle lands the fish about as fast as playing it (%.1fs): %s" % [
+			active, ", ".join(landed_fast)])
+
+	# And the two ends still fail outright, which is the original claim intact.
+	t.ok(_play_fight_at_duty(0.0) != Sim.HOLDING, "never touching the button lands the fish")
+	t.ok(_play_fight_at_duty(1.0) != Sim.HOLDING, "never letting go lands the fish")
 
 
 func test_holding_the_needle_in_the_band_brings_the_fish_in(t: TestHarness) -> void:
@@ -331,10 +388,25 @@ func test_holding_the_needle_in_the_band_brings_the_fish_in(t: TestHarness) -> v
 	for i in int(round(3.0 / step)):
 		if s.state != Sim.FIGHTING or s.running or s.tell > 0.0:
 			break
-		if s.tension < (Tuning.SAFE_LO + Tuning.SAFE_HI) * 0.5:
-			s.tap()
+		s.set_reeling(s.tension < (Tuning.SAFE_LO + Tuning.SAFE_HI) * 0.5)
 		s.advance(step)
 	t.lt(s.fish_distance, start, "keeping the needle in the band gained no line")
+
+
+## GREED IS THE RISK DIAL: the top of the band hauls harder than the bottom.
+##
+## The property that turns the fight from a maintenance task into a choice, and
+## the one thing a player can feel but no existing assertion covered. Measured on
+## the pure function so the two ends are compared with nothing else moving.
+func test_the_top_of_the_band_hauls_harder_than_the_bottom(t: TestHarness) -> void:
+	var low := Tuning.greed(Tuning.SAFE_LO)
+	var high := Tuning.greed(Tuning.SAFE_HI)
+	t.gt(high, low * 1.5,
+		"the top of the band hauls %.2f against the bottom's %.2f - there is nothing to weigh" % [high, low])
+	t.gt(low, 0.0, "the bottom of the band hauls nothing at all, so it is not a choice")
+	var mid := Tuning.greed((Tuning.SAFE_LO + Tuning.SAFE_HI) * 0.5)
+	t.gt(mid, low, "the dial does not rise through the band")
+	t.lt(mid, high, "the dial does not rise through the band")
 
 
 func test_a_slack_line_lets_the_fish_take_line_back(t: TestHarness) -> void:
@@ -422,18 +494,18 @@ func test_a_run_is_announced_before_it_starts(t: TestHarness) -> void:
 	t.ok(tell_led_the_run, "a warning fired but no run followed it")
 
 
-func test_tapping_through_a_run_is_what_breaks_the_line(t: TestHarness) -> void:
+func test_holding_through_a_run_is_what_breaks_the_line(t: TestHarness) -> void:
 	var s := _sim_running()
 	t.ok(s != null, "a run can be reached")
 	if s == null:
 		return
 	var step := 1.0 / 60.0
+	s.set_reeling(true)
 	for i in int(round(8.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
-		s.tap()
 		s.advance(step)
-	t.eq(s.state, Sim.LOST, "tapping through a run costs nothing")
+	t.eq(s.state, Sim.LOST, "holding REEL through a run costs nothing")
 
 
 func test_playing_it_properly_lands_the_fish(t: TestHarness) -> void:
@@ -625,18 +697,82 @@ func _strike_into_take(into: float) -> Sim:
 
 
 ## Play one whole fight tapping at a fixed rate, and report where it ended.
-func _play_fight_with_taps(rate: float) -> String:
-	var s := _sim_fighting()
+## Play a whole fight at ONE fixed duty cycle and report how it ended. 0.0 is a
+## thumb that never touches the button, 1.0 is one that never leaves it.
+func _play_fight_at_duty(duty: float) -> String:
+	var s := _deep_fight()
 	if s == null:
 		return "unreachable"
 	var step := 1.0 / 60.0
-	var due := 0.0
+	var cycle := 0.9
+	var phase := 0.0
 	for i in int(round(60.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
-		due += rate * step
-		while due >= 1.0:
-			s.tap()
-			due -= 1.0
+		phase = fmod(phase + step, cycle)
+		s.set_reeling(phase < cycle * duty)
 		s.advance(step)
 	return s.state
+
+
+## As `_play_fight_at_duty`, but reporting how long the fight took as well, so a
+## claim can be about SPEED rather than only about the outcome.
+func _play_fight_at_duty_timed(duty: float) -> Dictionary:
+	var s := _deep_fight()
+	if s == null:
+		return {"state": "unreachable", "seconds": 0.0}
+	var step := 1.0 / 60.0
+	var cycle := 0.9
+	var phase := 0.0
+	var elapsed := 0.0
+	for i in int(round(60.0 / step)):
+		if s.state != Sim.FIGHTING:
+			break
+		phase = fmod(phase + step, cycle)
+		s.set_reeling(phase < cycle * duty)
+		s.advance(step)
+		elapsed += step
+	return {"state": s.state, "seconds": elapsed}
+
+
+## How long ACTIVE play takes to land the same fish, so "fast" can be measured
+## against the game rather than against a number somebody typed.
+func _play_fight_actively() -> float:
+	var s := _deep_fight()
+	if s == null:
+		return 0.0
+	var step := 1.0 / 60.0
+	var mem := {}
+	var elapsed := 0.0
+	for i in int(round(60.0 / step)):
+		if s.state != Sim.FIGHTING:
+			break
+		Policies.act(Policies.ANGLER, s, step, mem)
+		s.advance(step)
+		elapsed += step
+	return elapsed if s.state == Sim.HOLDING else 0.0
+
+
+## A fight against a DEEP fish, set up directly the way `scripts/balance.gd` does.
+##
+## Claims about whether the fight can be beaten by a fixed setting have to be made
+## in water where the fight is a fight. `_sim_fighting` hooks whatever the opening
+## reeds give it, and a tutorial fish is SUPPOSED to be landable without much
+## attention - measuring the "no setting wins" claim there is the same mistake
+## NOTES.md already records once: measure a claim in the water the claim is about.
+func _deep_fight() -> Sim:
+	var s := Sim.new(1)
+	var row := Species.by_id("trout")
+	if row.is_empty():
+		return null
+	s.cast_distance = Tuning.CAST_MAX
+	s.fish_id = str(row["id"])
+	s.fish_weight = float(row["weight_lo"])
+	s.fish_distance = Tuning.CAST_MAX
+	s.fish_stamina = 1.0
+	s.tension = Tuning.SAFE_LO
+	s.running = false
+	s.phase_time = 2.0
+	s.state = Sim.FIGHTING
+	s.state_time = 0.0
+	return s

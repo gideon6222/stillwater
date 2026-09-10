@@ -114,6 +114,8 @@ var fish_weight: float = 0.0
 var fish_distance: float = 0.0    ## metres from the boat
 var fish_stamina: float = 1.0     ## [0, 1], falls as it tires
 var fight_time: float = 0.0       ## seconds this fish has been on
+## THE REEL BUTTON, held or not. See `set_reeling` and Tuning.HOLD_RISE.
+var reeling := false
 
 # --- MINIGAME 1: the nibble -----------------------------------------------
 ## The fish teases the bait a few times - short shallow tugs that pop straight
@@ -226,9 +228,10 @@ func tap() -> void:
 		NIBBLING:
 			_strike()
 		FIGHTING:
-			taps += 1
-			tension = clampf(tension + Tuning.TAP_KICK, 0.0, Tuning.TENSION_MAX)
-			tapped.emit()
+			# NOTHING. The fight is held, not tapped - see `set_reeling`. The
+			# stand-in is deleted in the same commit as the real thing, so there
+			# is no second way to add tension that could drift from the first.
+			pass
 		WAITING:
 			# **A tap on a dead cast winds the line in.** It used to spook, which
 			# left a player waiting for a bite that never came with NO way back to
@@ -367,6 +370,11 @@ func danger() -> float:
 func _enter(next: String) -> void:
 	state = next
 	state_time = 0.0
+	# A HELD BUTTON MUST NOT LEAK OUT OF THE FIGHT. The thumb can still be down
+	# when the fish lands or the line parts, and a `reeling` left true would then
+	# be pulling on the next cast before it was made.
+	if next != FIGHTING:
+		reeling = false
 
 
 func _clear_fish() -> void:
@@ -615,6 +623,11 @@ func _fight(dt: float) -> void:
 		tension = clampf(tension + Tuning.RUN_PULL * power * dt, 0.0, Tuning.TENSION_MAX)
 		fish_distance += Tuning.RUN_GAIN * power * dt
 
+	# THE PLAYER'S OWN PULL, while the REEL button is down. Continuous rather
+	# than a tap's instant kick, so the thumb has one job and one resting state.
+	if reeling:
+		tension = clampf(tension + Tuning.HOLD_RISE * dt, 0.0, Tuning.TENSION_MAX)
+
 	tension = maxf(0.0, tension - Tuning.TAP_DECAY * tension * dt)
 
 	if tension > Tuning.SAFE_HI:
@@ -629,10 +642,15 @@ func _fight(dt: float) -> void:
 		strain = maxf(0.0, strain - Tuning.STRAIN_RECOVER * dt)
 
 	if Tuning.in_band(tension):
+		# HOW HIGH IN THE BAND IS THE RISK DIAL. The top hauls two and a half
+		# times as fast as the bottom and sits one step from the strain zone, so
+		# the player chooses their own pace against their own nerve rather than
+		# holding a needle in the middle of a green stripe.
+		var greed := Tuning.greed(tension)
 		var haul: float = s["haul"]
-		fish_distance = maxf(0.0, fish_distance - Tuning.REEL_RATE * haul * dt)
+		fish_distance = maxf(0.0, fish_distance - Tuning.REEL_RATE * haul * greed * dt)
 		var stam: float = s["stamina"]
-		fish_stamina = maxf(0.0, fish_stamina - (Tuning.TIRE_RATE / stam) * dt)
+		fish_stamina = maxf(0.0, fish_stamina - (Tuning.TIRE_RATE / stam) * greed * dt)
 	elif tension < Tuning.SAFE_LO:
 		# Slack. The fish takes line back rather than throwing the hook, so not
 		# tapping enough is a slow bleed and not a sudden death - one clear
@@ -801,3 +819,15 @@ func sleep() -> void:
 ## Sell the livewell. Returns what it paid so the shed can say it out loud.
 func sell() -> int:
 	return econ.sell_all()
+
+
+## HOLD TO REEL. The renderer calls this on press and on release.
+##
+## Separate from `tap()`, which stays for the STRIKE - the one place a discrete
+## press is still the right verb, because striking is an instant, not a duration.
+## Two names for two genuinely different actions rather than one overloaded one.
+func set_reeling(on: bool) -> void:
+	if state != FIGHTING:
+		reeling = false
+		return
+	reeling = on
