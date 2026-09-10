@@ -40,6 +40,23 @@ passing: the answer is not "they score less", it is "they cannot continue".
   shipped at once partly because the single screenshot taken of them landed mid-fight, the one
   state in which none of them show.
 
+## The tools, and what each one has actually been run on
+
+Framework v2 landed here on 2026-09-09. Every tool below has been run on this game rather
+than merely copied in, because the template's own notes shipped them marked "not yet run on
+this machine".
+
+| Tool | Proven by |
+|---|---|
+| `scripts\check.ps1` | The gate, green: import, 97 tests / 10,810 assertions, 327 smoke, size. ~15 s |
+| `scripts\movie.ps1` | Filmed `idle` and `first-cast`. Contact sheets read correctly |
+| `scripts\replay_player.gd` | `first-cast.json` drives the title, the gate, the walk down and a cast |
+| `scripts\device.ps1` | **Not yet** — needs the phone on the desk. `/playtest phone` is the next thing |
+
+The one number to know before filming: a second of film is about 60 full-resolution PNGs and
+150 MB, so sixteen seconds is 2.4 GB and several minutes. Film the shortest run that shows
+the thing, and `build/` is gitignored, so clear `build/movie/*/frame*.png` when done.
+
 ## The fight, and why it is built this way
 
 **This is the THIRD fight.** The first two are worth knowing about, because both
