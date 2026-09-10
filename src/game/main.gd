@@ -36,6 +36,8 @@ var _cast_area: Control
 var _rod: MeshInstance3D
 var _wake: MeshInstance3D
 var _tension_bar: Control
+var _needle := 0.0
+var _needle_v := 0.0
 var _menus: Menus
 var _dock: HBoxContainer
 var _world_line: Label
@@ -70,6 +72,13 @@ var _boat_pose := Transform3D.IDENTITY
 var _drag_from := Vector2.ZERO
 var _drag_moved := 0.0
 var _touching := false
+var _stick: Control
+var _stick_held := false
+var _stick_from := Vector2.ZERO
+var _stick_to := Vector2.ZERO
+var _stick_vec := Vector2.ZERO
+var _crosshair: Control
+var _charge_ring: Control
 var _boat_heave := 0.0
 var _boat_pitch := 0.0
 var _boat_roll := 0.0
@@ -119,12 +128,16 @@ var _charging := false
 ## Only the REEL has a gauge. Minigame 1 is the float being pulled under, in the
 ## world, with no HUD at all - which is the third note: "just watching the rod or
 ## bobber pull down... make it look like a fish is nibbling on the bait".
-const BAR_W := 0.62           ## fraction of screen width
-const GAUGE_TOP := 235.0      ## tension gauge, from the top edge
-const GAUGE_H := 42.0
+const BAR_W := 0.78           ## fraction of screen width
+const GAUGE_TOP := 196.0      ## tension gauge, from the top edge
+const GAUGE_H := 96.0
 
 ## How far the float is pulled under at a full take, in metres. Deep enough that
 ## a tease and a take are obviously different depths at cast range.
+## The printed page's own resolution. Named because the hit test divides by it,
+## and when the two disagreed a tap on the middle of the page turned it back.
+const BOOK_PAGE_PX := Vector2i(1024, 566)
+
 const FLOAT_DIP := 0.34
 
 ## How far the rod bends forward under load, in degrees.
@@ -288,6 +301,8 @@ func _build_world() -> void:
 	_build_weather()
 	_build_grade()
 	_build_hud()
+	_build_stick()
+	_build_crosshair()
 	_build_sequence_line()
 	_build_title()
 
@@ -333,6 +348,7 @@ func _build_water() -> void:
 	m.set_shader_parameter("gloss", 1.0)
 	m.set_shader_parameter("beam", 1.0)
 	m.set_shader_parameter("ripple", 1.0)
+	m.set_shader_parameter("clarity", 0.30)
 	_water.material_override = m
 	_water_mat = m
 	add_child(_water)
@@ -391,7 +407,7 @@ static func _wave_glsl_sum(dst: String, coord: String) -> String:
 
 const WATER_SHADER := """
 shader_type spatial;
-render_mode specular_schlick_ggx, cull_disabled;
+render_mode specular_schlick_ggx, cull_disabled, depth_draw_always;
 
 uniform vec4 shallow : source_color;
 uniform vec4 deep : source_color;
@@ -408,6 +424,8 @@ uniform float gloss = 1.0;
 uniform float beam = 1.0;
 // How hard the fine ripple bites. Rises with the weather's chop.
 uniform float ripple = 1.0;
+// How see-through the surface gets, and only where it is nearly underfoot.
+uniform float clarity = 0.30;
 
 varying vec3 world_pos;
 
@@ -546,6 +564,22 @@ __WAVE_TAPS__
 	// toward a flat colour was the sky being counted twice - which is most of why
 	// the lake came out as a white sheet the moment a real sky went in.
 	ALBEDO = mix(body, sky.rgb, clamp(fres, 0.0, 0.30));
+
+	// TRANSLUCENT, BUT ONLY CLOSE, AND NEVER A WINDOW.
+	//
+	// Gideon: "can you make the water appear slightly translucent without
+	// showing fish under the water". Both halves matter. Water you can see a
+	// little way into reads as a liquid rather than as a lid; water you can see
+	// THROUGH shows the fish, and the fish being invisible under the surface is
+	// the entire first minigame - you are meant to be reading the float, not
+	// watching what is coming for it.
+	//
+	// So the transparency is capped low, falls off with distance, and closes
+	// completely at a grazing angle where a real lake also becomes a mirror.
+	// The fish swim well below the depth this reaches.
+	float near_edge = clamp(1.0 - length(VERTEX) / 7.0, 0.0, 1.0);
+	float straight_on = clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0);
+	ALPHA = 1.0 - clarity * near_edge * straight_on * (1.0 - clamp(fres, 0.0, 1.0));
 	ROUGHNESS = mix(mix(0.30, 0.07, gloss), 0.34, murk);
 	METALLIC = 0.0;
 	SPECULAR = 0.85 * beam;
@@ -642,16 +676,36 @@ func _build_boat() -> void:
 	# The gunwale, capping the top edge of the skin on each side. Swept, because
 	# a chain of short boxes was tried here first and read as floating debris -
 	# every joint leaves a gap and every end cap catches the light on its own.
+	#
+	# **SAMPLED AT THE HULL'S OWN STATIONS, over the hull's own z range.** It used
+	# to run 15 points from -0.80 while the skin runs 22 from -0.85, so the two
+	# polylines approximated the same curve at different places and crossed each
+	# other between samples. Where the skin's chord stepped outboard of the rail's
+	# chord it left a slit a fraction of a pixel wide along the whole sheer - and
+	# a slit in a hull is a hole to the sky. It photographed as a dashed white
+	# hairline running the length of the port rail, which read as an artefact
+	# rather than as a gap and survived three passes looking for a shader.
 	for side in [-1.0, 1.0]:
 		var rail_pts: Array[Vector3] = []
-		for i in 15:
-			var t := float(i) / 14.0
-			var z: float = -0.80 + t * 3.05
+		for i in HULL_STATIONS:
+			var t := float(i) / float(HULL_STATIONS - 1)
+			var z: float = -0.85 + t * 3.10
 			rail_pts.append(Vector3(side * _hull_half_width(z), _hull_rim_y(z), z))
 		var rail := MeshInstance3D.new()
-		rail.mesh = _sweep(rail_pts, 0.105, 0.085)
+		# HEAVY ENOUGH TO SWALLOW THE PLANKING'S LIP. The skin now runs 0.16 rad
+		# past the rim, which is at most 50 mm of upstand at the widest station;
+		# the bar is 120 mm deep so it reaches 60 mm either side of the sheer and
+		# the lip stays inside it. Raise the overshoot without raising this and
+		# the lip pokes out through the top of the rail, where its lit edge is the
+		# same white hairline again, only brighter - which is exactly what the
+		# first attempt at 0.24 rad photographed as.
+		rail.mesh = _sweep(rail_pts, 0.130, 0.120)
 		rail.material_override = rail_mat
-		rail.name = "Gunwale"
+		# NAMED PER SIDE. Two nodes called "Gunwale" meant Godot renamed the second
+		# one, and a diagnostic that hides "Gunwale" then silently hides one rail
+		# and reports success - which cost a full pass chasing a hairline on the
+		# port sheer with the starboard rail switched off.
+		rail.name = "GunwalePort" if side < 0.0 else "GunwaleStarboard"
 		_boat.add_child(rail)
 
 	# A coil of rope on the thwart. Tiny, and it is the whole difference between
@@ -1356,22 +1410,48 @@ func _build_hud() -> void:
 	_action.focus_mode = Control.FOCUS_NONE
 	_action.add_theme_font_size_override("font_size", 36)
 	var abox := StyleBoxFlat.new()
-	abox.bg_color = Color(0.16, 0.115, 0.075, 0.90)
-	abox.border_color = Color(0.88, 0.72, 0.40, 0.62)
+	abox.bg_color = Color(0.135, 0.098, 0.062, 0.92)
+	abox.border_color = Color(0.86, 0.68, 0.36, 0.55)
 	abox.set_border_width_all(3)
 	abox.set_corner_radius_all(int(ACTION_SIZE * 0.5))
+	# A cast ring on a lake wants to look like something wet and brass, not like
+	# a UI chip: a warm inner glow and a shadow that lifts it off the water.
+	abox.shadow_color = Color(0, 0, 0, 0.45)
+	abox.shadow_size = 10
+	abox.shadow_offset = Vector2(0, 5)
 	_action.add_theme_stylebox_override("normal", abox)
 	_action.add_theme_stylebox_override("hover", abox)
 	var apress := abox.duplicate() as StyleBoxFlat
-	apress.bg_color = Color(0.36, 0.26, 0.14, 0.96)
-	apress.border_color = Color(0.98, 0.86, 0.56, 0.92)
+	apress.bg_color = Color(0.42, 0.30, 0.15, 0.97)
+	apress.border_color = Color(1.0, 0.90, 0.62, 1.0)
+	# Pressed sits DOWN and loses its shadow, which is the cheapest way to make
+	# a button feel like it took the press rather than merely noticed it.
+	apress.shadow_size = 3
+	apress.shadow_offset = Vector2(0, 1)
 	_action.add_theme_stylebox_override("pressed", apress)
 	_action.add_theme_color_override("font_color", Color(0.96, 0.90, 0.76))
 	_action.add_theme_color_override("font_hover_color", Color(0.96, 0.90, 0.76))
 	_action.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
 	_action.name = "Action"
-	_action.pressed.connect(_on_action)
+	# `button_down` / `button_up`, not `pressed`. A click fires on RELEASE, which
+	# cannot express "hold to load".
+	_action.button_down.connect(_cast_pressed)
+	_action.button_up.connect(_cast_released)
 	_ui.add_child(_action)
+
+	# THE CHARGE READS ON THE BUTTON ITSELF. The rod pulling back says how far
+	# the cast will go, but the rod is at the top of the screen and the thumb is
+	# at the bottom - so the ring fills under the thumb as well.
+	_charge_ring = Control.new()
+	_charge_ring.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_charge_ring.offset_left = -ACTION_SIZE - 46
+	_charge_ring.offset_right = -46
+	_charge_ring.offset_top = -ACTION_SIZE - 150 - SAFE_BOTTOM
+	_charge_ring.offset_bottom = -150 - SAFE_BOTTOM
+	_charge_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_charge_ring.name = "ChargeRing"
+	_charge_ring.draw.connect(_draw_charge_ring)
+	_ui.add_child(_charge_ring)
 
 	# USE, above the action and only when there is something to use. Same corner,
 	# same thumb, deliberately smaller and cooler - it is the second verb, not a
@@ -1407,15 +1487,20 @@ func _build_hud() -> void:
 	# the player reads instead of the water.
 	_hint = Label.new()
 	_hint.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	# ABOVE the controls, not across them. The stick well reaches 457 px up from
+	# the bottom and the cast ring 464; a caption at 244 was printed over both.
 	_hint.offset_left = 40
 	_hint.offset_right = -40
-	_hint.offset_top = -244 - SAFE_BOTTOM
-	_hint.offset_bottom = -196 - SAFE_BOTTOM
+	_hint.offset_top = -600 - SAFE_BOTTOM
+	_hint.offset_bottom = -540 - SAFE_BOTTOM
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.add_theme_font_size_override("font_size", 26)
-	_hint.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82, 0.62))
-	_hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
-	_hint.add_theme_constant_override("outline_size", 6)
+	# It now sits over the boat's own planks rather than over water, and pale
+	# varnished pine at dawn is almost exactly this grey - half the sentence
+	# disappeared into the deck. Brighter, with a heavier outline behind it.
+	_hint.add_theme_color_override("font_color", Color(0.98, 0.95, 0.88, 0.88))
+	_hint.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.03, 0.92))
+	_hint.add_theme_constant_override("outline_size", 10)
 	_hint.name = "Hint"
 	_ui.add_child(_hint)
 
@@ -1430,11 +1515,15 @@ func _build_hud() -> void:
 	# low contrast. It is read once every few minutes; the action is pressed
 	# every few seconds. Giving them equal weight was the bug.
 	_dock = HBoxContainer.new()
-	_dock.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	# UP AND OUT OF THE WAY. The stick now owns the bottom-left corner, and two
+	# controls in one thumb's rest position is one control the player hits by
+	# mistake. The rooms are read once every few minutes; they can be reached
+	# for.
+	_dock.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_dock.offset_left = 34
-	_dock.offset_right = 640
-	_dock.offset_top = -150 - SAFE_BOTTOM
-	_dock.offset_bottom = -46 - SAFE_BOTTOM
+	_dock.offset_right = 600
+	_dock.offset_top = 196
+	_dock.offset_bottom = 282
 	_dock.add_theme_constant_override("separation", 10)
 	_dock.name = "Dock"
 	_ui.add_child(_dock)
@@ -1442,7 +1531,14 @@ func _build_hud() -> void:
 			[Menus.KIT, "Kit"]]:
 		var screen: String = pair[0]
 		var b := _dock_button(str(pair[1]))
-		b.pressed.connect(func() -> void: _open(screen))
+		if screen == Menus.LOG:
+			# THE REAL BOOK, not the flat page. There were two logbooks - a
+			# notebook lying in the boat and a panel behind a button - and the
+			# button is the one anybody finds, so the object might as well not
+			# have existed.
+			b.pressed.connect(func() -> void: _open_book())
+		else:
+			b.pressed.connect(func() -> void: _open(screen))
 		_dock.add_child(b)
 
 	_load_game()
@@ -1463,8 +1559,10 @@ func _build_hud() -> void:
 	_sounder.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_sounder.offset_left = 34
 	_sounder.offset_right = 366
-	_sounder.offset_top = 300
-	_sounder.offset_bottom = 830
+	# CLEAR OF THE GAUGE. The tension dial now reaches 292 px down plus its
+	# shadow, and two instruments whose cases touch read as one broken one.
+	_sounder.offset_top = 334
+	_sounder.offset_bottom = 848
 	_sounder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_sounder.name = "Sounder"
 	_sounder.draw.connect(_draw_sounder)
@@ -1571,6 +1669,15 @@ func _sync_bars() -> void:
 					break
 		else:
 			_hint.text = _hint_for_state()
+	if _stick != null:
+		_stick.visible = not in_room
+		_stick.queue_redraw()
+	if _crosshair != null:
+		_crosshair.visible = not in_room and sim.state != Sim.HOLDING
+		_crosshair.queue_redraw()
+	if _charge_ring != null:
+		_charge_ring.visible = not in_room and sim.state == Sim.CHARGING
+		_charge_ring.queue_redraw()
 	if _sounder != null:
 		# Visibility HERE, never inside the draw callback - see the note above.
 		_sounder.visible = sim.econ.has_sounder and not in_room
@@ -1584,16 +1691,26 @@ func _dock_button(text: String) -> Button:
 	b.focus_mode = Control.FOCUS_NONE
 	b.add_theme_font_size_override("font_size", 28)
 	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.04, 0.07, 0.08, 0.55)
-	box.set_corner_radius_all(6)
+	box.bg_color = Color(0.048, 0.062, 0.068, 0.72)
+	box.border_color = Color(0.72, 0.58, 0.32, 0.34)
+	box.set_border_width_all(2)
+	box.set_corner_radius_all(8)
+	box.shadow_color = Color(0, 0, 0, 0.32)
+	box.shadow_size = 6
+	box.shadow_offset = Vector2(0, 3)
 	b.add_theme_stylebox_override("normal", box)
 	b.add_theme_stylebox_override("hover", box)
 	var press := box.duplicate() as StyleBoxFlat
-	press.bg_color = Color(0.13, 0.19, 0.20, 0.85)
+	press.bg_color = Color(0.26, 0.19, 0.10, 0.92)
+	press.border_color = Color(0.98, 0.86, 0.56, 0.85)
+	# Down, and the shadow goes with it - the same press the cast ring uses, so
+	# every button on the boat answers a thumb the same way.
+	press.shadow_size = 2
+	press.shadow_offset = Vector2(0, 1)
 	b.add_theme_stylebox_override("pressed", press)
-	b.add_theme_color_override("font_color", Color(0.90, 0.88, 0.80, 0.72))
-	b.add_theme_color_override("font_hover_color", Color(0.90, 0.88, 0.80, 0.72))
-	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	b.add_theme_color_override("font_color", Color(0.94, 0.89, 0.78, 0.84))
+	b.add_theme_color_override("font_hover_color", Color(0.94, 0.89, 0.78, 0.84))
+	b.add_theme_color_override("font_pressed_color", Color(1, 0.97, 0.90))
 	return b
 
 
@@ -1617,57 +1734,6 @@ func _open(screen: String) -> void:
 ## The part that teaches the mechanic without a word of text: during a RUN the
 ## needle climbs with the player's thumb completely still, and they work out on
 ## their own that the answer is to stop tapping.
-func _draw_tension_bar() -> void:
-	if sim.state != Sim.FIGHTING:
-		return
-	var w := _tension_bar.size.x
-	var h := _tension_bar.size.y
-
-	_tension_bar.draw_rect(Rect2(0, 0, w, h), Color(0.04, 0.07, 0.09, 0.72))
-
-	var lo := Tuning.SAFE_LO / Tuning.TENSION_MAX * w
-	var hi := Tuning.SAFE_HI / Tuning.TENSION_MAX * w
-	var good := sim.in_band()
-	_tension_bar.draw_rect(Rect2(lo, 2, hi - lo, h - 4),
-		Color(0.42, 0.86, 0.48, 0.42 if good else 0.24))
-
-	# The danger end, filling as the line takes strain.
-	if sim.strain > 0.0:
-		_tension_bar.draw_rect(Rect2(hi, 2, w - hi, h - 4),
-			Color(0.92, 0.30, 0.24, 0.25 + 0.6 * sim.strain))
-
-	var nx := clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0) * w
-	var ncol := Color(0.70, 0.98, 0.74) if good else Color(0.98, 0.55, 0.38)
-	_tension_bar.draw_rect(Rect2(nx - 3.0, -8, 6.0, h + 16), ncol)
-
-	_tension_bar.draw_rect(Rect2(0, 0, w, h), Color(0.88, 0.90, 0.86, 0.35), false, 2.0)
-
-	# A run, said in the gauge's own language: the frame flashes rather than a
-	# caption appearing. The needle climbing on its own is the real instruction;
-	# this only makes it impossible to miss.
-	if sim.running or sim.tell > 0.0:
-		var pulse := 0.45 + 0.35 * sin(sim.time * 14.0)
-		_tension_bar.draw_rect(Rect2(-4, -4, w + 8, h + 8),
-			Color(0.98, 0.72, 0.30, pulse), false, 4.0)
-
-
-## One touch surface: **tap**.
-##
-## Hold to cast, release to send it, then tap for both minigames. That the whole
-## fight is one gesture is the point - the previous version had three different
-## responses to three situations, and the note on it was that it was not
-## intuitive to tell what you were supposed to do.
-## DRAG LOOKS, STILL-HOLD CASTS, TAP TAPS.
-##
-## One finger has to carry three verbs, and the discriminator is MOVEMENT rather
-## than time - which is the only one that works here, because charging a cast is
-## itself a long press. A held finger that has not moved is loading a cast; the
-## moment it travels past `LOOK_SLOP` it becomes a look and the charge is
-## abandoned. Quick taps never travel, so the fight is untouched.
-##
-## Getting this wrong in the other direction - time-based - would mean the player
-## cannot look around without accidentally casting, which is exactly the kind of
-## thing that reads as "clunky" without being nameable.
 ## Diameter of the round action button, on the 1080-wide base canvas.
 const ACTION_SIZE := 260
 
@@ -1675,33 +1741,126 @@ const ACTION_SIZE := 260
 ##
 ## A fixed number rather than `DisplayServer.get_display_safe_area()`, because
 ## that returns the WINDOW on a desktop run and would move the whole HUD between
-## the phone and every screenshot taken here - which is exactly the class of bug
-## that shipped when controls were positioned against a literal 1920. 54 px on
-## the 1080 base is a little over the gesture bar on an S26 Ultra, and costs
-## nothing anywhere else.
+## the phone and every screenshot taken here.
 const SAFE_BOTTOM := 54
 
 const LOOK_SLOP := 14.0        ## pixels before a press becomes a look
-
-## HOW FAR A SWIPE TURNS YOU, expressed as the thing that can be judged: what
-## fraction of the screen you have to drag to look from one shoulder to the
-## other. Mobile convention is roughly a full screen width per 90-180 degrees;
-## the first version was 0.0042 rad/px, which turned the full 120-degree range in
-## a QUARTER of a screen width. The note was "the turning is really fast", and it
-## was - by about four times.
-##
-## Derived rather than typed, so the sensitivity and the limits cannot drift
-## apart the way two hand-tuned constants do.
 const LOOK_YAW_LIMIT := 1.05   ## how far round you can turn in the seat (60 deg)
 const LOOK_PITCH_LIMIT := 0.40
 const LOOK_SWEEP := 1.15       ## screen widths to travel the whole yaw range
 const LOOK_BASE_WIDTH := 1080.0
-
-## How hard the view chases the finger. Below 1 the camera eases in behind the
-## drag, which removes the twitch that raw pixel deltas give on a touch screen -
-## a finger reports in jumps, and a camera bolted straight to those jumps reads
-## as cheap however correct the sensitivity is.
 const LOOK_FOLLOW := 16.0
+
+## How far the stick's knob travels, and how fast a fully pushed stick turns you.
+## Radians per second at full deflection - about four seconds from shoulder to
+## shoulder, which is a person turning to look rather than a turret.
+const STICK_RADIUS := 118.0
+const LOOK_RATE := 0.62
+
+
+func _draw_tension_bar() -> void:
+	if sim.state != Sim.FIGHTING:
+		return
+	var w := _tension_bar.size.x
+	var h := _tension_bar.size.y
+
+	# A BRASS SCALE, not a progress bar.
+	#
+	# It is the one instrument the player reads continuously, so it is drawn to
+	# match the boat rather than to match a UI kit: a lacquered ground, an
+	# engraved scale, a brass bezel and a needle on a pivot. Everything is sized
+	# off `h`, so the whole thing scales with one constant instead of nineteen
+	# hand-placed numbers going out of step.
+	var pad := h * 0.09
+	var face := Rect2(pad, pad, w - pad * 2.0, h - pad * 2.0)
+	var lo := face.position.x + Tuning.SAFE_LO / Tuning.TENSION_MAX * face.size.x
+	var hi := face.position.x + Tuning.SAFE_HI / Tuning.TENSION_MAX * face.size.x
+	var good := sim.in_band()
+
+	# The case. A style box rather than draw_rect, because a rounded corner and
+	# a drop shadow are the two cheapest things that stop a HUD element looking
+	# like it was pasted on.
+	var case := StyleBoxFlat.new()
+	case.bg_color = Color(0.055, 0.070, 0.078, 0.90)
+	case.border_color = Color(0.72, 0.58, 0.32, 0.75)
+	case.set_border_width_all(3)
+	case.set_corner_radius_all(int(h * 0.16))
+	case.shadow_color = Color(0, 0, 0, 0.45)
+	case.shadow_size = 9
+	case.shadow_offset = Vector2(0, 4)
+	_tension_bar.draw_style_box(case, Rect2(Vector2.ZERO, _tension_bar.size))
+
+	# The safe band. It BREATHES when you are in it, which is the whole feedback
+	# loop: the player should be able to tell without looking straight at it.
+	var pulse := 0.0
+	if good:
+		pulse = 0.13 + 0.09 * sin(sim.fight_time * 7.0)
+	var band := StyleBoxFlat.new()
+	band.bg_color = Color(0.42, 0.74, 0.40, (0.24 if good else 0.11) + pulse)
+	band.set_corner_radius_all(int(h * 0.09))
+	_tension_bar.draw_style_box(band,
+		Rect2(lo, face.position.y, hi - lo, face.size.y))
+	# Its edges, which are the two numbers that actually matter.
+	for x in [lo, hi]:
+		_tension_bar.draw_rect(
+			Rect2(x - 1.5, face.position.y, 3.0, face.size.y),
+			Color(0.66, 0.90, 0.60, 0.62))
+
+	# STRAIN, creeping in from the right as the line starts to go. Drawn before
+	# the ticks so the engraving stays on top of it.
+	if sim.strain > 0.01:
+		_tension_bar.draw_rect(
+			Rect2(hi, face.position.y, (face.end.x - hi) * sim.strain, face.size.y),
+			Color(0.82, 0.24, 0.18, 0.18 + 0.48 * sim.strain))
+
+	# The engraved scale. Long marks every fifth, hanging from the top edge, so
+	# the needle has something to move against and the band has a width.
+	for i in 21:
+		var tx := face.position.x + face.size.x * float(i) / 20.0
+		var tall := face.size.y * (0.34 if i % 5 == 0 else 0.19)
+		_tension_bar.draw_rect(Rect2(tx - 1.0, face.position.y, 2.0, tall),
+			Color(0.90, 0.84, 0.68, 0.30 if i % 5 == 0 else 0.16))
+
+	# WHAT IT IS AND HOW FAR OFF THE FISH IS, on the face of the dial. The
+	# distance used to float in the middle of the lake in 44 pt type, which put
+	# the two numbers the fight is about at opposite ends of the screen.
+	var font := ThemeDB.fallback_font
+	_tension_bar.draw_string(font,
+		Vector2(face.position.x + 10, face.end.y - face.size.y * 0.16),
+		"LINE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(h * 0.20),
+		Color(0.86, 0.78, 0.60, 0.42))
+	_tension_bar.draw_string(font,
+		Vector2(face.position.x, face.end.y - face.size.y * 0.16),
+		"%.1f m" % sim.fish_distance, HORIZONTAL_ALIGNMENT_RIGHT,
+		int(face.size.x - 10), int(h * 0.24), Color(0.98, 0.92, 0.76, 0.72))
+
+	# THE NEEDLE, on a smoothed value with overshoot - see `_sync_needle`. Warm
+	# where it should be, hot where it should not, with a glow behind it and a
+	# pivot under it so it reads as a moving part rather than a marker.
+	var nx := face.position.x + clampf(_needle, 0.0, 1.0) * face.size.x
+	var col := Color(0.99, 0.90, 0.62) if good else Color(0.97, 0.50, 0.32)
+	_tension_bar.draw_rect(Rect2(nx - h * 0.10, face.position.y, h * 0.20, face.size.y),
+		Color(col.r, col.g, col.b, 0.14))
+	_tension_bar.draw_rect(Rect2(nx - 2.5, face.position.y - pad * 0.4, 5.0,
+		face.size.y + pad * 0.8), col)
+	_tension_bar.draw_circle(Vector2(nx, h * 0.5), h * 0.15,
+		Color(col.r, col.g, col.b, 0.92))
+	_tension_bar.draw_circle(Vector2(nx, h * 0.5), h * 0.07, Color(0.10, 0.09, 0.08))
+
+
+## The needle has WEIGHT. It chases the true tension with a spring rather than
+## snapping to it, so a tap kicks it and it settles back - which is the
+## difference between a readout that reports the number and an instrument that
+## answers the thumb. The rules never see this value; it is presentation only.
+func _sync_needle(dt: float) -> void:
+	var want := clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0)
+	# Stiff enough to keep up with a run, loose enough to overshoot a tap by a
+	# few per cent and swing back inside about a fifth of a second.
+	_needle_v += (want - _needle) * 168.0 * dt
+	_needle_v *= exp(-13.0 * dt)
+	_needle += _needle_v * dt
+	_needle = clampf(_needle, -0.04, 1.04)
+
 
 func _on_cast_input(event: InputEvent) -> void:
 	if event is InputEventScreenDrag:
@@ -1738,33 +1897,117 @@ func _on_cast_input(event: InputEvent) -> void:
 		_cast_area.accept_event()
 		return
 
+	# **TOUCHING THE WATER NEVER CASTS.** It used to load the rod, which meant
+	# every stray tap - reaching for a button, steadying the phone, tapping a
+	# thing in the boat - pulled the rod back. Casting belongs to the cast
+	# button and nothing else; the water is only ever a tap on the fish.
 	if pressed:
 		_touching = true
 		_drag_from = at
 		_drag_moved = 0.0
 		match sim.state:
 			Sim.IDLE, Sim.HOLDING, Sim.LOST:
-				sim.hold_cast()
-				_charging = true
+				pass
 			_:
 				sim.tap()
 	else:
 		_touching = false
-		if _charging:
-			_charging = false
-			if _drag_moved > LOOK_SLOP:
-				# It turned out to be a look. Put the rod down rather than firing
-				# a cast the player never asked for.
-				sim.cancel_cast()
-			else:
-				if _audio != null and sim.state == Sim.CHARGING:
-					_audio.play("cast", -5.0)
-				# The cast goes WHERE YOU ARE LOOKING. Aim is the whole reason
-				# the look control earns its place - without it, turning the
-				# head is scenery.
-				_cast_yaw = _look_yaw
-				sim.release_cast()
 	_cast_area.accept_event()
+
+
+## HOLD THE BUTTON TO LOAD THE ROD, LET GO TO THROW IT.
+##
+## Gideon: "I want holding the cast button to pull back the rod, then flick
+## forward when you release it." Which is also how a cast actually works, and it
+## puts the charge under a thumb that is not covering the water.
+func _cast_pressed() -> void:
+	match sim.state:
+		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+			sim.hold_cast()
+			_charging = true
+		Sim.NIBBLING:
+			sim.tap()
+		_:
+			# Anything else: the button is a "reel in", and that happens on
+			# release so the press can still show as a press.
+			pass
+
+
+func _cast_released() -> void:
+	if _charging:
+		_charging = false
+		if _audio != null and sim.state == Sim.CHARGING:
+			_audio.play("cast", -5.0)
+		# The cast goes WHERE YOU ARE LOOKING.
+		_cast_yaw = _look_yaw
+		sim.release_cast()
+		return
+	match sim.state:
+		Sim.FLYING, Sim.SINKING, Sim.WAITING, Sim.FIGHTING:
+			sim.reel_in()
+			if _audio != null:
+				_audio.play("reel", -8.0)
+		_:
+			pass
+
+
+## THE STICK. Left thumb, bottom-left, and it holds a direction rather than
+## reporting a movement - which is the difference Gideon is asking for: a drag
+## has to be repeated to keep turning, a stick can simply be held.
+func _stick_input(event: InputEvent) -> void:
+	var pressed := false
+	var at := Vector2.ZERO
+	var moved := false
+	if event is InputEventScreenTouch:
+		pressed = (event as InputEventScreenTouch).pressed
+		at = (event as InputEventScreenTouch).position
+	elif event is InputEventMouseButton:
+		pressed = (event as InputEventMouseButton).pressed
+		at = (event as InputEventMouseButton).position
+	elif event is InputEventScreenDrag:
+		at = (event as InputEventScreenDrag).position
+		moved = true
+	elif event is InputEventMouseMotion:
+		at = (event as InputEventMouseMotion).position
+		moved = _stick_held
+	else:
+		return
+
+	if moved:
+		if _stick_held:
+			_stick_to = at
+	elif pressed:
+		_stick_held = true
+		_stick_from = at
+		_stick_to = at
+	else:
+		_stick_held = false
+		_stick_vec = Vector2.ZERO
+	if _stick != null:
+		_stick.queue_redraw()
+
+
+## Turn the stick's offset into a look rate, once a frame.
+func _sync_stick(dt: float) -> void:
+	if _stick_held:
+		var off := _stick_to - _stick_from
+		var far := off.length()
+		if far > STICK_RADIUS:
+			off = off / far * STICK_RADIUS
+			far = STICK_RADIUS
+		_stick_vec = off / STICK_RADIUS
+	else:
+		_stick_vec = _stick_vec.lerp(Vector2.ZERO, 1.0 - exp(-14.0 * dt))
+
+	# A DEAD ZONE, because a thumb resting on a stick is not an instruction.
+	var mag := _stick_vec.length()
+	if mag < 0.14:
+		return
+	var speed := LOOK_RATE * look_sensitivity * dt
+	_look_yaw_want = clampf(_look_yaw_want - _stick_vec.x * speed,
+		-LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
+	_look_pitch_want = clampf(_look_pitch_want - _stick_vec.y * speed * 0.72,
+		-LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
 
 
 func _apply_look(rel: Vector2) -> void:
@@ -1813,6 +2056,8 @@ func _tick(dt: float) -> void:
 		_title.tick(dt)
 	_sync_sequence(dt)
 	_sync_intro(dt)
+	_sync_stick(dt)
+	_sync_needle(dt)
 	var lk := 1.0 - exp(-LOOK_FOLLOW * dt)
 	_look_yaw = lerpf(_look_yaw, _look_yaw_want, lk)
 	_look_pitch = lerpf(_look_pitch, _look_pitch_want, lk)
@@ -1926,7 +2171,11 @@ func _sync() -> void:
 		# player. Recomputed every frame so the page rides the swell with
 		# everything else rather than floating still above a moving boat.
 		var pose := _book_pose()
-		_cam.transform = Transform3D(Basis.IDENTITY, pose[0]).looking_at(pose[1], Vector3.UP)
+		# The PAGE's up - see `Room3D.frame_pose`. It rides the swell with the
+		# boat because the page does, and it keeps the text level in the frame
+		# even though the book is lying at an angle in the hull.
+		var up: Vector3 = pose[2] if pose.size() > 2 else _boat_pose.basis.y
+		_cam.transform = Transform3D(Basis.IDENTITY, pose[0]).looking_at(pose[1], up)
 	elif _in_sequence:
 		# The camera goes on rails and NOTHING ELSE IS SKIPPED. An early return
 		# here meant the rest of `_sync` never ran during a sequence - so the
@@ -2203,11 +2452,12 @@ func _write_readout() -> void:
 			# instead of the water.
 			line = "WATCH THE FLOAT" if sim.caught == 0 else ""
 		Sim.FIGHTING:
-			# Distance only. No "STOP TAPPING!" during a run - the needle
-			# climbing on its own while the thumb is still says it better than
-			# words, and a caption that says it too means the player reads the
-			# caption forever instead of learning the gauge.
-			line = "%.1f m" % sim.fish_distance
+			# NOTHING. The distance moved onto the face of the gauge, where it
+			# sits beside the tension instead of 700 px away from it: during a
+			# fight the player's eye should have ONE place to go. Floating it
+			# over the middle of the lake in 44 pt also put the game's largest
+			# type on top of the thing the game is about.
+			line = ""
 		Sim.HOLDING:
 			var row := Species.by_id(sim.fish_id)
 			var nm: String = row["name"] if not row.is_empty() else "?"
@@ -2307,6 +2557,11 @@ func _sync_mood(dt: float) -> void:
 			lerpf(gl, clampf(1.0 / float(look["chop"]), 0.0, 1.0), k))
 		var bm: float = _water_mat.get_shader_parameter("beam")
 		_water_mat.set_shader_parameter("beam", lerpf(bm, float(look["specular"]), k))
+		var cl: float = _water_mat.get_shader_parameter("clarity")
+		# Clearer in the reeds, opaque in the deep. Depth is time, and the older
+		# the water the less it gives up.
+		_water_mat.set_shader_parameter("clarity",
+			lerpf(cl, lerpf(0.34, 0.05, _dread), k))
 		var rp: float = _water_mat.get_shader_parameter("ripple")
 		_water_mat.set_shader_parameter("ripple",
 			lerpf(rp, clampf(float(look["chop"]), 0.5, 2.6), k))
@@ -2388,8 +2643,20 @@ func _draw_sounder() -> void:
 	if bed <= 0.01:
 		return
 
-	_sounder.draw_rect(Rect2(0, 0, w, h), Color(0.02, 0.05, 0.06, 0.62))
-	_sounder.draw_rect(Rect2(0, 0, w, h), Color(0.55, 0.78, 0.70, 0.22), false, 2.0)
+	# A CASE, and a screen inside it. At 62% alpha over a bright sky the old flat
+	# rectangle averaged out to mid-grey with hard square corners, which is the
+	# single most placeholder-looking thing that can appear on a screen.
+	var case := StyleBoxFlat.new()
+	case.bg_color = Color(0.018, 0.042, 0.050, 0.88)
+	case.border_color = Color(0.50, 0.72, 0.64, 0.42)
+	case.set_border_width_all(2)
+	case.set_corner_radius_all(12)
+	case.shadow_color = Color(0, 0, 0, 0.40)
+	case.shadow_size = 8
+	case.shadow_offset = Vector2(0, 4)
+	_sounder.draw_style_box(case, Rect2(0, 0, w, h))
+	# The phosphor wash, brightest at the top where the transducer is.
+	_sounder.draw_rect(Rect2(2, 2, w - 4, h * 0.34), Color(0.30, 0.62, 0.55, 0.055))
 
 	# Depth gridlines, every 25% of the bed, labelled in metres. The player reads
 	# this and does the arithmetic that turns metres into years by themselves.
@@ -2718,6 +2985,17 @@ func _wood_mat(albedo: Color, tiling: Vector3) -> StandardMaterial3D:
 	m.albedo_color = albedo
 	m.roughness = 1.0
 	m.uv1_scale = tiling
+	# ANISOTROPIC, AND IT IS THE SINGLE BIGGEST LOOK FIX IN THE GAME.
+	#
+	# Every plank in this boat is seen almost edge on, and the grain tiles seven
+	# to twenty times across it. Without mipmaps at all - which is how these
+	# textures imported, `mipmaps/generate=false` by default - the normal map
+	# aliases into a dither of black and tan speckle across the hull, the floor
+	# and the rail. It reads as compression noise and it is why "the graphics
+	# still dont look very polished". The default trilinear filter fixes the
+	# speckle but smears the grain at a glancing angle, which is exactly the
+	# angle everything here is at; anisotropic keeps both.
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	var n := load("res://assets/tex/wood_normal.jpg")
 	if n != null:
 		m.normal_enabled = true
@@ -3041,8 +3319,19 @@ func _build_hull_mesh() -> ArrayMesh:
 		var fy := _hull_floor_y(z)
 		var ry := _hull_rim_y(z)
 		for j in HULL_ARC:
-			# A half-ellipse from port rim, down round the bilge, up to starboard.
-			var a := PI * float(j) / float(HULL_ARC - 1)
+			# A half-ellipse from port rim, down round the bilge, up to starboard -
+			# and a little PAST the rim at each end.
+			#
+			# The overshoot is the fix for a dashed white hairline that ran the
+			# length of the port sheer in every screenshot ever taken of this
+			# boat. The skin ended exactly at the rim and the gunwale bar was
+			# centred exactly on it, so the two met edge to edge with nothing to
+			# spare; the skin falls away inboard as it descends while the bar's
+			# inner face is straight, and the slit that opens between them is a
+			# hole to the sky. Photographed as an artefact, chased as a shader
+			# bug, and it was a hull with a gap in it. Now the planking runs a few
+			# centimetres up INSIDE the rail, the way real planking does.
+			var a := -0.16 + (PI + 0.32) * float(j) / float(HULL_ARC - 1)
 			var x := -cos(a) * hw
 			var y := fy + (ry - fy) * (1.0 - sin(a))
 			verts.append(Vector3(x, y, z))
@@ -3197,10 +3486,16 @@ func _sync_boat_pose() -> void:
 
 	# The damping IS the boat. A dinghy answers a swell late and rolls further
 	# than it pitches, which is most of what tells you how big the boat is.
+	# **EXAGGERATED, because the camera rides the boat.** A hull that answers the
+	# swell exactly is a hull the player never sees move: the camera moves with
+	# it, so the only cue is the horizon, and at the true numbers - 5 degrees of
+	# roll and three quarters of ONE degree of pitch - the report was "the boat
+	# is flat the whole time". A 2.7 m boat on a 5 m wave genuinely does barely
+	# pitch; the game wants the feeling of it rather than the arithmetic.
 	var k := 1.0 - exp(-3.2 * _boat_dt)
-	_boat_heave = lerpf(_boat_heave, heave * 0.75, k)
-	_boat_pitch = lerpf(_boat_pitch, pitch * 0.62, k)
-	_boat_roll = lerpf(_boat_roll, roll * 0.85, k)
+	_boat_heave = lerpf(_boat_heave, heave * 1.15, k)
+	_boat_pitch = lerpf(_boat_pitch, pitch * 4.20, k)
+	_boat_roll = lerpf(_boat_roll, roll * 1.45, k)
 
 	var basis := Basis(Vector3.RIGHT, _boat_pitch) * Basis(Vector3.FORWARD, _boat_roll)
 	_boat_pose = Transform3D(basis, Vector3(0.0, _boat_heave, 0.0))
@@ -3919,6 +4214,7 @@ func _build_shore() -> void:
 		bank_mat.normal_texture = stone_n
 		bank_mat.normal_scale = 0.7
 		bank_mat.uv1_scale = Vector3(7.0, 3.0, 1.0)
+		bank_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	bank.mesh = bm
 	bank.material_override = bank_mat
 	bank.position = Vector3(0.0, 0.12, SHORE_Z - 6.0)
@@ -4025,6 +4321,7 @@ func _stone_mat() -> StandardMaterial3D:
 		m.roughness_texture = r
 	m.roughness = 1.0
 	m.uv1_scale = Vector3(3.4, 1.1, 1.0)
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	return m
 
 
@@ -4157,7 +4454,11 @@ func _build_book() -> void:
 		return
 	# Real size. The mesh is 36 cm across open, which is about right for a
 	# keeper's ledger, so it needs no scaling at all.
-	model.rotation_degrees = Vector3(0, 14, 0)
+	#
+	# THE TURN IS ON THE OBJECT, NOT ON THE MODEL. It used to be set here, on the
+	# mesh alone - and the printed page is a sibling of the mesh, not a child of
+	# it, so the paper lay across the notebook fourteen degrees out of true with
+	# the cover showing past two of its corners.
 
 	_book = Room3D.new()
 	_book.name = "Logbook"
@@ -4169,7 +4470,15 @@ func _build_book() -> void:
 	# poking past a plank edge was visible, and it cost four rounds of blaming
 	# the camera, the quad, the viewport and the anchors in turn. The texture had
 	# been correct the whole time.
-	_book.position = Vector3(0.20, _hull_floor_y(0.10) + 0.052, 0.10)
+	# FORWARD, WHERE THE SEATED PLAYER CAN SEE IT. At z = 0.10 it lay two metres
+	# ahead and 1.13 m below a camera that sits 1.35 m up, which puts it 27
+	# degrees below the view axis - the very bottom edge of a 58 degree frame,
+	# behind the near thwart. "I dont see the log book in the game" was literally
+	# true: the object existed, in shot, and off the bottom of the picture.
+	_book.position = Vector3(0.02, _hull_floor_y(0.70) + 0.052, 0.70)
+	# Not square to the boat. A book somebody put down is never square to
+	# anything, and this is the whole difference between a prop and a menu.
+	_book.rotation_degrees = Vector3(0, 14, 0)
 	# Read from just above and behind, looking down - the pose of somebody
 	# leaning over a book that was already here rather than holding their own.
 	# FAR ENOUGH BACK TO SEE THE WHOLE SPREAD. The page is 33 cm wide and the
@@ -4193,7 +4502,7 @@ func _build_book() -> void:
 	var lie_flat := Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, deg_to_rad(-90.0))
 	_book.build(model, Vector2(0.335, 0.185),
 		Transform3D(lie_flat, Vector3(0.026, 0.020, 0.0)),
-		page, Vector2i(1024, 566))
+		page, BOOK_PAGE_PX)
 	_boat.add_child(_book)
 	_refresh_book()
 
@@ -4279,7 +4588,7 @@ func _tap_page(at: Vector2) -> void:
 		# up rather than a menu they opened.
 		_shut_book()
 		return
-	var frac := on_page.x / 768.0
+	var frac := on_page.x / float(BOOK_PAGE_PX.x)
 	if frac < 0.34:
 		_book.page = maxi(0, _book.page - 1)
 	else:
@@ -4295,8 +4604,10 @@ func _tap_page(at: Vector2) -> void:
 ## Where the camera reads the book from, framed off the page's real size and the
 ## camera's real field of view.
 func _book_pose() -> Array:
+	# Guarded: a camera that is not in a running tree has no viewport, and the
+	# headless harness is exactly that case.
 	var aspect := 0.46
-	if _cam != null and _cam.get_viewport() != null:
+	if _cam != null and is_inside_tree() and _cam.get_viewport() != null:
 		var vs := _cam.get_viewport().get_visible_rect().size
 		if vs.y > 1.0:
 			aspect = vs.x / vs.y
@@ -4305,7 +4616,125 @@ func _book_pose() -> Array:
 
 ## A ray from the camera through a point on the screen.
 func _screen_ray(at: Vector2) -> Vector3:
-	if _cam == null:
-		return Vector3.FORWARD
+	if _cam == null or not is_inside_tree():
+		# Straight ahead. Only the headless harness ever asks off-tree, and a
+		# ray it cannot cast should miss the page rather than crash.
+		return -_cam.transform.basis.z if _cam != null else Vector3.FORWARD
 	return _cam.project_ray_normal(at)
+
+
+# --- the stick and the sight ------------------------------------------------
+
+## THE LOOK STICK, bottom-left, under the left thumb.
+##
+## Gideon: "can you add a small analog stick to the left side of the screen to
+## control where you look instead of sliding on the screen to turn."
+##
+## The difference that matters is not the picture, it is that a stick HOLDS a
+## direction. A drag reports movement, so to keep turning you have to keep
+## dragging and then lift and do it again; a stick you simply lean on. It also
+## frees the rest of the screen, which now only ever means "tap the water".
+##
+## Drawn rather than imported: a ring, a knob, and the knob follows the thumb.
+func _build_stick() -> void:
+	_stick = Control.new()
+	_stick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_stick.offset_left = 40
+	_stick.offset_right = 40 + STICK_RADIUS * 2.4
+	_stick.offset_top = -STICK_RADIUS * 2.4 - 120 - SAFE_BOTTOM
+	_stick.offset_bottom = -120 - SAFE_BOTTOM
+	_stick.mouse_filter = Control.MOUSE_FILTER_STOP
+	_stick.name = "Stick"
+	_stick.gui_input.connect(_stick_input)
+	_stick.draw.connect(_draw_stick)
+	_ui.add_child(_stick)
+
+
+func _draw_stick() -> void:
+	var mid := _stick.size * 0.5
+	var r := STICK_RADIUS
+	var lit := _stick_vec.length()
+	# The well. Faint when idle - it is furniture, not an instrument, and the
+	# water behind it is what the player is looking at - but never invisible:
+	# at 30% alpha over pale varnished planks it disappeared completely, and a
+	# control the player cannot find is a control they do not use.
+	_stick.draw_circle(mid, r + 3.0, Color(0.02, 0.04, 0.05, 0.22 + 0.14 * lit))
+	_stick.draw_circle(mid, r, Color(0.06, 0.10, 0.11, 0.34 + 0.20 * lit))
+	_stick.draw_arc(mid, r, 0.0, TAU, 48, Color(0.05, 0.06, 0.05, 0.45), 5.0)
+	_stick.draw_arc(mid, r, 0.0, TAU, 48,
+		Color(0.95, 0.92, 0.84, 0.44 + 0.34 * lit), 2.5)
+
+	# A cross of hairlines, so the well reads as a stick at rest rather than as
+	# a smudge, and so the knob has a centre to return to.
+	for i in 4:
+		var d := Vector2.RIGHT.rotated(TAU * float(i) / 4.0)
+		_stick.draw_line(mid + d * (r * 0.20), mid + d * (r * 0.34),
+			Color(0.95, 0.92, 0.84, 0.24), 2.0)
+
+	# The knob, where the thumb has pushed it.
+	var knob := mid + _stick_vec * r * 0.72
+	_stick.draw_circle(knob, r * 0.40, Color(0.03, 0.05, 0.05, 0.42))
+	_stick.draw_circle(knob, r * 0.36, Color(0.13, 0.18, 0.19, 0.80))
+	_stick.draw_arc(knob, r * 0.36, 0.0, TAU, 36,
+		Color(0.96, 0.93, 0.86, 0.58 + 0.36 * lit), 3.0)
+
+
+## THE SIGHT. A dot in the middle, so the player can tell what they are pointed
+## at - which in a first-person game with no cursor is otherwise guesswork, and
+## was reported as "very difficult to see where you are looking".
+##
+## It grows and warms when something in the boat is under it, which is the same
+## information the Use button carries but available BEFORE the eye travels to
+## the corner to look for it.
+func _build_crosshair() -> void:
+	_crosshair = Control.new()
+	_crosshair.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_crosshair.name = "Sight"
+	_crosshair.draw.connect(_draw_crosshair)
+	_ui.add_child(_crosshair)
+
+
+func _draw_crosshair() -> void:
+	var mid := _crosshair.size * 0.5
+	var on := _looking_at != ""
+	var r := 16.0 if not on else 24.0
+	var col := Color(0.96, 0.95, 0.90, 0.78) if not on else Color(1.0, 0.84, 0.46, 0.98)
+	# A ring rather than a filled dot: a solid dot sits ON the thing being
+	# looked at and hides it, and the thing being looked at is the point.
+	# The dark ring under the light one is what makes it survive sun glitter.
+	_crosshair.draw_arc(mid, r, 0.0, TAU, 32, Color(0, 0, 0, 0.45), 7.0)
+	_crosshair.draw_arc(mid, r, 0.0, TAU, 32, col, 3.0)
+	# Four ticks outside it, which is what tells the eye this is an aim and not
+	# a stain on the screen. They open up when something is under the sight.
+	var reach := r + (9.0 if not on else 15.0)
+	for i in 4:
+		var d := Vector2.RIGHT.rotated(TAU * float(i) / 4.0)
+		_crosshair.draw_line(mid + d * (r + 4.0), mid + d * reach,
+			Color(0, 0, 0, 0.40), 6.0)
+		_crosshair.draw_line(mid + d * (r + 4.0), mid + d * reach, col, 2.5)
+	_crosshair.draw_circle(mid, 3.0, Color(0, 0, 0, 0.5))
+	_crosshair.draw_circle(mid, 2.0, col)
+
+
+## The charge, as an arc filling round the cast button.
+func _draw_charge_ring() -> void:
+	if sim.state != Sim.CHARGING:
+		return
+	var mid := _charge_ring.size * 0.5
+	var r := _charge_ring.size.x * 0.5 - 5.0
+	var k := clampf(sim.charge, 0.0, 1.0)
+	# Starts at the top and fills clockwise, which is the direction every dial
+	# anybody has ever used fills in.
+	_charge_ring.draw_arc(mid, r, -PI * 0.5, -PI * 0.5 + TAU * k, 48,
+		Color(1.0, 0.86, 0.52, 0.95), 6.0)
+	# And the distance, in the middle, because the charge IS a distance.
+	var font := ThemeDB.fallback_font
+	var text := "%.0f m" % Tuning.cast_distance(sim.charge)
+	# Centred on the button under the word, at a size that can be read while the
+	# thumb is on it. 30 pt on a 260 px ring was a caption on a dinner plate.
+	_charge_ring.draw_string(font,
+		Vector2(0.0, mid.y + _charge_ring.size.y * 0.26), text,
+		HORIZONTAL_ALIGNMENT_CENTER, int(_charge_ring.size.x), 46,
+		Color(1.0, 0.93, 0.74, 0.95))
 

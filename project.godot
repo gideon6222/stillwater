@@ -33,12 +33,30 @@ renderer/rendering_method="mobile"
 ; RAINBOW. It looked like an oil slick on the water and it is a display artefact,
 ; not a shader bug. Costs nothing measurable.
 anti_aliasing/quality/use_debanding=true
+; 2x MSAA. Everything in this game is a long thin edge seen almost end on - a
+; gunwale, a plank, a reed, a rod - and the port rail was rendering as a dashed
+; hairline of blown white pixels where the low sun caught its top face at a
+; sliver of a pixel wide. MSAA is the one thing that fixes a geometric sliver,
+; and on a tile-based mobile GPU it resolves inside tile memory: on hardware
+; that already measures 5 ms a frame at the 95th percentile, 2x is affordable.
+anti_aliasing/quality/msaa_3d=1
 renderer/rendering_method.mobile="mobile"
 
 ; Required for an Android export - the exporter refuses without it. Mobile
 ; GPUs want ETC2/ASTC rather than the desktop S3TC/BPTC formats, and importing
 ; both is what lets one project ship to a phone and a desktop preview.
 textures/vram_compression/import_etc2_astc=true
+
+; ANISOTROPIC FILTERING, and it is not a nicety here.
+;
+; Almost everything in this game is a plank, a gunwale or a lake seen at a
+; grazing angle, which is the exact case trilinear filtering handles worst: the
+; footprint of one pixel on a tiling wood grain is a long thin smear, and a
+; square mip sample of it either blurs across the grain or aliases along it.
+; Sixteen taps is free on this hardware - the phone measures 5 ms a frame at the
+; 50th, 90th AND 95th percentile - and it is the difference between planks and
+; stipple.
+textures/default_filters/anisotropic_filtering_level=3
 
 [physics]
 

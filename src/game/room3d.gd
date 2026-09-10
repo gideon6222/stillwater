@@ -195,7 +195,14 @@ func frame_pose(boat: Transform3D, fov_deg: float, aspect: float, margin := 1.06
 	# A little off square, so it reads as a book being looked at rather than a
 	# document being scanned.
 	var eye := centre + normal * dist + Vector3(0.0, 0.0, -dist * 0.22)
-	return [boat * eye, boat * centre]
+	# THE UP VECTOR IS THE PAGE'S OWN, not the boat's and not the world's.
+	#
+	# The book is deliberately not square to the hull - a book somebody put down
+	# never is - and with the camera levelled against the boat that fourteen
+	# degrees came out as fourteen degrees of tilted TEXT filling the screen,
+	# which is unreadable and looks like a bug rather than like a detail. A
+	# person leaning over a book turns their head to the page; so does this.
+	return [boat * eye, boat * centre, (boat.basis * page.basis.y).normalized()]
 
 
 func read_pose(boat: Transform3D) -> Array:

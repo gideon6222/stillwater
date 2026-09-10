@@ -141,6 +141,21 @@ func _initialize() -> void:
 		_main._sync_mood(1.0 / 12.0)
 	_main._sync()
 
+	# DIAGNOSTIC: a fifth user argument names a node to HIDE before the shutter.
+	# "is that white hairline a gap onto the water, or a highlight on the rail"
+	# is one screenshot with the water off and one with it on, and no amount of
+	# reading the geometry answers it as fast.
+	var hide := OS.get_environment("SHOT_HIDE")
+	if hide != "":
+		var stack: Array = [_main]
+		while not stack.is_empty():
+			var n = stack.pop_back()
+			if str(n.name).findn(hide) >= 0 and n is Node3D:
+				(n as Node3D).visible = false
+				print("hid ", n.name)
+			for c in n.get_children():
+				stack.append(c)
+
 	if _until in ROOMS:
 		_main.sim.econ.money = 900
 		_main.sim.econ.has_motor = true

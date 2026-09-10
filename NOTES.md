@@ -270,28 +270,72 @@ Two things it needed to actually work:
   the rules cannot disagree - it is not a second model of the lake, it is the one
   the fish are in.
 
+## Render settings, and why each one is there
+
+These are three lines of configuration that between them changed the look of the game more than
+any modelling session did. Written down because every one of them defaults to the wrong value for
+this game, and because the first two are invisible in the editor.
+
+| Setting | Value | Why |
+|---|---|---|
+| `mipmaps/generate` on every texture `.import` | `true` | Godot's default is **false**. Every surface here is a plank, a rail or a lake seen almost edge on with the grain tiling 7-20x across it; without mipmaps that aliases into a dither of black-and-tan speckle over the whole boat, which does not scale away at higher resolution and reads as compression noise |
+| `textures/default_filters/anisotropic_filtering_level` | `3` (16x) | Mipmaps alone trade the speckle for a blur *along* the grain, because a grazing pixel's footprint is a long thin smear. Anisotropic keeps both. **The project setting does nothing on its own** - `StandardMaterial3D` defaults to the non-anisotropic filter, so `_wood_mat` and the stone materials set `TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC` themselves |
+| `anti_aliasing/quality/msaa_3d` | `1` (2x) | Everything in this game is a long thin edge - a gunwale, a reed, a rod, a plank. On a tile-based mobile GPU MSAA resolves inside tile memory, and this phone measures 5 ms a frame at the 50th, 90th and 95th percentile |
+
+Cost: the APK went 32.4 -> 35.6 MB, all of it the mip chains. There is no download-size
+constraint on this stack; the budget in `size-budget.json` was moved to match.
+
+`test/test_assets.gd` asserts the first one, and that everything is VRAM compressed. It is a
+pure test that walks `res://assets` and reads the `.import` files - no GPU, no scene - and it
+exists because `.import` files are regenerated whenever a source file changes, and because the
+next texture anybody adds will arrive with the default again.
+
+## Diagnosing a graphical artefact: sample the pixels first
+
+A dashed white hairline ran the length of the port gunwale in every screenshot ever taken of this
+boat. It was chased as specular aliasing, as a sharpening filter and as a bad roughness map. What
+settled it was reading the pixels: the bright ones were `(232,234,235)` - neutral, exactly the
+sky - while every lit surface near them was warm. **Sky-coloured pixels in the middle of a model
+are a hole**, and the hull had one where the swept skin and the swept gunwale met edge to edge.
+
+Two tools came out of that, both worth keeping:
+
+- `scripts/shot.gd` honours a `SHOT_HIDE` environment variable and hides every node whose name
+  contains it before the shutter. "Is that a gap onto the sky or a highlight on the rail" is one
+  screenshot with the rail off.
+- The rails are named `GunwalePort` and `GunwaleStarboard`. They were both called `Gunwale`,
+  Godot renamed the second on `add_child`, and `SHOT_HIDE=Gunwale` then hid one rail, printed
+  success, and sent a whole pass looking at the wrong side of the boat.
+
 ## Open, in rough priority order
 
-1. **Does the third fight feel good?** Specifically: is the hook bar readable at a glance, is
-   the tap rate comfortable rather than frantic, and is the run warning noticeable without
-   being told what it means? "It looks fine" will not cover any of those.
-2. The boat is three boxes and the fish is a sphere with two prisms. Both are deliberate for M1
-   — see the asset rule — but the fish generator (spine, swept rib profile, fin set) is the next
-   real piece of art work, because species is data and the wrong ones in Act III are the same
-   generator with wrong numbers.
-3. The water is a four-wave Gerstner sum with an analytic depth term that is currently one
-   constant. When the bed becomes a heightfield, the sim uploads the field it already uses for
-   the fish and the shader samples that — **do not reach for `DEPTH_TEXTURE`**, it is corrupt on
-   Forward Mobile with MSAA and the simulation already owns the answer.
-4. No sound at all yet. The plan is offline-generated WAVs committed to the repo; the reel click
-   is the workhorse and is what will make reeling feel physical.
-5. `ANDROID_DEBUG_KEYSTORE_B64` is not yet set as a repository secret. Until it is, every CI
-   build is signed with a throwaway key and **Android will refuse to update the installed app** —
-   each build has to be uninstalled before the next one will go on.
+1. **Does the fight feel good on the phone?** Specifically: does the needle's overshoot read as
+   weight or as lag, is the tap rate comfortable rather than frantic, and is a run obvious
+   without being captioned. "It looks fine" will not cover any of those.
+2. **The tackle box as a Room3D.** `assets/props/metal_toolbox/` is already downloaded. The lid
+   opens, the inside of the lid is the printed surface, and the gear sits in the trays as
+   objects. Same pattern as the logbook, which is the proof it works.
+3. **The shed as a place, not a room.** It should be a building beyond the gate, built from the
+   stone and timber that already exist, and "Shed" should be a camera sequence that lifts off the
+   water and drops into the doorway - not a panel and not a Room3D.
+4. **Real page turns.** The logbook paginates and a tap turns it, but the page swaps rather than
+   turning. A single rotating quad with the next page printed on its back would do it.
+5. DESIGN 11.4 the radio, 11.6 first-run polish (orientation lock, pause, app icon, audio on
+   first touch), 11.7 the ending and NG+.
+6. **A short remnant of the sheer hairline survives** on the near port rail where the sun is low
+   and the geometry is closest to the camera. The mechanism is understood (see above); the fix
+   is a lip whose upstand and a rail whose depth are one number in two places, and the remnant is
+   the case where perspective makes the sliver subtend more than a pixel.
 
 ## Invariants specific to this game
 
 - **`src/sim/` may not reference a Node, a Viewport, an input event or a real frame.**
+- **An object the player is meant to notice must be asserted to be IN SHOT, not merely in the
+  scene.** The logbook was in the boat, above the floorboards, with a working page and a passing
+  test for every one of those - and it sat 27 degrees below a view axis in a frame that reaches
+  29, so it was never in the picture. `_in_frame` in `test/run_smoke.gd` projects a world point
+  into the seated camera's frustum at the PHONE's aspect ratio and fails if it is past 88% of the
+  way to any edge.
 - **A species is a row in `Species.TABLE`, never a class or a scene.** The wrong fish in Act III
   are the same generator with different numbers; anything that special-cases a species in code
   breaks that before it is built.

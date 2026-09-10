@@ -16,6 +16,7 @@ func _initialize() -> void:
 		load("res://test/test_tuning.gd").new(),
 		load("res://test/test_sim.gd").new(),
 		load("res://test/test_golden.gd").new(),
+		load("res://test/test_assets.gd").new(),
 
 
 

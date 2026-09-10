@@ -59,7 +59,8 @@ func _initialize() -> void:
 	_check_no_state_leaves_the_player_with_nothing_to_do(main)
 	_check_every_action_answers_within_two_frames(main)
 	_check_the_boat_is_never_still(main)
-	_check_looking_around_never_casts_by_accident(main)
+	_check_the_water_never_casts_and_the_button_always_does(main)
+	_check_the_stick_turns_the_view(main)
 	_check_everything_in_the_boat_can_be_looked_at_and_used(main)
 	_check_nothing_interactable_is_invisible(main)
 	_check_the_title_leads_into_the_game(main)
@@ -731,46 +732,97 @@ func _check_the_boat_is_never_still(main) -> void:
 	_t.lt(moved, 3.0, "the boat is being thrown around; this is a lake, not a gale")
 
 
-## LOOKING AROUND NEVER CASTS BY ACCIDENT.
+## THE WATER NEVER CASTS, AND THE BUTTON ALWAYS DOES.
 ##
-## One finger carries three verbs here - drag looks, still-hold casts, tap taps -
-## and the whole scheme rests on a drag never being mistaken for a cast. If it
-## can be, the player cannot look at their own boat without throwing a line into
-## it, which is exactly the sort of thing reported as "clunky".
-func _check_looking_around_never_casts_by_accident(main) -> void:
-	_t.begin("smoke > a look never becomes a cast")
+## The rule changed after a playtest: "when you press on the water it pulls back
+## the rod to cast. I dont want it to do that." Every stray touch - reaching for
+## a control, steadying the phone, tapping a thing in the boat - was loading the
+## rod. The water is now only ever a tap on the fish, and the cast lives on its
+## own button: held to load, released to throw.
+func _check_the_water_never_casts_and_the_button_always_does(main) -> void:
+	_t.begin("smoke > the water never casts, the button always does")
+
 	main.freeze(1)
 	main.sim.state = Sim.IDLE
+	var press := InputEventScreenTouch.new()
+	press.pressed = true
+	press.position = Vector2(540, 700)
+	main._on_cast_input(press)
+	for i in 40:
+		main.advance(1.0 / 60.0)
+	_t.eq(main.sim.state, Sim.IDLE, "touching the water loaded the rod")
+	var release := InputEventScreenTouch.new()
+	release.pressed = false
+	release.position = Vector2(540, 700)
+	main._on_cast_input(release)
+	for i in 40:
+		main.advance(1.0 / 60.0)
+	_t.eq(main.sim.state, Sim.IDLE, "letting go of the water threw a cast")
+
+	# Holding the button loads, and holding longer loads further.
+	main.freeze(1)
+	main._cast_pressed()
+	main.advance(0.1)
+	var early: float = main.sim.charge
+	_t.eq(main.sim.state, Sim.CHARGING, "holding the cast button does not load the rod")
+	_t.gt(early, 0.0, "the charge does not begin")
+	main.advance(0.5)
+	_t.gt(main.sim.charge, early, "holding longer does not charge further")
+
+	main._cast_released()
+	_t.ok(main.sim.state != Sim.CHARGING, "letting go does not release the cast")
+	for i in 200:
+		main.advance(1.0 / 60.0)
+	_t.gt(float(main.sim.casts), 0.0, "the cast never happened")
+
+
+## THE STICK TURNS THE VIEW, AND KEEPS TURNING WHILE IT IS HELD.
+##
+## That is the whole difference from a drag, and the reason it was asked for: a
+## drag reports movement, so you must keep dragging and re-dragging; a stick you
+## lean on.
+## How far over the look limit the stick test starts, so it has room to travel.
+const LOOK_START := 0.9
+
+func _check_the_stick_turns_the_view(main) -> void:
+	_t.begin("smoke > the stick turns the view and lets go")
+	main.freeze(1)
+	# Started hard over the OTHER way, so there is a full sweep of travel to use
+	# before the look limit clamps. The first version started at zero, ran into
+	# the limit after a second and reported it as "the stick stopped working".
+	# Pushing the stick RIGHT turns the view right, which decreases yaw - so the
+	# sweep has to start at the positive limit to have travel available.
+	main._look_yaw = LOOK_START
+	main._look_yaw_want = LOOK_START
 
 	var press := InputEventScreenTouch.new()
 	press.pressed = true
-	press.position = Vector2(300, 900)
-	main._on_cast_input(press)
-
+	press.position = Vector2(140, 1900)
+	main._stick_input(press)
 	var drag := InputEventScreenDrag.new()
-	drag.relative = Vector2(-40, 0)
-	for i in 6:
-		main._on_cast_input(drag)
-
-	var release := InputEventScreenTouch.new()
-	release.pressed = false
-	release.position = Vector2(60, 900)
-	main._on_cast_input(release)
-	for i in 30:
+	drag.position = Vector2(300, 1900)
+	main._stick_input(drag)
+	for i in 60:
 		main.advance(1.0 / 60.0)
+	var turned: float = main._look_yaw_want
+	_t.lt(turned, LOOK_START - 0.05, "holding the stick over does not turn the view")
 
-	_t.eq(main.sim.state, Sim.IDLE, "dragging to look threw a cast")
-	_t.ok(absf(main._look_yaw) > 0.01, "dragging did not turn the view at all")
-
-	# And a still hold still casts.
-	main.freeze(1)
-	main._look_yaw = 0.0
-	main._on_cast_input(press)
-	for i in 30:
+	for i in 60:
 		main.advance(1.0 / 60.0)
-	_t.eq(main.sim.state, Sim.CHARGING, "a still hold does not load a cast")
-	main._on_cast_input(release)
-	_t.ok(main.sim.state != Sim.CHARGING, "letting go does not release the cast")
+	_t.lt(main._look_yaw_want, turned - 0.02,
+		"the view stops turning while the stick is held - it is behaving like a drag")
+
+	var up := InputEventScreenTouch.new()
+	up.pressed = false
+	up.position = Vector2(300, 1900)
+	main._stick_input(up)
+	for i in 40:
+		main.advance(1.0 / 60.0)
+	var settled: float = main._look_yaw_want
+	for i in 60:
+		main.advance(1.0 / 60.0)
+	_t.approx(main._look_yaw_want, settled, 0.02,
+		"the view keeps turning after the stick is let go")
 
 
 ## EVERY THING IN THE BOAT CAN BE FOUND BY LOOKING, AND USED.
@@ -1159,6 +1211,72 @@ func _check_the_logbook_is_a_real_object(main) -> void:
 	main._refresh_book()
 	_t.eq(main._book.page, was + 1, "the page did not turn")
 
-	# And tapping away from it shuts it.
-	main._tap_page(Vector2(20, 20))
-	_t.ok(not main._reading, "tapping off the page does not shut the book")
+	# A ray that misses the page must report a miss - which is what makes
+	# tapping off the book a way out. Asserted on `hit_page` directly, because
+	# an off-tree camera cannot project a screen point into a ray at all and the
+	# harness never has a live one.
+	var from: Vector3 = main._cam.transform.origin
+	var away: Vector3 = main._cam.transform.basis.z
+	_t.lt(main._book.hit_page(from, away, main._boat_pose).x, 0.0,
+		"a ray pointing away from the book still reports a hit on the page")
+
+	# And turning past the last page shuts it, which needs no ray at all.
+	main._book.page = main._book_pages
+	main._tap_page(Vector2(700, 500))
+	_t.ok(not main._reading, "reading past the last page does not shut the book")
+
+	_check_the_logbook_is_in_shot(main)
+
+
+## THE LOGBOOK IS IN THE PICTURE, NOT MERELY IN THE SCENE.
+##
+## Gideon: "I dont see the log book in the game, just a log book button." The
+## object existed, at the right height, above the floorboards, with a working
+## page and a passing test - and it was two metres ahead and 1.13 m below a
+## camera that sits 1.35 m up, which is 27 degrees down in a frame that only
+## reaches 29. It was in shot in the sense that a coin under the sofa is in the
+## room.
+##
+## So this is the assertion that check was missing: put the seated camera where
+## the player sits, and require the thing to land inside the frustum with a
+## margin. It is the same arithmetic for any object the player is expected to
+## notice, which is why it takes the node as an argument.
+func _check_the_logbook_is_in_shot(main) -> void:
+	_t.begin("smoke > the logbook is in shot from the seat")
+	main._shut_book()
+	main.sim.state = Sim.IDLE
+	# FACING FORWARD. An earlier check leaves the view turned with the stick, and
+	# "is the book in shot" asked of a player looking over their shoulder is not
+	# a question with an answer. This is the resting pose the game hands you.
+	main._look_yaw_want = 0.0
+	main._look_pitch_want = 0.0
+	main._stick_held = false
+	main._stick_vec = Vector2.ZERO
+	for i in 120:
+		main.advance(1.0 / 60.0)
+	_in_frame(main, main._book.global_position if main._book.is_inside_tree()
+		else main._boat_pose * main._book.position, "the logbook")
+
+
+## Is a world point inside the seated camera's frame, with room to spare?
+##
+## The aspect is the PHONE's, not the project's. A 1080x1920 frame and a
+## 1080x2340 one disagree about the bottom third of the screen, which is exactly
+## where things fall off - see the note at the top of scripts/shot.gd.
+func _in_frame(main, at: Vector3, what: String) -> void:
+	var cam: Transform3D = main._cam.transform
+	var local: Vector3 = cam.affine_inverse() * at
+	_t.gt(-local.z, 0.05, "%s is behind the camera" % what)
+	if -local.z <= 0.05:
+		return
+	var half_v := tan(deg_to_rad(main._cam.fov) * 0.5)
+	var aspect := 1080.0 / 2340.0
+	var up := absf(local.y / -local.z) / half_v
+	var across := absf(local.x / -local.z) / (half_v * aspect)
+	# 0.88 rather than 1.0: something touching the very edge of the frame is
+	# something the player finds by accident, and the controls own the bottom
+	# eighth of the screen anyway.
+	_t.lt(up, 0.88, "%s sits %.0f%% of the way to the top or bottom edge" % [
+		what, up * 100.0])
+	_t.lt(across, 0.88, "%s sits %.0f%% of the way to the side of the frame" % [
+		what, across * 100.0])

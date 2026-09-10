@@ -1,5 +1,5 @@
 {
-  "apk_bytes": 34093560,
-  "note": "Regenerate with `--update` and commit. Both directions are checked; a shrink means something stopped being included.",
+  "apk_bytes": 37353612,
+  "note": "Regenerate with `--update` and commit. Both directions are checked; a shrink means something stopped being included. Rose 3.26 MB at v0.5.1 when every texture was reimported with mipmaps - a full mip chain is a third again on top of the base level, and it is the single biggest look fix in the game: without it every tiling plank aliases into black-and-tan speckle. Worth every byte; there is no download-size constraint on this stack.",
   "tolerance_percent": 10.0
 }

@@ -12,9 +12,29 @@ extends RefCounted
 ## refactored; one line each; newest first. Add this from day one. On an
 ## earlier game it arrived far too late to be as useful as it should have been.
 
-const VERSION := "0.5.0"
+const VERSION := "0.5.1"
 
 const RELEASES := [
+	{
+		"version": "0.5.1",
+		"date": "2026-09-09",
+		"title": "A stick, a sight and a real book",
+		"notes": [
+			"CASTING: hold the Cast button to pull the rod back, let go to flick it.",
+			"Touching the water no longer loads the rod. It never should have.",
+			"A ring fills round the button as you charge, with the distance in it.",
+			"LOOKING: a stick, bottom left. Lean on it - no more dragging the screen.",
+			"A sight in the middle of the screen. It opens up over anything you can use.",
+			"THE LOGBOOK is a real notebook lying in the boat. Log opens THAT.",
+			"The page is level in frame now, and a tap turns it.",
+			"The tension gauge is a brass scale: ticks, a safe band that breathes,",
+			"and a needle with weight in it that kicks when you tap.",
+			"The boat rides the swell instead of sitting flat on it.",
+			"The water is slightly see-through underfoot - and murkier the deeper you go.",
+			"Every texture reimported with mipmaps. The speckle on the planks is gone.",
+			"And the hole in the port sheer that showed the sky is planked over.",
+		],
+	},
 	{
 		"version": "0.5.0",
 		"date": "2026-09-09",
