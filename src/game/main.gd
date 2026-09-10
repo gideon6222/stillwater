@@ -1636,6 +1636,7 @@ func _build_hud() -> void:
 
 
 	_menus.changed.connect(_sync)
+	_build_room_bar()
 	_menus.closed.connect(_sync)
 
 	# On screen rather than behind a menu: the first thing to verify on a phone
@@ -2316,6 +2317,7 @@ func _sync() -> void:
 	_sync_fish()
 	_write_readout()
 	_sync_bars()
+	_sync_room_bar()
 
 
 ## The camera during play: riding the boat, riding the water.
@@ -4148,7 +4150,7 @@ func _build_things() -> void:
 		{
 			"id": "livewell",
 			"name": "The livewell",
-			"at": Vector3(-0.30, _hull_floor_y(1.15) + 0.14, 1.15),
+			"at": Vector3(-0.34, _hull_floor_y(0.98) + 0.14, 0.98),
 			"look": func() -> String:
 				if sim.econ.held.is_empty():
 					return "The livewell   -   empty"
@@ -4160,7 +4162,7 @@ func _build_things() -> void:
 		{
 			"id": "baitbox",
 			"name": "The bait box",
-			"at": Vector3(-0.28, _hull_floor_y(1.78) + 0.10, 1.78),
+			"at": Vector3(-0.24, _hull_floor_y(1.84) + 0.10, 1.84),
 			"look": func() -> String:
 				var b := Gear.bait_by_id(sim.econ.bait)
 				return "%s on the hook   -   tap to change" % str(b["name"]),
@@ -4187,7 +4189,7 @@ func _build_things() -> void:
 		{
 			"id": "logbook",
 			"name": "The logbook",
-			"at": Vector3(0.06, _hull_floor_y(1.80) + 0.11, 1.80),
+			"at": Vector3(-0.06, _hull_floor_y(1.32) + 0.11, 1.32),
 			"look": func() -> String:
 				var met := Keepers.hands_met(sim.deepest_ever)
 				return "The keeper's logbook   -   %d of %d hands" % [met, Keepers.total_hands()],
@@ -4197,7 +4199,7 @@ func _build_things() -> void:
 		{
 			"id": "tacklebox",
 			"name": "The tackle box",
-			"at": Vector3(0.16, _hull_floor_y(1.40) + 0.14, 1.40),
+			"at": Vector3(0.14, _hull_floor_y(1.52) + 0.14, 1.52),
 			"look": func() -> String:
 				return "The tackle box   -   %s on the hook" % str(
 					Gear.bait_by_id(sim.econ.bait)["name"]),
@@ -4239,6 +4241,13 @@ var _tacklebox: Room3D
 var _box_list: VBoxContainer
 var _box_rows: Array = []
 var _at_box := false
+var _box_sel := 0
+## The bar of controls shown while a room is open. See `_build_room_bar`.
+var _room_bar: HBoxContainer
+var _room_prev: Button
+var _room_next: Button
+var _room_ok: Button
+var _room_close: Button
 var _gate_left: Node3D
 var _gate_right: Node3D
 var _gate_open := 0.0
@@ -4396,8 +4405,8 @@ func _build_props() -> void:
 	# frame while the lantern hid behind the rod. Spread along the hull, none of
 	# them across the water the player is casting into, and none of them large
 	# enough to be the subject.
-	_place_prop("livewell", Vector3(-0.30, _hull_floor_y(1.15), 1.15), 0.80, 18.0)
-	_place_prop("baitbox", Vector3(-0.28, _hull_floor_y(1.78), 1.78), 0.50, -12.0)
+	_place_prop("livewell", Vector3(-0.34, _hull_floor_y(0.98), 0.98), 0.80, 18.0)
+	_place_prop("baitbox", Vector3(-0.24, _hull_floor_y(1.84), 1.84), 0.50, -12.0)
 	# The lantern goes on the STEM, where it lights the water ahead rather than
 	# the boards - and where it is a silhouette against the sky at night.
 	var lamp := _place_prop("lamp", Vector3(0.0, _hull_rim_y(2.05) + 0.03, 2.05), 1.05, 0.0)
@@ -4909,7 +4918,14 @@ func _build_book() -> void:
 	# degrees below the view axis - the very bottom edge of a 58 degree frame,
 	# behind the near thwart. "I dont see the log book in the game" was literally
 	# true: the object existed, in shot, and off the bottom of the picture.
-	_book.position = Vector3(0.06, _hull_floor_y(1.80) + 0.052, 1.80)
+	# FRONT AND CENTRE ON THE SOLE, and this is the third time this object has had
+	# to move for the same reason. Gideon, on the phone: "i cant see the log book
+	# on the ground" - in a frame whose own prompt read "The keeper's logbook - 2
+	# of 5 hands", so the crosshair was on it and the eye still could not find it.
+	# It was at z = 1.80, up by the bow, where the sole is narrow, dark and behind
+	# every other prop. Here it is the nearest thing on the floor, in the clear
+	# space between the tackle box and the bucket, and nothing overlaps it.
+	_book.position = Vector3(-0.06, _hull_floor_y(1.32) + 0.052, 1.32)
 	# Not square to the boat. A book somebody put down is never square to
 	# anything, and this is the whole difference between a prop and a menu.
 	_book.rotation_degrees = Vector3(0, 14, 0)
@@ -5125,10 +5141,14 @@ func _tap_page(at: Vector2) -> void:
 	var dir := _screen_ray(at)
 	var on_page := _book.hit_page(from, dir, _boat_pose)
 	if on_page.x < 0.0:
-		# Tapped away from the page. Shut it - the whole screen outside the book
-		# is a way out, which is what a reader expects from a thing they picked
-		# up rather than a menu they opened.
-		_shut_book()
+		# Tapped away from the page, and NOTHING HAPPENS.
+		#
+		# This used to shut the book, on the reasoning that everything outside a
+		# thing you picked up is a way out. True of a real book and wrong here:
+		# it is also how a brushed thumb loses your place, and it compounded with
+		# the swipe - a swipe not quite horizontal enough falls back to a tap, so
+		# trying to turn a page could close the book instead. The X in the room
+		# bar is the only way out now.
 		return
 	var frac := on_page.x / float(BOOK_PAGE_PX.x)
 	if frac < 0.34:
@@ -5332,7 +5352,7 @@ func _build_tacklebox() -> void:
 	# middle by a rail. The hull is only 0.337 m half-wide at z = 1.62 (M), so a
 	# 0.40 m box at x = 0.34 was inside the boat's side. Check `_hull_half_width`
 	# at the station before placing anything against the beam.
-	_tacklebox.position = Vector3(0.16, _hull_floor_y(1.40) + 0.035, 1.40)
+	_tacklebox.position = Vector3(0.14, _hull_floor_y(1.52) + 0.035, 1.52)
 	_tacklebox.rotation_degrees = Vector3(0, -24, 0)
 	_boat.add_child(_tacklebox)
 
@@ -5437,6 +5457,12 @@ func _box_row(name: String, state: String, id: String, tappable: bool) -> void:
 	_box_list.add_child(row)
 	if tappable and id != "":
 		_box_rows.append({"id": id, "row": row})
+		# THE ARROWS NEED SOMETHING TO POINT AT. A caret rather than a colour
+		# alone, for the same reason the state is said three ways: it survives a
+		# colour-blind player and a dim phone in daylight.
+		if _box_rows.size() - 1 == _box_sel:
+			left.text = "> " + name
+			left.add_theme_color_override("font_color", Color(1.0, 0.94, 0.78))
 
 
 ## Where the camera sits to read the open box. Computed by `frame_pose` off the
@@ -5489,9 +5515,8 @@ func _tap_box(at: Vector2) -> void:
 	var dir := _screen_ray(at)
 	var on := _tacklebox.hit_page(from, dir, _boat_pose)
 	if on.x < 0.0:
-		# Tapped off the box. Everything outside it is a way out, which is what a
-		# person expects from a thing they opened rather than a menu.
-		_shut_tacklebox()
+		# Tapped off the box, and nothing happens - see the note in `_tap_page`.
+		# The X closes it.
 		return
 	for entry in _box_rows:
 		var row: Control = entry["row"]
@@ -5513,3 +5538,131 @@ func _set_bait(id: String) -> void:
 	sim.econ.bait = id
 	_say_hint("%s on the hook." % str(Gear.bait_by_id(id)["name"]))
 	_want_save()
+
+
+# --- the room bar ---------------------------------------------------------
+
+## CONTROLS FOR A ROOM THAT IS AN OBJECT, which a panel used to provide free.
+##
+## Gideon, after playing the rooms on the phone: "instead of clicking outside the
+## menu to close it, i want an X or back button to prevent accidentally closing
+## out of the menue. since the text is small I want arrow keys and confirm button
+## to navigate the menues."
+##
+## Both are the same debt. Making a menu physical bought a lot and quietly gave
+## up three things a panel had always done: it never intersected the world, it
+## always had a close button, and it could be driven without aiming. The first is
+## fixed in `Room3D` (the surface no longer depth-tests). These are the other two.
+##
+## Why it is worth doing properly rather than adding one X. Tap-to-dismiss was
+## written down here as "what a reader expects from a thing they picked up", and
+## that is true and was still wrong: it is also how you lose your place by
+## brushing the screen. Worse, it interacts with the swipe - a swipe that is not
+## quite horizontal enough falls back to being a tap, and a tap off the page shut
+## the book. So "I cant swipe the pages" and "it closes accidentally" were one
+## fault with two faces, and an explicit bar settles both: the ONLY thing that
+## closes a room now is the X.
+##
+## The arrows also answer something a 3D menu has that a panel does not: the text
+## lives on a surface at an angle, so it is smaller than a panel's and hitting a
+## row means aiming at a plane. Arrows make every row reachable without aiming at
+## anything, which is an accessibility floor rather than a convenience.
+const ROOMBAR_H := 132.0
+const ROOMBAR_GAP := 18.0
+
+
+func _build_room_bar() -> void:
+	_room_bar = HBoxContainer.new()
+	_room_bar.name = "RoomBar"
+	_room_bar.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_room_bar.offset_left = 46
+	_room_bar.offset_right = -46
+	_room_bar.offset_top = -ROOMBAR_H - 54 - SAFE_BOTTOM
+	_room_bar.offset_bottom = -54 - SAFE_BOTTOM
+	_room_bar.add_theme_constant_override("separation", int(ROOMBAR_GAP))
+	_room_bar.visible = false
+	_ui.add_child(_room_bar)
+
+	_room_prev = _room_button("<", func() -> void: _room_step(-1))
+	_room_next = _room_button(">", func() -> void: _room_step(1))
+	_room_ok = _room_button("Use", func() -> void: _room_confirm())
+	_room_close = _room_button("X", func() -> void: _room_close_pressed())
+	for b in [_room_prev, _room_ok, _room_next, _room_close]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_room_bar.add_child(b)
+	# The X is the way out, so it is the one that must never be pressed by
+	# accident on the way to something else: last, hard against the right edge,
+	# and coloured apart from the three that act on the contents.
+	_room_close.size_flags_stretch_ratio = 0.7
+
+
+func _room_button(text: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, ROOMBAR_H)
+	b.add_theme_font_size_override("font_size", 44)
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(0.05, 0.09, 0.10, 0.88)
+	box.border_color = Color(0.93, 0.90, 0.82, 0.34)
+	box.set_border_width_all(2)
+	box.set_corner_radius_all(22)
+	b.add_theme_stylebox_override("normal", box)
+	b.add_theme_stylebox_override("hover", box)
+	var press := box.duplicate() as StyleBoxFlat
+	press.bg_color = Color(0.17, 0.25, 0.26, 0.96)
+	b.add_theme_stylebox_override("pressed", press)
+	b.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82))
+	b.pressed.connect(on_press)
+	return b
+
+
+## Step through whatever the open room is: pages in the book, rows in the box.
+func _room_step(by: int) -> void:
+	if _reading:
+		_turn_page(by)
+	elif _at_box:
+		if _box_rows.is_empty():
+			return
+		_box_sel = wrapi(_box_sel + by, 0, _box_rows.size())
+		_refresh_tacklebox()
+
+
+func _room_confirm() -> void:
+	if _reading:
+		# A book has nothing to confirm, so the middle button turns the page on -
+		# which is what a reader pressing the big button in the middle means.
+		_turn_page(1)
+	elif _at_box:
+		if _box_sel >= 0 and _box_sel < _box_rows.size():
+			_set_bait(str(_box_rows[_box_sel]["id"]))
+			_refresh_tacklebox()
+			if _audio != null:
+				_audio.play("clunk", -10.0)
+
+
+func _room_close_pressed() -> void:
+	if _reading:
+		_shut_book()
+	elif _at_box:
+		_shut_tacklebox()
+
+
+## Show the bar only while a room is open, and label the middle button for the
+## room that is open - a caption computed from the state rather than stored, the
+## same rule the action button follows.
+func _sync_room_bar() -> void:
+	if _room_bar == null:
+		return
+	var open := (_reading or _at_box) and not _in_sequence
+	_room_bar.visible = open
+	if not open:
+		return
+	if _reading:
+		_room_ok.text = "Turn"
+		_room_prev.text = "<"
+		_room_next.text = ">"
+	else:
+		_room_ok.text = "Use"
+		_room_prev.text = "^"
+		_room_next.text = "v"

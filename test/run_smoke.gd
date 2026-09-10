@@ -1540,10 +1540,36 @@ func _check_the_logbook_is_a_real_object(main) -> void:
 	_t.lt(main._book.hit_page(from, away, main._boat_pose).x, 0.0,
 		"a ray pointing away from the book still reports a hit on the page")
 
-	# And turning past the last page shuts it, which needs no ray at all.
-	main._book.page = main._book_pages
+	# TAPPING OFF THE PAGE NO LONGER CLOSES IT. That was the way out until it was
+	# played on a phone: a brushed thumb lost your place, and a swipe that was not
+	# quite horizontal fell back to a tap, so trying to turn a page could shut the
+	# book instead. The X in the room bar is the only way out now.
+	main._book.page = 1
 	main._tap_page(Vector2(700, 500))
-	_t.ok(not main._reading, "reading past the last page does not shut the book")
+	_t.ok(main._reading, "a tap away from the page still shuts the book")
+
+	# ...but turning past the last page still does, because that is a thing the
+	# player asked for rather than something a thumb does by accident.
+	main._book.page = main._book_pages - 1
+	main._turn_page(1)
+	_t.ok(not main._reading, "turning past the last page does not shut the book")
+
+	# THE ROOM BAR IS THE WAY OUT, and it is on screen whenever a room is open.
+	main.freeze(1)
+	main._open_book()
+	for i in 60:
+		main.advance(1.0 / 60.0)
+	main._sync_room_bar()
+	_t.ok(main._room_bar.visible, "the room bar is not shown while the book is open")
+	var page_before: int = main._book.page
+	main._room_step(1)
+	_t.eq(main._book.page, page_before + 1, "the next arrow does not turn the page")
+	main._room_step(-1)
+	_t.eq(main._book.page, page_before, "the back arrow does not turn the page back")
+	main._room_close_pressed()
+	_t.ok(not main._reading, "the X does not close the book")
+	main._sync_room_bar()
+	_t.ok(not main._room_bar.visible, "the room bar is still shown with nothing open")
 
 	_check_the_logbook_is_in_shot(main)
 

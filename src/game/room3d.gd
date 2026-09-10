@@ -104,6 +104,19 @@ func build(model: Node3D, surface_size: Vector2, surface_at: Transform3D,
 	# your face does.
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	# AND IT DOES NOT DEPTH-TEST, which is the price of a menu being geometry.
+	#
+	# Gideon, on the phone: "the menus clip through the physical objects." A
+	# SubViewport quad is an ordinary mesh, so it intersects the floorboards, the
+	# tackle box and the hull like any other - and half a page disappearing behind
+	# a plank reads as a broken menu, not as a solid world.
+	#
+	# A panel got this for free and an object has to earn it back. The surface is
+	# only visible while the thing is open and the camera is right on top of it,
+	# so drawing it over everything costs nothing anywhere else and is exactly
+	# what a reader expects: the page you are holding is in front of the boat.
+	m.no_depth_test = true
+	m.render_priority = 8
 	_surface.material_override = m
 	_surface.transform = surface_at
 	_surface.visible = false
