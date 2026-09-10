@@ -17,7 +17,23 @@ extends RefCounted
 
 ## Where the boat's seat is, so a sequence can end exactly where play begins and
 ## the hand-over is invisible.
-const SEAT := Vector3(0.0, 1.30, -1.90)
+## WHERE THE PLAYER IS SITTING, and it was not in the boat.
+##
+## Gideon: "You are too far back in the boat so it doesn't look like a person is
+## actually sitting in it."
+##
+## Measured rather than nudged: the hull is swept from z = -0.85 to z = +2.25, so
+## the transom is at -0.85 and the eye was at **-1.90** - a metre and five
+## centimetres BEHIND the back of the boat, floating in open water looking at the
+## whole vessel. That is why it read as a camera rather than a person; it was
+## outside the thing it was supposed to be inside.
+##
+## The new numbers come off the hull's own profile, from `scripts/probe_seat.gd`:
+## at z = 0.70 the floor is 0.20 and the rim is 0.50, so a thwart sits at about
+## the rim and a seated eye is roughly 0.70 m above that. Amidships, on the centre
+## thwart, which is where a person actually fishes from a boat this size - the
+## bow spreads away in front and the gunwales run past on both sides.
+const SEAT := Vector3(0.0, 1.20, 0.70)
 const SEAT_LOOK := Vector3(0.0, 0.72, 9.0)
 
 ## Standing outside the gate, which is where the title lives.

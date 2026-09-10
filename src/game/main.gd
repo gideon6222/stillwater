@@ -388,9 +388,23 @@ func _build_water() -> void:
 ## Two copies of these numbers would be the worst kind of bug: a boat rocking
 ## slightly out of time with its own water reads as broken in a way nobody can
 ## name, and it would drift the first time either was tuned.
+## STILL WATER. The game is called that and the water was not.
+##
+## Amplitude is `steepness / k`, so these two waves summed to 0.16 m - a THIRTY
+## TWO CENTIMETRE swell peak to peak, on a lake at dawn. That is a stiff breeze on
+## a reservoir, and it is the real reason the boat would not settle no matter what
+## the hull multipliers did: the hull was honestly riding water that was far too
+## big. "Can you make the water calmer in general? It still rocks a bit too much."
+##
+## Now 0.062 m total, about 12 cm peak to peak, which is a lake with a light air
+## moving over it. A third wave was added rather than simply shrinking the two:
+## short, very low, and quick, it keeps the surface ALIVE at close range where the
+## eye is, while the two long ones do the gentle work under the hull. Cutting
+## amplitude alone gives calm water that also looks dead.
 const WAVES := [
-	[1.0, 0.35, 0.14, 5.10, 1.00],
-	[-0.7, 0.90, 0.10, 2.90, 1.25],
+	[1.0, 0.35, 0.052, 5.10, 0.80],
+	[-0.7, 0.90, 0.038, 2.90, 1.00],
+	[0.4, -1.0, 0.020, 1.15, 1.35],
 ]
 
 
@@ -743,7 +757,7 @@ func _build_boat() -> void:
 	tm.ring_segments = 12
 	rope.mesh = tm
 	rope.material_override = _mat(Color(0.44, 0.39, 0.29), 0.95)
-	rope.position = Vector3(-0.34, _hull_rim_y(-0.16) + 0.030, -0.16)
+	rope.position = Vector3(-0.30, _hull_rim_y(1.15) + 0.030, 1.15)
 	rope.name = "Rope"
 	rope.rotation_degrees = Vector3(4, 18, 0)
 	_boat.add_child(rope)
@@ -844,7 +858,12 @@ func _build_rod() -> void:
 		seg.add_child(shaft)
 
 		if i == 0:
-			seg.position = Vector3(0.42, _hull_rim_y(1.30) + 0.10, 1.30)
+			# IN THE HANDS, not planted in the boat ahead of you. The butt sits a
+			# little forward of the chest and off to the right, where a seated
+			# angler's hands are - about 36 cm from the eye at `Sequence.SEAT`.
+			# It was at z = 1.30, which was three metres in front of the old seat
+			# and read as a stick standing in the bottom of the boat.
+			seg.position = Vector3(0.28, 0.98, 1.06)
 			seg.rotation_degrees = Vector3(ROD_REST, 0, 9)
 			_rod = seg
 			seg.name = "Rod"
@@ -1771,7 +1790,29 @@ const SAFE_BOTTOM := 54
 
 const LOOK_SLOP := 14.0        ## pixels before a press becomes a look
 const LOOK_YAW_LIMIT := 1.05   ## how far round you can turn in the seat (60 deg)
-const LOOK_PITCH_LIMIT := 0.40
+## HOW FAR A SEATED PERSON CAN LOOK, and it is not the same in both directions.
+##
+## One symmetric limit of 0.40 rad was correct while the camera floated a metre
+## behind the transom looking at the boat: there was nothing underneath it to look
+## at. Sitting on the thwart there is a whole boat under you, and 23 degrees does
+## not reach your own feet - the sole one metre ahead is 50 degrees down.
+##
+## Measured, not reasoned: `scripts/probe_pitch.gd` prints the camera's forward
+## vector against `_look_pitch`, because the basis is composed after a PI yaw and
+## the sign is genuinely not readable from the source. NEGATIVE is down.
+const LOOK_PITCH_DOWN := 1.00  ## 57 deg, plus the resting tilt. Down at the boards
+const LOOK_PITCH_UP := 0.40    ## a seated person tips their head back much less
+const LOOK_PITCH_LIMIT := LOOK_PITCH_UP   ## kept: the yaw/pitch sweep still reads it
+
+## The resting tilt, and it earns a name now that things live below it.
+##
+## It was -5.5 degrees with a comment saying it looked "a little above the
+## horizon". Measured, it looks 5.5 degrees BELOW it - the comment had the sign
+## wrong and nothing depended on it while the boat was in the middle distance.
+## At -10 the gunwales and the gear frame the bottom of the picture the way they
+## do when you are actually sitting in a boat, and the float, which sits about 3
+## degrees below the horizon at casting range, is still comfortably in frame.
+const REST_TILT := -7.0
 const LOOK_SWEEP := 1.15       ## screen widths to travel the whole yaw range
 const LOOK_BASE_WIDTH := 1080.0
 const LOOK_FOLLOW := 16.0
@@ -2053,26 +2094,30 @@ func _sync_stick(dt: float) -> void:
 	_look_yaw_want = clampf(_look_yaw_want - v.x * speed,
 		-LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
 	_look_pitch_want = clampf(_look_pitch_want - v.y * speed * 0.72,
-		-LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
+		-LOOK_PITCH_DOWN, LOOK_PITCH_UP)
 
 
+## A DRAG ACROSS THE WATER NO LONGER TURNS THE VIEW. The stick does that, and only
+## the stick.
+##
+## Gideon: "You can still turn by swiping the screen, I only want to be able to
+## turn by using the virtual thumb stick."
+##
+## The drag was here first and the stick was added beside it, so for a while the
+## game had two ways to look, which is one too many for a reason beyond tidiness:
+## the whole screen is the cast button, so every swipe was BOTH a look and a
+## cancelled cast, and a thumb that brushes sideways while charging lost the cast
+## and moved the aim at the same time.
+##
+## What survives is the cancel, and it has to. A swipe that quietly charged and
+## then fired a cast on release would be worse than the thing being removed.
 func _apply_look(rel: Vector2) -> void:
 	_drag_moved += rel.length()
 	if _charging and _drag_moved > LOOK_SLOP:
 		_charging = false
-		# Abandon the charge the instant this becomes a look, so the rod does not
-		# sit loaded behind a camera move.
+		# Abandon the charge the instant this becomes a swipe, so a brushed thumb
+		# cannot throw a cast nobody asked for.
 		sim.cancel_cast()
-	if not _touching:
-		return
-	if _drag_moved <= LOOK_SLOP:
-		return
-	var speed := (LOOK_YAW_LIMIT * 2.0) / (LOOK_BASE_WIDTH * LOOK_SWEEP) * look_sensitivity
-	_look_yaw_want = clampf(_look_yaw_want - rel.x * speed, -LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
-	# Pitch gets less range than yaw and the same rate, because a seated person
-	# turns their head much further than they tip it.
-	_look_pitch_want = clampf(_look_pitch_want - rel.y * speed,
-		-LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
 
 
 func _mat(c: Color, rough: float = 0.6) -> StandardMaterial3D:
@@ -2256,7 +2301,7 @@ func _sync_play_camera(out: Vector3) -> void:
 	# space" - and until now the space did not move and the player controlled
 	# nothing continuously at all. A lake that heaves under you turns a picture
 	# into a place, and it costs two wave samples a frame.
-	var seat := Vector3(0.0, 1.30, -1.90)
+	var seat := Sequence.SEAT
 	# THE EYE RIDES `_cam_pose`, NOT `_boat_pose` - a damped share of the hull.
 	# See the note on `_sync_cam_pose`: the head keeps itself level, so the boat
 	# swings against the horizon instead of the horizon swinging against the boat.
@@ -2269,7 +2314,7 @@ func _sync_play_camera(out: Vector3) -> void:
 	# and the first frame of it was a beautifully lit view out over the stern.
 	var basis := _cam_pose.basis * Basis(Vector3.UP, PI + _look_yaw) 		* Basis(Vector3.RIGHT, _look_pitch)
 	# Sat down, looking a little above the horizon.
-	basis = basis * Basis(Vector3.RIGHT, deg_to_rad(-5.5))
+	basis = basis * Basis(Vector3.RIGHT, deg_to_rad(REST_TILT))
 	if _shake > 0.001:
 		# Decaying, and on rotation only - see `_kick`.
 		var a := _shake * _shake * 0.030
@@ -3809,8 +3854,48 @@ func _sync_boat_pose() -> void:
 ## float, which silently became a comparison between two different coordinate
 ## spaces the moment casting gained a heading - the assertion still passed for a
 ## while, for the wrong reason.
+## WHERE THE FLOAT ACTUALLY IS, and the Y is the whole of it.
+##
+## Gideon: "the bobber comes all the way out of the water, or goes completely below
+## the wave, even when a fish isn't biting."
+##
+## It was `_boat_pose * local` - the float rode the BOAT. Two faults in one line,
+## and the second is much larger than the first:
+##
+##  1. The boat heaves on its own wave, thirty metres from the float's wave, so
+##     the two were never at the same point in the swell.
+##  2. `_boat_pose` carries the hull's PITCH, and a point thirty metres down +Z
+##     rotated by two and a half degrees moves 1.3 METRES vertically. The float
+##     was being swung a metre and a half up and down by the boat tipping.
+##
+## Both are the same underlying fault the rest of this game is careful about: two
+## models of one surface. The water is a shader driven by `WAVES`, and the thing
+## floating on it was reading the hull instead. Now it reads the water, from the
+## same array the shader is generated from, so the float and the surface it sits
+## in cannot disagree.
+##
+## The dip stays exactly what it was - `_lure_position` returns Y as depth BELOW
+## the waterline - so minigame one is untouched. It is now measured from a
+## waterline that moves, which is what makes a tease read as a tease rather than as
+## the lake going past.
 func lure_world_position() -> Vector3:
-	return _boat_pose * (Basis(Vector3.UP, _cast_yaw) * _lure_position())
+	var local := Basis(Vector3.UP, _cast_yaw) * _lure_position()
+	match sim.state:
+		Sim.IDLE, Sim.CHARGING, Sim.HOLDING:
+			# In the hand and in the boat, so it rides the hull like the rod does.
+			return _boat_pose * local
+		_:
+			pass
+	# On the water, or in the air above it. The boat sits at the origin and only
+	# heaves, so the float's XZ is its own - it must not inherit the hull's tilt.
+	return Vector3(local.x, water_height(local.x, local.z) + local.y, local.z)
+
+
+## The height of the lake surface at a point, from the same `WAVES` the shader is
+## built from. Public because the smoke test asks the same question the renderer
+## does, and a float that agrees with a private copy of the water proves nothing.
+func water_height(x: float, z: float) -> float:
+	return _wave_offset(x, z, _boat_time).y
 
 
 # --- the one button ---------------------------------------------------------
@@ -3868,7 +3953,10 @@ func _hint_for_state() -> String:
 		return ""
 	match sim.state:
 		Sim.IDLE, Sim.HOLDING, Sim.LOST:
-			return "hold the water to aim and cast   -   drag to look around"
+			# The stick looks, and only the stick. This line still said "drag to
+			# look around" for one build after the drag was removed, which is the
+			# worst kind of hint: it teaches a control that no longer exists.
+			return "hold the water to aim and cast   -   lean the stick to look"
 		Sim.CHARGING:
 			return "let go to cast"
 		Sim.SINKING, Sim.WAITING:
@@ -4029,7 +4117,7 @@ func _build_things() -> void:
 		{
 			"id": "livewell",
 			"name": "The livewell",
-			"at": Vector3(0.34, _hull_floor_y(0.90) + 0.14, 0.90),
+			"at": Vector3(0.30, _hull_floor_y(1.25) + 0.14, 1.25),
 			"look": func() -> String:
 				if sim.econ.held.is_empty():
 					return "The livewell   -   empty"
@@ -4041,7 +4129,7 @@ func _build_things() -> void:
 		{
 			"id": "baitbox",
 			"name": "The bait box",
-			"at": Vector3(-0.32, _hull_floor_y(0.35) + 0.10, 0.35),
+			"at": Vector3(-0.26, _hull_floor_y(1.70) + 0.10, 1.70),
 			"look": func() -> String:
 				var b := Gear.bait_by_id(sim.econ.bait)
 				return "%s on the hook   -   tap to change" % str(b["name"]),
@@ -4068,7 +4156,7 @@ func _build_things() -> void:
 		{
 			"id": "logbook",
 			"name": "The logbook",
-			"at": Vector3(0.20, _hull_floor_y(0.10) + 0.11, 0.10),
+			"at": Vector3(0.10, _hull_floor_y(1.70) + 0.11, 1.70),
 			"look": func() -> String:
 				var met := Keepers.hands_met(sim.deepest_ever)
 				return "The keeper's logbook   -   %d of %d hands" % [met, Keepers.total_hands()],
@@ -4078,7 +4166,7 @@ func _build_things() -> void:
 		{
 			"id": "rope",
 			"name": "The rope",
-			"at": Vector3(-0.34, _hull_rim_y(-0.16) + 0.03, -0.16),
+			"at": Vector3(-0.30, _hull_rim_y(1.15) + 0.06, 1.15),
 			"look": func() -> String:
 				return "A coil of rope. Somebody else's knot.",
 			"use": func() -> void:
@@ -4252,14 +4340,14 @@ func _build_props() -> void:
 	# frame while the lantern hid behind the rod. Spread along the hull, none of
 	# them across the water the player is casting into, and none of them large
 	# enough to be the subject.
-	_place_prop("livewell", Vector3(0.34, _hull_floor_y(0.90), 0.90), 0.80, 18.0)
-	_place_prop("baitbox", Vector3(-0.32, _hull_floor_y(0.35), 0.35), 0.50, -12.0)
+	_place_prop("livewell", Vector3(0.30, _hull_floor_y(1.25), 1.25), 0.80, 18.0)
+	_place_prop("baitbox", Vector3(-0.26, _hull_floor_y(1.70), 1.70), 0.50, -12.0)
 	# The lantern goes on the STEM, where it lights the water ahead rather than
 	# the boards - and where it is a silhouette against the sky at night.
 	var lamp := _place_prop("lamp", Vector3(0.0, _hull_rim_y(2.05) + 0.03, 2.05), 1.05, 0.0)
 	if lamp != null:
 		_lamp_prop = lamp
-	_place_prop("lifebuoy", Vector3(-0.58, _hull_rim_y(0.30) - 0.16, 0.30), 0.62, 90.0)
+	_place_prop("lifebuoy", Vector3(-0.56, _hull_rim_y(0.95) - 0.16, 0.95), 0.62, 90.0)
 
 	# THE BRACKET IS ALWAYS THERE, the lantern only once bought. Hiding the lamp
 	# until it is paid for immediately re-created the invisible-prompt bug in the
@@ -4765,7 +4853,7 @@ func _build_book() -> void:
 	# degrees below the view axis - the very bottom edge of a 58 degree frame,
 	# behind the near thwart. "I dont see the log book in the game" was literally
 	# true: the object existed, in shot, and off the bottom of the picture.
-	_book.position = Vector3(0.02, _hull_floor_y(0.70) + 0.052, 0.70)
+	_book.position = Vector3(0.10, _hull_floor_y(1.70) + 0.052, 1.70)
 	# Not square to the boat. A book somebody put down is never square to
 	# anything, and this is the whole difference between a prop and a menu.
 	_book.rotation_degrees = Vector3(0, 14, 0)

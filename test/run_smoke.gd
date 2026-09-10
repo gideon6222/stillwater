@@ -70,6 +70,8 @@ func _initialize() -> void:
 	_check_every_room_looks_like_the_thing_it_is(main)
 	_check_the_logbook_is_a_real_object(main)
 	_check_the_back_button_unwinds_one_layer(main)
+	_check_the_float_floats_on_the_water(main)
+	_check_a_swipe_does_not_turn_the_view(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -895,6 +897,79 @@ func _check_the_water_never_casts_and_the_button_always_does(main) -> void:
 	_t.gt(float(main.sim.casts), 0.0, "the cast never happened")
 
 
+## THE FLOAT FLOATS ON THE WATER, and this is the assertion that it reads the same
+## surface the shader draws rather than a second copy of it.
+##
+## Gideon: "the bobber comes all the way out of the water, or goes completely below
+## the wave, even when a fish isn't biting." It rode `_boat_pose`, so it inherited
+## the hull's heave from thirty metres away AND the hull's pitch, which at that
+## range swung it well over a metre.
+##
+## Sampled across a span of time rather than at one instant, because the fault was
+## invisible in any single frame - a float a metre high looks like a float, and it
+## is only against the moving surface that it is obviously wrong. That is exactly
+## why a screenshot never caught this and he did.
+func _check_the_float_floats_on_the_water(main) -> void:
+	_t.begin("smoke > the float sits in the water rather than on the boat")
+	main.freeze(1)
+	if not _drive_until(main, Sim.WAITING, 60.0):
+		_t.ok(false, "no cast was in the water to check the float against")
+		return
+
+	var worst := 0.0
+	var moved := 0.0
+	var first_pos: Vector3 = main.lure_world_position()
+	var first: float = first_pos.y
+	for i in 240:
+		main.advance(1.0 / 60.0, 1.0 / 60.0)
+		if main.sim.state != Sim.WAITING:
+			break
+		var p: Vector3 = main.lure_world_position()
+		var surface: float = main.water_height(p.x, p.z)
+		# WAITING has no fish on it, so the float should be sitting AT the
+		# waterline. Any daylight under it, or any burial, is the bug.
+		worst = maxf(worst, absf(p.y - surface))
+		moved = maxf(moved, absf(p.y - first))
+	_t.lt(worst, 0.02,
+		"the float is %.2f m off the water surface with no fish on it - it is riding something other than the lake" % worst)
+
+	# ...and it must actually MOVE with the swell. A float welded to y=0 would pass
+	# the check above perfectly, which is the failure this pairs against.
+	_t.gt(moved, 0.005,
+		"the float never moves vertically - it is pinned to a flat waterline rather than floating on the wave")
+
+
+## THE STICK IS THE ONLY WAY TO TURN.
+##
+## Gideon: "You can still turn by swiping the screen, I only want to be able to
+## turn by using the virtual thumb stick." The whole screen is the cast button, so
+## a swipe was both a look and a cancelled cast at once.
+##
+## The cancel is asserted here too, and deliberately: it is the half that has to
+## SURVIVE, because a swipe that quietly charged and fired on release would be
+## worse than the thing being removed.
+func _check_a_swipe_does_not_turn_the_view(main) -> void:
+	_t.begin("smoke > swiping the screen does not turn the view")
+	main.freeze(1)
+	var before: float = main._look_yaw_want
+	main._touching = true
+	main._drag_moved = 0.0
+	for i in 20:
+		main._apply_look(Vector2(60.0, 0.0))
+	_t.approx(main._look_yaw_want, before, 1e-5,
+		"swiping the screen still turns the view - the stick is meant to be the only way")
+
+	# And a swipe still abandons a charge rather than throwing a cast on release.
+	main.freeze(1)
+	main._charging = true
+	main._drag_moved = 0.0
+	main.sim.hold_cast()
+	for i in 10:
+		main._apply_look(Vector2(40.0, 0.0))
+	_t.ok(not main._charging,
+		"a swipe no longer cancels the charge - a brushed thumb will fire a cast")
+
+
 ## THE STICK TURNS THE VIEW, AND KEEPS TURNING WHILE IT IS HELD.
 ##
 ## That is the whole difference from a drag, and the reason it was asked for: a
@@ -963,7 +1038,11 @@ func _check_everything_in_the_boat_can_be_looked_at_and_used(main) -> void:
 		for pi in steps:
 			main._look_yaw = lerpf(-main.LOOK_YAW_LIMIT, main.LOOK_YAW_LIMIT,
 				float(yi) / float(steps - 1))
-			main._look_pitch = lerpf(-main.LOOK_PITCH_LIMIT, main.LOOK_PITCH_LIMIT,
+			# The sweep has to cover the ASYMMETRIC range the player actually has:
+			# a seated person looks much further down than up, and everything in
+			# the boat lives below the eye line. Sweeping the old symmetric range
+			# would silently stop testing the half of the cone the gear is in.
+			main._look_pitch = lerpf(-main.LOOK_PITCH_DOWN, main.LOOK_PITCH_UP,
 				float(pi) / float(steps - 1))
 			main._look_yaw_want = main._look_yaw
 			main._look_pitch_want = main._look_pitch
@@ -1361,20 +1440,55 @@ func _check_the_logbook_is_a_real_object(main) -> void:
 ## margin. It is the same arithmetic for any object the player is expected to
 ## notice, which is why it takes the node as an argument.
 func _check_the_logbook_is_in_shot(main) -> void:
-	_t.begin("smoke > the logbook is in shot from the seat")
+	_t.begin("smoke > the logbook can be brought into shot from the seat")
 	main._shut_book()
 	main.sim.state = Sim.IDLE
-	# FACING FORWARD. An earlier check leaves the view turned with the stick, and
-	# "is the book in shot" asked of a player looking over their shoulder is not
-	# a question with an answer. This is the resting pose the game hands you.
-	main._look_yaw_want = 0.0
-	main._look_pitch_want = 0.0
 	main._stick_held = false
 	main._stick_vec = Vector2.ZERO
+	main._look_yaw_want = 0.0
+	main._look_pitch_want = 0.0
+	# LET THE CAMERA COME BACK TO THE SEAT FIRST. `_shut_book` plays a sequence,
+	# so for the next half second the eye is still down over the book - and
+	# sampling it there measured the book as 77 degrees below "the seat" when it
+	# is 40, which reads as an impossible object rather than a moving camera.
 	for i in 120:
 		main.advance(1.0 / 60.0)
-	_in_frame(main, main._book.global_position if main._book.is_inside_tree()
-		else main._boat_pose * main._book.position, "the logbook")
+
+	# THE CLAIM CHANGED WHEN THE PLAYER SAT DOWN, and it is worth saying why
+	# rather than just relaxing the number.
+	#
+	# This used to demand the book be in frame at REST, and that was right while
+	# the camera floated a metre behind the transom: from out there the whole boat
+	# was in shot, so anything not in shot was lost, and "I dont see the log book
+	# in the game" was exactly that bug.
+	#
+	# Sitting on the thwart, nothing on the boat's sole is in the resting frame -
+	# your own feet are not either. Demanding it would force every object in the
+	# boat out to the bow, which is the opposite of the arrangement being built.
+	#
+	# So the honest claim is that the player can FIND it: it is inside the look
+	# cone they actually have, and once they look at it, it is properly in frame
+	# rather than clipped to an edge. That is strictly stronger than the old test
+	# in the way that matters - the old one never checked the book was reachable,
+	# only that it happened to be visible from one fixed pose.
+	var book_at: Vector3 = main._book.global_position if main._book.is_inside_tree() 		else main._boat_pose * main._book.position
+	var eye: Vector3 = main._cam.transform.origin
+	var to_book := book_at - eye
+	var need_pitch := atan2(to_book.y, Vector2(to_book.x, to_book.z).length())
+	var need_yaw := atan2(-to_book.x, to_book.z)
+	# `_look_pitch` is measured from the resting tilt, and negative is DOWN.
+	var want_pitch := need_pitch - deg_to_rad(main.REST_TILT)
+	_t.gt(want_pitch, -main.LOOK_PITCH_DOWN,
+		"the logbook is %.0f degrees below the seat and the player can only look %.0f down - it cannot be found" % [
+			-rad_to_deg(need_pitch), rad_to_deg(main.LOOK_PITCH_DOWN)])
+	_t.lt(absf(need_yaw), main.LOOK_YAW_LIMIT,
+		"the logbook is outside the yaw the player has")
+
+	main._look_yaw_want = need_yaw
+	main._look_pitch_want = want_pitch
+	for i in 120:
+		main.advance(1.0 / 60.0)
+	_in_frame(main, book_at, "the logbook, looked straight at,")
 
 
 ## Is a world point inside the seated camera's frame, with room to spare?
