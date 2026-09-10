@@ -316,7 +316,57 @@ func _check_the_lure_is_where_the_line_ends(main) -> void:
 	_t.approx(main._float.position.distance_to(lure), 0.0, 1e-4,
 		"the float is not at the lure position the line was drawn to")
 	_t.ok(main._float.visible, "the float is not visible during a fight")
-	_t.ok(main._line.visible, "the line is not visible during a fight")
+
+	# THE LINE IS TEN SEGMENTS ALONG A SAG, and the two ends are the assertion
+	# that matters: a sag that detaches from the rod tip or from the lure is the
+	# one way this can fail that looks like a bug rather than a curve.
+	var chain: Array = main._line_chain
+	_t.gt(float(chain.size()), 1.0, "the line was never built as a chain")
+	var shown := 0
+	for seg in chain:
+		if seg.visible:
+			shown += 1
+	_t.eq(shown, chain.size(), "the line is not visible during a fight")
+	var first: MeshInstance3D = chain[0]
+	var last: MeshInstance3D = chain[chain.size() - 1]
+	# Each segment is a unit box scaled along its own Z. `looking_at` points -Z at
+	# the target, so +Z runs back towards the segment's START, and the basis is
+	# already scaled by the segment length - so half a segment is `basis.z * 0.5`,
+	# and multiplying by `scale.z` as well would square it.
+	var rod_tip: Vector3 = main._rod_tip
+	var head := first.transform.origin + first.transform.basis.z * 0.5
+	var tail := last.transform.origin - last.transform.basis.z * 0.5
+	_t.approx(head.distance_to(rod_tip), 0.0, 0.02,
+		"the line does not start at the rod tip")
+	_t.approx(tail.distance_to(lure), 0.0, 0.02,
+		"the line does not end at the lure")
+
+	# And the SHAPE is a readout of the tension, which is the whole reason it is a
+	# curve at all: a slack line bellies below the straight run between its ends
+	# and a line near breaking does not.
+	#
+	# Driven through `_draw_line_between` with FIXED endpoints, which matters. The
+	# obvious version of this test - set tension, step a frame, compare - passes
+	# whatever the sag does, because tension also bends the rod, so the rod tip
+	# moves and the belly moves with it. Verified: with the sag hard-wired to
+	# ignore tension completely, that version still reported all passing. Holding
+	# `a` and `b` still is what makes this an assertion about the SHAPE.
+	var mid_i := int(chain.size() / 2)
+	var a := Vector3(0.0, 1.2, 0.0)
+	var b := Vector3(0.0, 0.0, 10.0)
+	var chord_y := (a.y + b.y) * 0.5
+
+	main.sim.tension = Tuning.TENSION_MAX * 0.98
+	main._draw_line_between(a, b)
+	var belly_taut: float = chord_y - main._line_chain[mid_i].transform.origin.y
+
+	main.sim.tension = Tuning.TENSION_MAX * 0.02
+	main._draw_line_between(a, b)
+	var belly_slack: float = chord_y - main._line_chain[mid_i].transform.origin.y
+
+	_t.gt(belly_slack, belly_taut + 0.05,
+		"a slack line does not sag further than a tight one (%.3f vs %.3f) - the shape has stopped reading the tension" % [belly_slack, belly_taut])
+	_t.gt(belly_taut, -0.01, "a line under full tension bows UPWARDS")
 
 
 ## Play, through the real input seam, until a state is reached or time runs out.

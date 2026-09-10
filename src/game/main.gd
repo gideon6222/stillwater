@@ -26,6 +26,8 @@ var _boat: Node3D
 ## rod is nudged, and the symptom is a line hanging in the air beside it.
 var _rod_tip: Vector3 = Vector3(0.4, 1.0, 2.4)
 var _line: MeshInstance3D
+## The ten segments the line is actually drawn as. See `_draw_line_between`.
+var _line_chain: Array[MeshInstance3D] = []
 var _float: Node3D
 var _fish: Node3D
 var _ui: Control
@@ -82,6 +84,16 @@ var _charge_ring: Control
 var _boat_heave := 0.0
 var _boat_pitch := 0.0
 var _boat_roll := 0.0
+## The head, which is NOT the hull. See `_sync_cam_pose`.
+var _cam_heave := 0.0
+var _cam_pitch := 0.0
+var _cam_roll := 0.0
+var _cam_pose := Transform3D.IDENTITY
+## How far the rod is trailing the deck. See `_sync_rod_lag`.
+var _rod_lag_pitch := 0.0
+var _rod_lag_roll := 0.0
+var _rod_lag_last_pitch := 0.0
+var _rod_lag_last_roll := 0.0
 var _boat_time := 0.0
 var _boat_dt := 1.0 / 60.0
 var _grade: ColorRect
@@ -281,13 +293,26 @@ func _build_world() -> void:
 	_build_water()
 	_build_boat()
 
-	# The line. A thin box stretched between the rod tip and the float each
-	# frame - cheaper than a curve and it reads correctly at this distance.
+	# The line. Ten thin boxes along a sagging curve, rebuilt each frame - see
+	# `_draw_line_between`, where the shape is a readout of the tension. `_line`
+	# itself is kept as the mesh and material every segment shares, and is never
+	# drawn on its own any more.
 	_line = MeshInstance3D.new()
 	var lm := BoxMesh.new()
 	lm.size = Vector3(0.012, 0.012, 1.0)
 	_line.mesh = lm
 	_line.material_override = _mat(Color(0.94, 0.93, 0.88), 0.4)
+	_line.visible = false
+	# One mesh and one material, shared by every segment, so the whole line is
+	# ten transforms and a single draw setup rather than ten of everything.
+	for i in LINE_JOINTS:
+		var seg := MeshInstance3D.new()
+		seg.mesh = lm
+		seg.material_override = _line.material_override
+		seg.name = "LineSeg%d" % i
+		seg.visible = false
+		add_child(seg)
+		_line_chain.append(seg)
 	_line.name = "Line"
 	add_child(_line)
 
@@ -1756,6 +1781,8 @@ const LOOK_FOLLOW := 16.0
 ## shoulder, which is a person turning to look rather than a turret.
 const STICK_RADIUS := 118.0
 const LOOK_RATE := 0.62
+const STICK_DEAD := 0.14   ## a thumb resting on the stick is not an instruction
+const STICK_CURVE := 1.7   ## response exponent. Fine at the bottom, fast at the top
 
 
 func _draw_tension_bar() -> void:
@@ -1999,14 +2026,33 @@ func _sync_stick(dt: float) -> void:
 	else:
 		_stick_vec = _stick_vec.lerp(Vector2.ZERO, 1.0 - exp(-14.0 * dt))
 
-	# A DEAD ZONE, because a thumb resting on a stick is not an instruction.
+	# A DEAD ZONE, because a thumb resting on a stick is not an instruction - but
+	# a SCALED GRADIENT one, which is the difference between this and what was
+	# here before.
+	#
+	# The old version was a hard cutoff: below 0.14 nothing at all, and at 0.141
+	# the full fourteen per cent of top speed, arriving in one frame. That step is
+	# felt every time the thumb crosses it, which is constantly, because the edge
+	# of the dead zone is exactly where fine aiming happens. "I want the looking,
+	# casting, and fishing mechanics to be much smoother."
+	#
+	# Rescaling from 0 at the dead zone's edge to 1 at full throw removes the step
+	# entirely: the stick now starts from nothing wherever the thumb picks it up.
 	var mag := _stick_vec.length()
-	if mag < 0.14:
+	if mag <= STICK_DEAD:
 		return
+	var throw := (mag - STICK_DEAD) / (1.0 - STICK_DEAD)
+	# ...and then an EXPONENTIAL RESPONSE on top. Linear means the slowest turn
+	# available is a fourteen per cent lean, which is not slow enough to line up
+	# on a float thirty metres out; squaring it gives a long, fine low end and
+	# keeps the top speed where it was. `STICK_CURVE` 1.7 is inside the 1.5-2.0
+	# the research gives for touch look.
+	var gain := pow(throw, STICK_CURVE) / mag
+	var v := _stick_vec * gain
 	var speed := LOOK_RATE * look_sensitivity * dt
-	_look_yaw_want = clampf(_look_yaw_want - _stick_vec.x * speed,
+	_look_yaw_want = clampf(_look_yaw_want - v.x * speed,
 		-LOOK_YAW_LIMIT, LOOK_YAW_LIMIT)
-	_look_pitch_want = clampf(_look_pitch_want - _stick_vec.y * speed * 0.72,
+	_look_pitch_want = clampf(_look_pitch_want - v.y * speed * 0.72,
 		-LOOK_PITCH_LIMIT, LOOK_PITCH_LIMIT)
 
 
@@ -2187,8 +2233,14 @@ func _sync() -> void:
 
 	_float.position = out
 	_float.visible = sim.state != Sim.IDLE and sim.state != Sim.CHARGING 		and sim.state != Sim.HOLDING and not _in_sequence
-	_draw_line_between(_rod_tip, out)
-	_line.visible = _float.visible
+	# The line exists exactly when the float does, and `_draw_line_between` is the
+	# only thing that shows a segment - so ask it for nothing when there is no
+	# cast, rather than drawing a curve and hiding it afterwards.
+	if _float.visible:
+		_draw_line_between(_rod_tip, out)
+	else:
+		for seg in _line_chain:
+			seg.visible = false
 
 	_sync_wake(out)
 	_sync_fish()
@@ -2205,14 +2257,17 @@ func _sync_play_camera(out: Vector3) -> void:
 	# nothing continuously at all. A lake that heaves under you turns a picture
 	# into a place, and it costs two wave samples a frame.
 	var seat := Vector3(0.0, 1.30, -1.90)
-	var eye := _boat_pose * seat
+	# THE EYE RIDES `_cam_pose`, NOT `_boat_pose` - a damped share of the hull.
+	# See the note on `_sync_cam_pose`: the head keeps itself level, so the boat
+	# swings against the horizon instead of the horizon swinging against the boat.
+	var eye := _cam_pose * seat
 	# Yaw and pitch are the PLAYER's, applied on top of the boat's own motion, so
 	# looking around never fights the swell and the swell never steals the aim.
 	# A Godot camera looks down its own -Z, and the boat's bow is at +Z, so the
 	# rig has to be turned about. The old code used `looking_at`, which hid this
 	# entirely; building the basis by hand to carry the boat's motion exposed it,
 	# and the first frame of it was a beautifully lit view out over the stern.
-	var basis := _boat_pose.basis * Basis(Vector3.UP, PI + _look_yaw) 		* Basis(Vector3.RIGHT, _look_pitch)
+	var basis := _cam_pose.basis * Basis(Vector3.UP, PI + _look_yaw) 		* Basis(Vector3.RIGHT, _look_pitch)
 	# Sat down, looking a little above the horizon.
 	basis = basis * Basis(Vector3.RIGHT, deg_to_rad(-5.5))
 	if _shake > 0.001:
@@ -2300,14 +2355,37 @@ func _sync_rod() -> void:
 	if sim.state == Sim.FIGHTING and sim.danger() > 0.3:
 		bend += sin(sim.time * 47.0) * (sim.danger() - 0.3) * 3.0
 
+	# THE ROD IS HELD IN A HAND, IN A BOAT THAT IS MOVING.
+	#
+	# Gideon: "the rod and the fishing line don't react to movement and don't feel
+	# great." They did not react at all - the chain was a pure function of sim
+	# state, so a rod in a boat rolling ten degrees stayed welded to the deck as
+	# if it were bolted there. Two separate models of one world, which is the
+	# fault this game's own notes name most often.
+	#
+	# A mass on the end of a springy stick LAGS the hand carrying it. The lag is
+	# what makes it read as having weight, and it is cheap: track the hull's
+	# angular VELOCITY, damp it, and feed it in as extra bend and sideways whip.
+	# Researched time constant for prop lag is 0.1-0.2 s; ROD_LAG_FOLLOW is 0.14.
+	#
+	# It is derived from `_boat_pose`, not from `_cam_pose`, on purpose. The rod
+	# is in the boat, the eye is not - which is exactly why the rod now visibly
+	# moves against the view instead of with it.
+	var lag_pitch := rad_to_deg(_rod_lag_pitch) * ROD_LAG_BEND
+	var lag_roll := rad_to_deg(_rod_lag_roll) * ROD_LAG_WHIP
 	for i in _rod_chain.size():
 		var share: float = ROD_CURVE[i] * bend
+		# The lag builds along the rod exactly as the bend does - a butt barely
+		# moves and a tip moves most - so one curve describes both.
+		var lag_share: float = ROD_CURVE[i] * lag_pitch
+		var whip_share: float = ROD_CURVE[i] * lag_roll
 		if i == 0:
 			# The butt carries the whole swing plus its share of the bend. Both
 			# are down-positive, and `back` is a lift, so it subtracts.
-			_rod_chain[i].rotation_degrees = Vector3(ROD_REST - back + share, 0.0, 9.0)
+			_rod_chain[i].rotation_degrees = Vector3(
+				ROD_REST - back + share + lag_share, whip_share, 9.0)
 		else:
-			_rod_chain[i].rotation_degrees = Vector3(share, 0.0, 0.0)
+			_rod_chain[i].rotation_degrees = Vector3(share + lag_share, whip_share, 0.0)
 	_update_rod_tip()
 
 
@@ -2384,15 +2462,100 @@ func _lure_position() -> Vector3:
 			return Vector3(0.0, 0.0, sim.cast_distance)
 
 
+## THE LINE, AS A LINE UNDER TENSION - not a stick between two points.
+##
+## It was one stretched box from the rod tip to the lure: perfectly straight at
+## all times, identical slack or hooked, and unmoved by anything the boat did.
+## Gideon: "the rod and the fishing line don't react to movement and don't feel
+## great."
+##
+## What makes a line read as a line is that it is the only thing on screen whose
+## SHAPE is a readout of a force. So the shape is driven by the number the fight
+## is already using:
+##
+##   slack (no fish)   - hangs in a catenary and sways behind the rod tip
+##   tension rising    - the sag pulls out of it
+##   near breaking     - dead straight, and it is the straightness that reads
+##
+## Which means the player can see how much trouble they are in without looking at
+## the gauge at all - the same principle as the float being the nibble minigame.
+## One number, two readings, and they cannot disagree because there is only one.
+##
+## Built as a strip of segments rather than a curve resource: the sag is one
+## `sin` per joint and the whole thing is eleven small transforms, which costs
+## less than the ribbon it replaces would and needs no addon. Verlet rope is the
+## "correct" answer and is deliberately not used - this game's rules are pure
+## arithmetic, and a physics body would be a second model of the same world.
+const LINE_JOINTS := 10
+const LINE_SAG := 0.30      ## metres of droop at midspan on a fully slack line
+const LINE_SWAY := 0.055    ## metres of lateral lag, slack, at midspan
+const LINE_SWAY_RATE := 1.7 ## how fast a slack line swings
+
+
 func _draw_line_between(a: Vector3, b: Vector3) -> void:
-	var mid := (a + b) * 0.5
 	var d := b - a
-	var len := d.length()
-	if len < 0.001:
+	var span := d.length()
+	if span < 0.001:
 		_line.visible = false
+		for seg in _line_chain:
+			seg.visible = false
 		return
-	_line.transform = Transform3D(Basis.IDENTITY, mid).looking_at(b, Vector3.UP)
-	_line.scale = Vector3(1.0, 1.0, len)
+	_line.visible = false
+
+	# How taut it is. Only a fight has a real tension, but a cast in flight is
+	# being dragged through the air and a sinking lure is pulling it down, so
+	# those get their own values rather than hanging slack in mid air.
+	var taut := 0.0
+	match sim.state:
+		Sim.FIGHTING:
+			taut = clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0)
+		Sim.FLYING:
+			taut = 0.92
+		Sim.NIBBLING:
+			taut = 0.34 + sim.tug * 0.30
+		Sim.SINKING, Sim.WAITING:
+			taut = 0.30
+		_:
+			taut = 0.22
+	var slack := 1.0 - taut
+	# A long line sags further than a short one, which is what stops a
+	# thirty-metre cast looking as tight as a two-metre one.
+	var sag := LINE_SAG * slack * clampf(span / 12.0, 0.25, 1.6)
+	var sway := LINE_SWAY * slack * clampf(span / 12.0, 0.25, 1.6)
+	# The sway is driven off the ROD's lag, so the line trails the same motion the
+	# rod does, one step further behind. That is the whole "reacts to movement"
+	# ask: the boat moves, the rod trails it, and the line trails the rod.
+	var phase := _boat_time * LINE_SWAY_RATE + _rod_lag_roll * 2.0
+	var side := d.cross(Vector3.UP).normalized()
+	if side.length_squared() < 0.5:
+		side = Vector3.RIGHT
+
+	for i in LINE_JOINTS:
+		var t0 := float(i) / float(LINE_JOINTS)
+		var t1 := float(i + 1) / float(LINE_JOINTS)
+		var p0 := _line_point(a, b, t0, sag, sway, side, phase)
+		var p1 := _line_point(a, b, t1, sag, sway, side, phase)
+		var seg := _line_chain[i]
+		var mid := (p0 + p1) * 0.5
+		var seg_len := p0.distance_to(p1)
+		if seg_len < 0.0001:
+			seg.visible = false
+			continue
+		seg.visible = true
+		seg.transform = Transform3D(Basis.IDENTITY, mid).looking_at(p1, Vector3.UP)
+		seg.scale = Vector3(1.0, 1.0, seg_len)
+
+
+## One point along the line. `sin(PI * t)` is zero at both ends and one in the
+## middle, which is the whole reason the sag never detaches the line from the rod
+## tip or the lure - the two places a visible gap would be unforgivable.
+func _line_point(a: Vector3, b: Vector3, t: float, sag: float, sway: float,
+		side: Vector3, phase: float) -> Vector3:
+	var p := a.lerp(b, t)
+	var belly := sin(PI * t)
+	p.y -= sag * belly
+	p += side * sin(phase + t * 2.4) * sway * belly
+	return p
 
 
 func _sync_fish() -> void:
@@ -3502,6 +3665,82 @@ func _build_float() -> Node3D:
 	return f
 
 
+## THE HULL AND THE HEAD ARE TWO DIFFERENT THINGS, and separating them is what
+## lets the boat move without the picture moving.
+##
+## A person in a small boat does not rotate with it. The neck and the inner ear
+## hold the head roughly level - the vestibulo-ocular reflex is doing it whether
+## you like it or not - so a passenger watching the far bank sees the GUNWALES
+## swing against a horizon that stays put. Rendering the camera as bolted to the
+## hull reproduces the opposite: a level boat inside a world that heaves.
+##
+## So the camera takes a SHARE of the hull's motion, and takes it late:
+##
+##   share  - how much of the hull's angle the head keeps. Rotation is what makes
+##            people ill and translation is what makes a boat feel afloat, so
+##            heave passes through almost whole and pitch keeps least.
+##   follow - slower than the hull's own damping, so the head lags the deck. That
+##            lag is most of what reads as a neck rather than a tripod.
+##
+## Researched rather than invented, and the shares below sit inside the range the
+## research gives: inherit the hull's POSITION nearly untouched, take 20-30% of its
+## ROTATION, and smooth with a time constant of about 0.5-1 s (`CAM_FOLLOW` 2.1 is
+## 0.48 s). The cautionary case is Sea of Thieves, which bolts the first-person
+## camera to the hull: it is the longest-running complaint on that game's own
+## forums and it is the exact thing this game was doing.
+##
+## Measured, 40 s, from `scripts/probe_motion.gd`, which is the only reason any of
+## these numbers can be defended:
+##
+##            hull p2p   camera p2p   camera peak rate
+##   before     20.0 deg    20.0 deg      41.9 deg/s      "the movement has felt odd"
+##   after       5.0 deg     1.1 deg       3.1 deg/s
+##
+## The hull still moves - more visibly than before against a steady horizon, which
+## is the point - and the view no longer swings.
+const HULL_FOLLOW := 3.2       ## how fast the hull answers the swell
+const HULL_HEAVE := 0.78       ## metres of rise, as a share of the sampled wave
+const HULL_PITCH := 1.05       ## a long hull in a low swell barely pitches
+const HULL_ROLL := 0.80        ## ...and rolls about twice as far as it pitches
+const CAM_FOLLOW := 2.1        ## the head lags the deck. Lower than HULL_FOLLOW
+const CAM_PITCH_SHARE := 0.22  ## rotation is what makes people ill
+const CAM_ROLL_SHARE := 0.30
+const CAM_HEAVE_SHARE := 0.90  ## ...and translation is what makes it feel afloat
+
+
+## How far the rod is trailing the boat, right now.
+##
+## The quantity is the hull's angular VELOCITY, damped - not its angle. That
+## distinction is the whole effect: a rod in a boat held at a steady angle hangs
+## straight, and it is only while the deck is TURNING that the tip is left behind.
+## Driving it from the angle instead would bend the rod hardest at the top of a
+## roll, where a real one is momentarily still.
+const ROD_LAG_FOLLOW := 0.14   ## seconds. Researched prop lag is 0.1-0.2 s
+const ROD_LAG_BEND := 0.55     ## degrees of tip lag per degree/s of hull pitch
+const ROD_LAG_WHIP := 0.42     ## ...and sideways, per degree/s of hull roll
+
+
+func _sync_rod_lag() -> void:
+	if _boat_dt <= 0.0:
+		return
+	var d_pitch := (_boat_pitch - _rod_lag_last_pitch) / _boat_dt
+	var d_roll := (_boat_roll - _rod_lag_last_roll) / _boat_dt
+	_rod_lag_last_pitch = _boat_pitch
+	_rod_lag_last_roll = _boat_roll
+	var k := 1.0 - exp(-_boat_dt / ROD_LAG_FOLLOW)
+	_rod_lag_pitch = lerpf(_rod_lag_pitch, d_pitch, k)
+	_rod_lag_roll = lerpf(_rod_lag_roll, d_roll, k)
+
+
+func _sync_cam_pose() -> void:
+	var ck := 1.0 - exp(-CAM_FOLLOW * _boat_dt)
+	_cam_heave = lerpf(_cam_heave, _boat_heave * CAM_HEAVE_SHARE, ck)
+	_cam_pitch = lerpf(_cam_pitch, _boat_pitch * CAM_PITCH_SHARE, ck)
+	_cam_roll = lerpf(_cam_roll, _boat_roll * CAM_ROLL_SHARE, ck)
+	var b := Basis(Vector3.RIGHT, _cam_pitch) * Basis(Vector3.FORWARD, _cam_roll)
+	_cam_pose = Transform3D(b, Vector3(0.0, _cam_heave, 0.0))
+
+
 ## Float the boat on the swell.
 ##
 ## Sampled at four points - bow, stern and both beams - and the plane through
@@ -3524,21 +3763,32 @@ func _sync_boat_pose() -> void:
 	var pitch := atan2(bow.y - stern.y, 2.7)
 	var roll := atan2(starboard.y - port.y, 1.2)
 
-	# The damping IS the boat. A dinghy answers a swell late and rolls further
-	# than it pitches, which is most of what tells you how big the boat is.
-	# **EXAGGERATED, because the camera rides the boat.** A hull that answers the
-	# swell exactly is a hull the player never sees move: the camera moves with
-	# it, so the only cue is the horizon, and at the true numbers - 5 degrees of
-	# roll and three quarters of ONE degree of pitch - the report was "the boat
-	# is flat the whole time". A 2.7 m boat on a 5 m wave genuinely does barely
-	# pitch; the game wants the feeling of it rather than the arithmetic.
-	var k := 1.0 - exp(-3.2 * _boat_dt)
-	_boat_heave = lerpf(_boat_heave, heave * 1.15, k)
-	_boat_pitch = lerpf(_boat_pitch, pitch * 4.20, k)
-	_boat_roll = lerpf(_boat_roll, roll * 1.45, k)
+	# The damping IS the boat. A dinghy answers a swell late and ROLLS FURTHER
+	# THAN IT PITCHES, which is most of what tells you how big the boat is.
+	#
+	# These multipliers were once 4.20 on pitch and 1.45 on roll, which inverted
+	# that: measured, the hull pitched 20 degrees peak to peak and rolled 18. The
+	# reason is worth keeping, because the fix that produced it was correct
+	# reasoning from a true premise - at the honest numbers the report was "the
+	# boat is flat the whole time", because THE CAMERA RIDES THE BOAT and a
+	# camera that matches the hull exactly sees no motion at all. Exaggerating the
+	# hull was the only lever available, so it got pulled until the horizon moved.
+	#
+	# But it moves the camera too, and 20 degrees of camera pitch at 0.55 Hz is
+	# not a boat, it is a fairground ride: "the movement has felt odd." The lever
+	# was the wrong one. `_sync_cam_pose` below is the right one - the head is
+	# separated from the hull, so the boat can move properly and the view can stay
+	# still, and neither complaint has to be traded against the other any more.
+	# Now that the two are independent, these are back to what a rowing boat does.
+	var k := 1.0 - exp(-HULL_FOLLOW * _boat_dt)
+	_boat_heave = lerpf(_boat_heave, heave * HULL_HEAVE, k)
+	_boat_pitch = lerpf(_boat_pitch, pitch * HULL_PITCH, k)
+	_boat_roll = lerpf(_boat_roll, roll * HULL_ROLL, k)
 
 	var basis := Basis(Vector3.RIGHT, _boat_pitch) * Basis(Vector3.FORWARD, _boat_roll)
 	_boat_pose = Transform3D(basis, Vector3(0.0, _boat_heave, 0.0))
+	_sync_cam_pose()
+	_sync_rod_lag()
 	if _boat != null:
 		_boat.transform = _boat_pose
 	if _reeds != null:
