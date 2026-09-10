@@ -769,6 +769,20 @@ func _check_the_water_never_casts_and_the_button_always_does(main) -> void:
 	main.advance(0.5)
 	_t.gt(main.sim.charge, early, "holding longer does not charge further")
 
+	# THE CHARGE IS VISIBLE UNDER THE THUMB. The rod pulling back says how far
+	# the cast will go, but the rod is at the top of the screen and the thumb is
+	# at the bottom, so the ring fills round the button as well. It is the one
+	# control that only exists during a state a screenshot cannot easily catch,
+	# which is exactly why it is asserted rather than photographed.
+	_t.ok(main._charge_ring != null, "there is no charge ring")
+	_t.ok(main._charge_ring.visible, "the charge ring is hidden while the rod loads")
+	var ring: Rect2 = main._charge_ring.get_global_rect()
+	var button: Rect2 = main._action.get_global_rect()
+	_t.lt(ring.get_center().distance_to(button.get_center()), 4.0,
+		"the charge ring is not on the cast button - ring at %s, button at %s" % [
+			ring.get_center(), button.get_center()])
+	_t.gt(ring.size.x, 100.0, "the charge ring has no size")
+
 	main._cast_released()
 	_t.ok(main.sim.state != Sim.CHARGING, "letting go does not release the cast")
 	for i in 200:
