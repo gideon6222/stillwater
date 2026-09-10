@@ -57,6 +57,31 @@ The one number to know before filming: a second of film is about 60 full-resolut
 150 MB, so sixteen seconds is 2.4 GB and several minutes. Film the shortest run that shows
 the thing, and `build/` is gitignored, so clear `build/movie/*/frame*.png` when done.
 
+## The feel pass of 2026-09-10, as numbers
+
+Every one of these was a complaint that survived being looked at in a screenshot,
+and every one turned out to be structural rather than a tuning value.
+
+| | before | after | what it was |
+|---|---|---|---|
+| Camera pitch | 20.0 deg p2p, 41.9 deg/s | 0.26 deg, 0.42 deg/s | the camera was bolted to the hull |
+| Camera roll | 18.0 deg p2p, 36.2 deg/s | 0.71 deg, 1.15 deg/s | same |
+| Hull pitch | 20.0 deg p2p | 2.15 deg | exaggerated 4.2x to make an unmovable horizon move |
+| Hull roll | 18.0 deg p2p | 4.36 deg | it pitched further than it rolled, which is backwards |
+| Wave amplitude | 0.16 m | 0.063 m | a 32 cm swell on a lake called Stillwater |
+| Float height error | up to 1.3 m | under 0.02 m | it rode `_boat_pose`, not the water |
+| Seat position | z = -1.90 | z = +0.70 | 1.05 m BEHIND the transom, outside the boat |
+
+**The pattern across all of them: two things that had to be different were driven
+by one value.** The camera and the hull. The float and the boat. Where a complaint
+survived a correct fix, the fix was correct and the structure was not - see the
+lesson filed in the knowledge base, which is the general form of it.
+
+**And the instrument was the thing that was missing, again.** None of these is
+visible in a still frame. `scripts/probe_motion.gd` reports peak-to-peak, RMS,
+frequency and peak angular RATE for the hull and the camera; the rate is the number
+that predicts discomfort and it is the one nobody looks at.
+
 ## The fight, and why it is built this way
 
 **This is the THIRD fight.** The first two are worth knowing about, because both
