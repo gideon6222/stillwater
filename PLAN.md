@@ -459,6 +459,84 @@ absence is the loudest thing you can put in a score.**
 
 ---
 
+## 9.4 Every menu is a thing you pick up
+
+Gideon, in one message, asked for the logbook to be **picked up and held** with the
+pages swiped, the equipment menu to be **a tackle box you look at and open**, and
+the shop to be **a room the camera moves into**. Three asks, one principle, and he
+arrived at it himself after seeing it work exactly once — on the logbook.
+
+So it is the rule now, and it is worth stating as a rule because it decides
+arguments that have not happened yet:
+
+> **A screen the player opens is an object in the boat, or a place the boat
+> takes them. There are no panels.**
+
+What that buys, beyond looking better. A panel has to be *told* what it contains;
+an object simply IS what it contains, so the tackle box with three lures in it has
+three lures in it and cannot disagree with the economy. It also means the HUD
+stops growing: the Shed / Lake / Log / Kit dock exists only because there was
+nowhere else to put four buttons.
+
+### 9.4.1 The logbook, held
+
+*What.* Look at the book, press Use, and your hands **pick it up**. It comes up
+into a reading pose, filling the lower two thirds of the frame, and the lake stays
+visible over the top of it — you are reading in the boat, not in a menu.
+
+*The pages turn by being swiped*, which is the one place a drag survives in this
+game now that the stick owns looking. A page lifts, rotates about its spine and
+falls, with the next page printed on its back. That is 11.9d, and it is the same
+single rotating quad the old plan described.
+
+*What is in it.* It already holds the species pages and the five hands. It gains
+the front matter a keeper's book actually opens with: **fish counted, biggest by
+species, days kept, deepest cast, spots visited, offerings kept.** Those are stats,
+and putting them in the book rather than on a stats screen is the whole point —
+**the book is the save file made visible**, and in Act III it becomes the last
+offering, which only lands if the player has spent hours in it.
+
+*Why it matters to the story.* Picking it up is the gesture the game ends on. If
+the player has never held it, handing it over costs nothing.
+
+### 9.4.2 The tackle box, opened
+
+*What.* The metal toolbox is already in the boat and already downloaded. Look at
+it, press Use, the **lid opens** and the camera comes down over it. Inside, in the
+trays: the rods you own, the reels, the lines, the baits. Tap one to equip it.
+
+*Why this is better than the Kit panel.* Line is the story's only ladder, and in a
+list it is a row that says "40 lb braid". In a box it is a spool that is
+physically there, next to the four you have outgrown, and the empty tray where the
+one you cannot afford yet would go. **The progression becomes a picture of
+itself.**
+
+*Same pattern as the book*, which is the proof it works: a `Room3D` with an open
+and shut state, a printed surface, and hit-testing on the tray.
+
+### 9.4.3 The shed, entered
+
+*What.* The shop button stays — it is the one screen that is not in the boat, and
+you have to go somewhere for it. Pressing it **rows you to the bank and walks you
+into the shed**, and the camera does not cut once.
+
+*What the shed is.* A small stone-and-timber building beyond the gate, lit by one
+window and the lamp you may or may not have bought. It is an old bait shop that
+has not been a shop for a long time: a counter, a ledger, shelves with more empty
+hooks than full ones, and price tickets in a hand you will later recognise from
+the logbook. **The keeper before you ran it.** Nothing says so.
+
+*Why a room and not a counter.* Because of what it lets Act III do. When money
+stops working, the shed does not close — it stays open, fully stocked, and useless,
+and the player walks through it to reach the one shelf that matters. A panel cannot
+be walked through.
+
+*Cost control.* One room, one door, three fixed camera poses (in the doorway, at
+the counter, at the shelf). It is not a walking simulator, it is the gate sequence
+pointed at a building, and the gate sequence already exists.
+
+---
+
 ## 9.5 The seams, which are where it currently stops being a place
 
 Gideon: *"make sure each part moves smoothly into the next."*
@@ -798,6 +876,25 @@ only here. A resuming session works from the first unticked box.
 - [ ] **F6 The fight is smooth.** The needle's overshoot should read as weight rather than lag — this is the one that needs the phone, not the desk
 - [ ] **F7 Judge F1–F6 on the phone.** `/playtest phone`. Nothing in this phase is finished until it has been held
 
+## Phase B — the body. *"So it doesn't look like a person is actually sitting in it"* (2026-09-10)
+
+- [x] **B1 Still water.** Wave amplitude 0.16 m → 0.063 m. A third short wave keeps the surface alive at close range, because cutting amplitude alone gives calm water that also looks dead
+- [x] **B2 The bobber floats on the lake, not on the boat.** It read `_boat_pose`, so it inherited the hull's heave from 30 m away and its pitch, which swung it 1.3 m
+- [x] **B3 The seat is inside the boat.** It was 1.05 m behind the transom. Now on the centre thwart, placed off the hull's own profile
+- [x] **B4 The rod is in the hands**, not standing in the bottom of the boat three metres ahead
+- [x] **B5 The stick is the only way to turn.** Swiping no longer looks. The charge-cancel survives, so a brushed thumb cannot fire a cast
+- [x] **B6 A seated person can look down.** The pitch limit is asymmetric: 57° down, 23° up
+- [ ] **B7 Hands.** There is a rod and no one holding it. Two low-poly hands on the grip, and the near one leaves to tap
+- [ ] **B8 The cast is a body movement.** The rod comes back past the shoulder, so the butt moves and not only the tip
+
+## Phase R — the rooms as objects (§9.4). *"You actually pick up and view the log book"*
+
+- [ ] **R1 The logbook is picked up and held.** Into a reading pose over the lake, not a camera dive onto the sole. Front matter added: fish counted, biggest by species, days kept, deepest cast, spots visited, offerings kept
+- [ ] **R2 Pages are swiped, and they turn.** One rotating quad with the next page on its back. The one place a drag survives now the stick owns looking. Subsumes 11.9d
+- [ ] **R3 The tackle box replaces the Kit panel.** Look at the box, the lid opens, the gear is in the trays, tap to equip. The line ladder becomes a picture of itself. Subsumes 11.9b
+- [ ] **R4 The shed is a room you are taken to.** Shop button, rowed to the bank, walked in, no cut. Three fixed poses; it is the gate sequence pointed at a building. Subsumes 11.9c and P3
+- [ ] **R5 The dock disappears.** Shed / Lake / Log / Kit exists only because there was nowhere else to put four buttons. Once each is a thing, the HUD is the action button and the stick
+
 ## Phase W — the water and the art pass. *"Update all of the models, textures, sounds, graphics"*
 
 - [ ] **W1 The water shader.** `boujie_water_shader` (MIT), foam round the hull, colour and foam driven from `dread` so it is not a second state. Half the screen at all times; the biggest single change in the game
@@ -847,10 +944,13 @@ only here. A resuming session works from the first unticked box.
 
 ### The order, and why
 
-**F, then W1, then P1.** Feel first because he raised it first and because
-everything else is judged through it. Then the water, because it is half the
-screen and the whole game looks unfinished until it is fixed. Then the landmarks,
-because they are one mesh each and they are what makes six spots six places.
+**F and B are done. Then R, then W1, then P1.** Feel first because he raised it
+first and because everything else is judged through it. Then the rooms, because he
+has now asked for that pattern in every screen the game has and because R4's shed
+is also P3's bank - one build, two milestones. Then the water, because it is half
+the screen and the whole game looks unfinished until it is fixed. Then the
+landmarks, because they are one mesh each and they are what makes six spots six
+places.
 
 After that the phases interleave rather than run in order: P2 rowing wants W6 oars,
 G2 wants T1's landing transition, S1 wants G5's wrong-era objects. The dependencies
