@@ -3106,11 +3106,39 @@ func _sync_fish() -> void:
 	# Held up out of the water in front of the camera, turning slowly, with a
 	# little life left in it.
 	var t := sim.state_time
-	# Lower and nearer than it was. Held at eye level in open air the fish read as
-	# levitating: with nothing behind it and nothing under it there was no scale
-	# and no place. Dropped to just above the gunwale it has both.
-	_fish.position = Vector3(0.13, 0.78 + sin(t * 2.4) * 0.02, 0.92)
-	_fish.rotation = Vector3(sin(t * 3.1) * 0.10, 1.45 + sin(t * 0.9) * 0.28, sin(t * 4.3) * 0.07)
+	# HUNG OFF THE CAMERA, the same as the held logbook, and for the same reason.
+	#
+	# It was a fixed point in WORLD space just above the gunwale, which was chosen
+	# when HOLDING lasted 2.4 seconds and nobody could look at it for long.
+	# Measured now that G2 lets the player hold a fish for as long as they like:
+	# the carp sat 0.27 m from the lens and 0.40 m BELOW the view axis - 56
+	# degrees down against a 37 degree half-angle, so the one moment in the game
+	# that names the fish and shows it was showing it off the bottom of the
+	# screen.
+	#
+	# Off the camera it is framed wherever the player is looking, which is what
+	# holding something up means. Down and right of the axis so the water and the
+	# horizon stay visible past it, and far enough out that a big fish fits.
+	# HOW FAR OUT IS COMPUTED FROM THE FISH, not typed. A carp is nearly three
+	# times the length of a bluegill, and one distance cannot frame both: at 0.86 m
+	# the carp filled the screen edge to edge and at the distance that suits a
+	# carp a bluegill is a speck.
+	#
+	# The arithmetic: the frame is 2*d*tan(fov/2) tall and 0.462 of that wide in
+	# portrait, so a fish of length L held side-on spans L / (0.707 * d) of the
+	# width. Solving for 55% of the width gives d = 2.57 * L.
+	#
+	# L IS MEASURED, not 1.35 times the scale. The body is built to 1.35 units and
+	# the TAIL runs another 0.19 past the root, so the thing on screen is about a
+	# fifth longer than its nominal length - which is exactly the error that had a
+	# carp spanning the whole frame when the sum said 55%.
+	var box := _local_bounds(_fish)
+	var fish_len := maxf(box.size.x, maxf(box.size.y, box.size.z)) * scale
+	var out := clampf(2.57 * fish_len, 0.75, 2.40)
+	var held_at := Vector3(0.10, -0.16 + sin(t * 2.4) * 0.012, -out)
+	_fish.transform = Transform3D(Basis.IDENTITY, _cam.transform * held_at)
+	_fish.rotation = Vector3(sin(t * 3.1) * 0.10,
+		_look_yaw + 1.45 + sin(t * 0.9) * 0.28, sin(t * 4.3) * 0.07)
 	# REBUILT, not recoloured. The old path tinted one sphere, so every species in
 	# the game was the same fish in a different colour - and only three of the
 	# twenty-six even had a colour.
@@ -5991,7 +6019,17 @@ func _hint_for_state() -> String:
 	if sim.caught >= 3:
 		return ""
 	match sim.state:
-		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+		Sim.HOLDING:
+			# G2 GAVE THIS MOMENT A DECISION, and the hint went on describing the
+			# one before it - "hold the water to aim and cast" while a fish is in
+			# your hands. That is the same fault the cast and look hints each had
+			# for one build after their controls changed.
+			if sim.fish_id == "":
+				return ""
+			if not sim.econ.can_keep(sim.fish_weight):
+				return "too big for the livewell   -   a bigger one is for sale"
+			return "keep it, or put it back"
+		Sim.IDLE, Sim.LOST:
 			# The stick looks, and only the stick. This line still said "drag to
 			# look around" for one build after the drag was removed, which is the
 			# worst kind of hint: it teaches a control that no longer exists.
