@@ -1260,7 +1260,7 @@ only here. A resuming session works from the first unticked box.
 ## Phase G — the game underneath. *"More fun and interactive"*
 
 - [ ] **G1 The livewell becomes a space you pack**, where fish and objects compete for the same room. Sharpens the Act III economy inversion rather than sitting beside it
-- [ ] **G2 A second beat after the fight.** Over the gunwale, weight in the hands, then keep or return
+- [x] **G2 A second beat after the fight.** The fish is in your hands and stays there until you decide: keep it, or put it back. No timer on the choice, and a fish too big for the livewell says so
 - [ ] **G3 Bait that visibly matters** — more teases and a longer take, read in the minigame the player is already watching
 - [x] **G4 Daylight as a squeeze.** An hour runs down while you fish and turns on its own, so waiting a fish out finally costs something. The lamp buys the dark rather than more hours
 - [ ] **G5 Objects from the wrong era for their depth**, in Act III. The player's own logbook is what contradicts itself
@@ -1277,7 +1277,7 @@ only here. A resuming session works from the first unticked box.
 
 - [ ] **T1 Travel, sleep, shed, landing and the line purchase all become moves rather than cuts.** Every one already has the tool: a sequence is a list of shots over the real scene
 - [x] **T2 No title after the first launch.** Continue IS the walk down. Starting again moved to the settings room behind a confirm, which is where a choice that destroys a season belongs
-- [ ] **T3 11.9b The tackle box as a Room3D**, and **11.9d real page turns** — the two remaining room seams
+- [x] **T3 The tackle box as a Room3D and real page turns** — both done, by R3 and R6
 - [x] **T4 First-run polish.** Orientation lock (already set), a real pause on backgrounding, and a launcher icon — the slots were empty, which ships the Godot logo
 
 ### Open, and not milestones

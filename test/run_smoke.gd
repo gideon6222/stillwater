@@ -134,8 +134,21 @@ func _check_the_line_always_comes_back(main) -> void:
 	var reached_hold := _drive_until(main, Sim.HOLDING, 180.0)
 	_t.ok(reached_hold, "no fish was ever landed to check the way out of")
 	if reached_hold:
+		# G2: THE WAY OUT IS A DECISION NOW, NOT A TIMER - so the check is that
+		# both doors work rather than that time passes. A state whose only exit is
+		# a clock was the original sin this whole check exists for; a state with
+		# two exits and no clock is fine, as long as both of them go somewhere.
 		main.advance(Tuning.HOLD_TIME + 0.5)
-		_t.eq(main.sim.state, Sim.IDLE, "the hold never ends - this is the bug that shipped")
+		_t.eq(main.sim.state, Sim.HOLDING,
+			"the fish went in the box on a timer - the player never got to choose")
+		# THE BUTTON A THUMB PRESSES, not the sim's method: `_cast_pressed` is the
+		# seam, and it is where "Keep" could stop being wired without the rules
+		# noticing.
+		if main.sim.econ.can_keep(main.sim.fish_weight):
+			main._cast_pressed()
+		else:
+			main._back.pressed.emit()
+		_t.eq(main.sim.state, Sim.IDLE, "deciding did not put the line back in the boat")
 		_t.eq(main.sim.fish_id, "", "the fish is still on the line after being landed")
 		# And it has to actually play on the other side.
 		main.play(Policies.ANGLER, 3.0)

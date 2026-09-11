@@ -562,14 +562,83 @@ func test_playing_it_properly_lands_the_fish(t: TestHarness) -> void:
 	t.gt(s.total_weight, 0.0, "a fish was counted but weighs nothing")
 
 
-func test_a_landed_fish_returns_the_player_to_the_boat(t: TestHarness) -> void:
-	# The way OUT of the state. This is the assertion that would have caught
-	# the frozen level on a sibling game.
+## G2: THE FISH IS IN YOUR HANDS UNTIL YOU DECIDE.
+##
+## This used to assert the opposite - that the hold ended on a timer and the fish
+## went in the box on its own. That was the game making the decision, and "over
+## the gunwale, weight in the hands, then keep or return" is the decision.
+##
+## The way OUT of the state still matters and is still asserted, because a state
+## with no exit is the frozen level a sibling game shipped. There are two exits
+## now and neither of them is a clock.
+func test_a_landed_fish_waits_for_the_player_to_decide(t: TestHarness) -> void:
 	var s := Sim.new(1)
 	t.ok(_drive_to(s, Sim.HOLDING, 90.0), "a fish can be landed")
-	_step(s, Tuning.HOLD_TIME + 0.2)
-	t.eq(s.state, Sim.IDLE, "the hold ends and the line is back in the boat")
+	_step(s, Tuning.HOLD_TIME * 3.0)
+	t.eq(s.state, Sim.HOLDING,
+		"the fish went in the box on a timer - the player never got to choose")
+	t.ok(s.fish_id != "", "the fish left your hands without being kept or put back")
+
+	# THE FISH THIS SEED LANDS IS A TEN KILO CARP AND THE BUCKET HOLDS SIX, which
+	# is the wall G1 is about and worth asserting exactly here: "keep" is a
+	# request, not a guarantee, and the moment it is refused is the moment the
+	# player learns what the livewell is for.
+	var before: int = s.econ.held.size()
+	var too_big := s.fish_weight > s.econ.capacity()
+	var went_in := s.keep_fish()
+	t.eq(went_in, not too_big,
+		"a %.1f kg fish and a %.1f kg box disagreed about whether it fits" % [
+			s.fish_weight, s.econ.capacity()])
+	t.eq(s.state, Sim.IDLE, "keeping it left the player holding it")
 	t.eq(s.fish_id, "", "and the fish is cleared")
+	t.eq(s.econ.held.size(), before + (0 if too_big else 1),
+		"the box disagrees with what keeping it reported")
+
+	# ...and one that DOES fit goes in.
+	var s3 := Sim.new(1)
+	t.ok(_drive_to(s3, Sim.HOLDING, 90.0), "a third fish can be landed")
+	s3.fish_weight = 0.4
+	t.ok(s3.keep_fish(), "a small fish would not go in an empty livewell")
+	t.eq(s3.econ.held.size(), 1, "it was kept and is not in the box")
+
+	# PUTTING IT BACK IS THE OTHER, and it costs the box nothing.
+	var s2 := Sim.new(4)
+	t.ok(_drive_to(s2, Sim.HOLDING, 90.0), "a second fish can be landed")
+	var held: int = s2.econ.held.size()
+	s2.return_fish()
+	t.eq(s2.state, Sim.IDLE, "putting it back left the player holding it")
+	t.eq(s2.econ.held.size(), held, "a fish put back still went in the livewell")
+	t.eq(s2.returned, 1, "putting it back was not written down")
+	# ...and it is still in the BOOK. What you caught is a fact; what you kept is
+	# a choice, and the logbook records the first.
+	t.gt(float(s2.logged.size()), 0.0, "a fish put back was struck from the book")
+
+
+## NOT EVERYTHING HELD UP IS A FISH, and the state has to let an object go.
+##
+## `_hook_object` puts a boot or a licence plate in your hands through the same
+## HOLDING state, and there is nothing to weigh and nothing to decide about it.
+## The first cut of G2 returned early for an object WITHOUT leaving the state, so
+## it held the game open forever: a bot pulled one up twenty-nine seconds into a
+## sixty second session and did nothing for the rest of it. Every golden session
+## fell from five casts to two, and it read as the fight having got slower.
+func test_an_object_can_be_put_down(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	s.state = Sim.HOLDING
+	s.fish_id = ""
+	s.fish_weight = 0.0
+	var held: int = s.econ.held.size()
+	t.ok(s.keep_fish(), "an object could not be put down")
+	t.eq(s.state, Sim.IDLE, "an object held the game open")
+	t.eq(s.econ.held.size(), held, "an object went into the livewell")
+
+	# ...and the other button does not count it as a fish returned.
+	var s2 := Sim.new(1)
+	s2.state = Sim.HOLDING
+	s2.fish_id = ""
+	s2.return_fish()
+	t.eq(s2.state, Sim.IDLE, "an object held the game open")
+	t.eq(s2.returned, 0, "putting an object down was written down as returning a fish")
 
 
 func test_a_lost_fish_also_returns_the_player_to_the_boat(t: TestHarness) -> void:

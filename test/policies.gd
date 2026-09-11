@@ -100,7 +100,25 @@ const CHARGE_HOLD := 0.55
 ## isolation. If you are stepping a session, hold a dict.
 static func act(name: String, s: Sim, dt: float, mem: Dictionary = {}) -> void:
 	match s.state:
-		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+		Sim.HOLDING:
+			# G2: THE FISH IS IN YOUR HANDS AND SOMEBODY HAS TO DECIDE.
+			#
+			# Landing used to put it in the box on a timer; now nothing happens
+			# until the player says. A bot that did not answer would sit holding
+			# one fish forever, and every balance number in the repo is measured
+			# through these - so "playing well" has to include this choice.
+			#
+			# Keep it if it fits, put it back if it does not. That is the whole
+			# policy for every bot: the interesting version of this decision is
+			# G1's, where a full livewell makes it a real weighing-up, and no bot
+			# should pretend to be good at it before the space is scarce.
+			# An object is not a decision - `keep_fish` puts it down. A fish that
+			# will not fit has to go back.
+			if s.fish_id == "" or s.econ.can_keep(s.fish_weight):
+				s.keep_fish()
+			else:
+				s.return_fish()
+		Sim.IDLE, Sim.LOST:
 			s.hold_cast()
 		Sim.CHARGING:
 			if s.state_time >= CHARGE_HOLD:

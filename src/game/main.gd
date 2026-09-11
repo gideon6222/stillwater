@@ -31,6 +31,7 @@ var _line_chain: Array[MeshInstance3D] = []
 var _float: Node3D
 var _fish: Node3D
 ## THE DAY'S CATCH, lying in the bucket. See `_sync_livewell`.
+var _back: Button
 var _shed: Node3D = null
 var _shed_list: VBoxContainer = null
 var _shed_pick := 0
@@ -1695,6 +1696,42 @@ func _build_hud() -> void:
 	# 260 px on a 1080 base is about 15 mm on the phone, comfortably over the
 	# 48 dp Android minimum, and it sits in the bottom-right "green zone" every
 	# thumb-reach study puts the primary action in.
+	# G2: THE OTHER HALF OF THE DECISION.
+	#
+	# A fish in your hands is the one moment in this game with two answers, and
+	# R10's rule - the primary button says what the moment is - cannot express
+	# two. So a second button appears beside it for exactly that moment and is
+	# gone again the instant the fish is.
+	#
+	# It sits to the LEFT of the primary and is deliberately quieter: keeping is
+	# what most fish are for, and putting one back is the considered choice rather
+	# than the default. A pair of identical buttons would make it a coin toss.
+	_back = Button.new()
+	_back.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_back.offset_left = -ACTION_SIZE * 2 - 78
+	_back.offset_right = -ACTION_SIZE - 78
+	_back.offset_top = -ACTION_SIZE - 150 - SAFE_BOTTOM
+	_back.offset_bottom = -150 - SAFE_BOTTOM
+	_back.focus_mode = Control.FOCUS_NONE
+	_back.add_theme_font_size_override("font_size", 30)
+	_back.text = "Put it back"
+	_back.visible = false
+	_back.name = "PutBack"
+	var bbox := StyleBoxFlat.new()
+	bbox.bg_color = Color(0.10, 0.11, 0.11, 0.86)
+	bbox.border_color = Color(0.62, 0.66, 0.64, 0.42)
+	bbox.set_border_width_all(3)
+	bbox.set_corner_radius_all(int(ACTION_SIZE * 0.5))
+	_back.add_theme_stylebox_override("normal", bbox)
+	_back.add_theme_stylebox_override("hover", bbox)
+	_back.add_theme_stylebox_override("pressed", bbox)
+	_back.add_theme_color_override("font_color", Color(0.80, 0.82, 0.80))
+	_back.pressed.connect(func() -> void:
+		sim.return_fish()
+		_say_hint("Back it goes.")
+		_sync_bars())
+	_ui.add_child(_back)
+
 	_action = Button.new()
 	_action.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_action.offset_left = -ACTION_SIZE - 46
@@ -1923,8 +1960,13 @@ func _sync_bars() -> void:
 			# glance rather than being spelled out.
 			tint = Color(0.99, 0.84, 0.52)
 		_action.add_theme_color_override("font_color", tint)
-		_action.disabled = dead_select
+		_action.disabled = dead_select or (sim.state == Sim.HOLDING
+			and sim.fish_id != "" and not sim.econ.can_keep(sim.fish_weight))
 		_action.text = label
+	if _back != null:
+		# Beside the primary for exactly as long as there is a fish to decide
+		# about, and never in a room.
+		_back.visible = sim.state == Sim.HOLDING and sim.fish_id != "" and not in_room
 	if _hint != null:
 		_hint.visible = not in_room
 		# Priority: something just happened > something is under the aim > the
@@ -2212,7 +2254,14 @@ func _cast_pressed() -> void:
 		_chart_take()
 		return
 	match sim.state:
-		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+		Sim.HOLDING:
+			# Whatever the button says is what it does. A fish too big for the box
+			# cannot be kept, and pressing it does nothing rather than silently
+			# throwing the fish back - the other button is right there.
+			if sim.econ.can_keep(sim.fish_weight):
+				sim.keep_fish()
+				_sync_bars()
+		Sim.IDLE, Sim.LOST:
 			# Whatever the button SAYS is what it does - one decision, made once,
 			# so the caption can never lie about the behaviour.
 			if not _over_water_shown:
@@ -5872,7 +5921,20 @@ func _action_for_state() -> String:
 		var row: Dictionary = rows[_shed_pick]
 		return "Weigh in" if str(row["kind"]) == "sell" else "Buy"
 	match sim.state:
-		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+		Sim.HOLDING:
+			# AN OBJECT IS NOT A DECISION. A boot off the bottom has already gone
+			# in the book and there is nothing to weigh - it just goes down.
+			if sim.fish_id == "":
+				return "Put it down"
+			# THE FISH IS IN YOUR HANDS. Not "Cast" - casting with a fish in your
+			# hands was what the old auto-keep let you do, and it read as the game
+			# having quietly taken it off you.
+			if not sim.econ.can_keep(sim.fish_weight):
+				# SAY THE WALL, at the moment it bites. A greyed "Keep" with no
+				# reason is the player wondering whether the button is broken.
+				return "Too big"
+			return "Keep"
+		Sim.IDLE, Sim.LOST:
 			# CAST ONLY OVER THE WATER. Looking into the boat, the same button
 			# becomes Select - which is what the moment wants there, and stops the
 			# game offering a cast into its own floorboards.

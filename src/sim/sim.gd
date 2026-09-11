@@ -164,6 +164,9 @@ var taps: int = 0                 ## this fight, for the probe
 # --- the session ----------------------------------------------------------
 var caught: int = 0
 var lost_count: int = 0
+## How many were put back. Not a penalty and not a score - the logbook prints it
+## because a keeper would write it down.
+var returned: int = 0
 var total_weight: float = 0.0
 var casts: int = 0
 
@@ -339,9 +342,12 @@ func advance(dt: float) -> void:
 		FIGHTING:
 			_fight(dt)
 		HOLDING:
-			if state_time >= Tuning.HOLD_TIME:
-				_enter(IDLE)
-				_clear_fish()
+			# NO CLOCK ON THE DECISION. It used to fall out of HOLDING on a timer
+			# and keep the fish for you, and a timer on a choice is the game
+			# choosing. You are holding a fish over the water; you can look at it
+			# for as long as you like. `keep_fish` and `return_fish` are the only
+			# ways out.
+			pass
 		LOST:
 			if state_time >= Tuning.HOLD_TIME * 0.5:
 				_enter(IDLE)
@@ -782,10 +788,60 @@ func _land_fish() -> void:
 	var book: Dictionary = caught_at.get(spot, {})
 	book[hour] = int(book.get(hour, 0)) + 1
 	caught_at[spot] = book
-	econ.keep(fish_id, fish_weight, wrong)
 	econ.spend_bait()
+	# G2: IT IS IN YOUR HANDS, AND NOT YET IN THE BOX.
+	#
+	# Landing used to put the fish straight in the livewell and the player watched
+	# it happen. "A second beat after the fight: over the gunwale, weight in the
+	# hands, then keep or return" - the keeping is the decision, and a decision the
+	# game makes for you is not one.
+	#
+	# It still goes in the BOOK either way. What you caught is a fact; what you
+	# kept is a choice, and the logbook records the first.
 	_enter(HOLDING)
 	landed.emit(fish_id, fish_weight)
+
+## KEEP IT. Into the livewell if there is room, and back over the side if there
+## is not - which is the wall G1 is about, said plainly at the moment it bites.
+##
+## Returns true if it went in the box.
+func keep_fish() -> bool:
+	if state != HOLDING:
+		return false
+	# NOT EVERYTHING HELD UP IS A FISH. `_hook_object` puts a boot or a licence
+	# plate in your hands through this same state, and there is nothing to weigh
+	# and nothing to decide - it has already gone in the book. It just goes down.
+	#
+	# The first version returned false here WITHOUT leaving HOLDING, so an object
+	# held the state open forever: a bot landed one twenty-nine seconds into a
+	# sixty second session and did nothing at all for the rest of it. Every golden
+	# session dropped from five casts to two and it read as the fight having got
+	# slower.
+	if fish_id == "":
+		_enter(IDLE)
+		_clear_fish()
+		return true
+	var row := Species.by_id(fish_id)
+	var wrong: bool = row.get("wrong", false)
+	var kept := econ.keep(fish_id, fish_weight, wrong)
+	_enter(IDLE)
+	_clear_fish()
+	return kept
+
+
+## PUT IT BACK. No money, no weight, and the book keeps the entry - you caught it.
+##
+## This is the move that makes the livewell a space rather than a score: with six
+## kilos of room and a seven kilo fish on the way, what you are already carrying
+## is a decision you made.
+func return_fish() -> void:
+	if state != HOLDING:
+		return
+	if fish_id != "":
+		returned += 1
+	_enter(IDLE)
+	_clear_fish()
+
 
 
 ## Something that is not a fish. It comes straight up - there is no fight in a
