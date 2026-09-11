@@ -613,6 +613,67 @@ func test_a_landed_fish_waits_for_the_player_to_decide(t: TestHarness) -> void:
 	# a choice, and the logbook records the first.
 	t.gt(float(s2.logged.size()), 0.0, "a fish put back was struck from the book")
 
+## G1: FISH AND OBJECTS COMPETE FOR THE SAME ROOM.
+##
+## Junk used to turn into coins the instant it broke the surface - the bottom of
+## the lake was a slot machine and the boat was infinite. It is in your hands now
+## like a fish, and keeping it costs space a fish could have had. With two kilos
+## of room left, a bicycle wheel worth four coins and a bream worth thirty are the
+## same decision, which is the whole point.
+func test_a_kept_object_takes_room_a_fish_wanted(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	# DRIVEN THROUGH THE REAL HOOK, because "nothing is paid on the way up" is a
+	# claim about `_hook_object` and a hand-built HOLDING state cannot test it -
+	# the first version of this check set the state directly and passed happily
+	# with the payout put back in.
+	var money_before: int = s.econ.money
+	s.lure_depth = 3.0
+	s._hook_object()
+	t.eq(s.state, Sim.HOLDING, "hooking something did not put it in your hands")
+	t.eq(s.fish_id, "", "an object came up as a fish")
+	t.eq(s.econ.money, money_before,
+		"it paid out on the way up - the bottom of the lake is still a slot machine")
+	# From here on the boot is the thing in your hands, whatever came up.
+	s.last_object = "boot"
+	t.ok(s.keep_fish(), "a boot could not be kept")
+	t.eq(s.econ.held.size(), 1, "the boot is not in the livewell")
+	t.gt(s.econ.load_kg(), 0.0, "the boot weighs nothing, so it costs no room")
+
+	# ONE ROOM, NOT TWO. The space it took is space a fish cannot have.
+	var room := s.econ.space_left()
+	t.lt(room, s.econ.capacity(), "the boot took no room from the fish")
+
+	# AND IT IS WORTH SOMETHING AT THE SHED, by the piece rather than the kilo.
+	var paid := s.econ.sell_all()
+	t.gt(paid, 0, "the boot weighed in for nothing - junk is sold by the piece")
+
+	# PUTTING IT BACK COSTS THE WELL NOTHING, and is not counted as a fish
+	# returned: you did not catch it.
+	var s2 := Sim.new(1)
+	s2.state = Sim.HOLDING
+	s2.fish_id = ""
+	s2.last_object = "boot"
+	s2.return_fish()
+	t.eq(s2.econ.held.size(), 0, "a boot put back went in the livewell anyway")
+	t.eq(s2.returned, 0, "putting a boot back was written down as returning a fish")
+
+
+## AN OFFERING IS NOT A DECISION. It is the only bait that cannot be bought and
+## the reason you went that deep, so it goes in the bait box the moment it comes
+## up rather than competing with a bream for the bucket.
+func test_an_offering_is_never_a_trade(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	var before: int = int(s.econ.bait_left.get(Gear.OFFERING, 0))
+	s.lure_depth = 150.0
+	s.econ.bait = Gear.OFFERING
+	# Driven through the real hook so this fails if the path ever changes.
+	s._hook_object()
+	if s.last_object != "" and String(Objects.by_id(s.last_object)["kind"]) == Objects.OFFERING:
+		t.gt(int(s.econ.bait_left.get(Gear.OFFERING, 0)), before,
+			"an offering came up and did not go in the bait box")
+		t.eq(s.econ.held.size(), 0, "an offering took livewell room")
+
+
 
 ## NOT EVERYTHING HELD UP IS A FISH, and the state has to let an object go.
 ##

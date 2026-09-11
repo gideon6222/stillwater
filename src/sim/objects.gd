@@ -22,6 +22,28 @@ extends RefCounted
 ## ignore this?" test passing: the answer is not "they score less", it is "they
 ## cannot continue".
 
+## WHAT A THING WEIGHS, in kilos, when it is in the boat with you.
+##
+## G1: "The livewell becomes a space you pack, where fish and objects compete for
+## the same room." Junk used to convert to coins the instant it broke the surface
+## - which meant the bottom of the lake was a slot machine and the boat was
+## infinite. A boot is a boot: it sits in the well and it is in the way.
+##
+## Per KIND rather than per object, because the point is the CHOICE and not an
+## inventory sim. A story piece is heavy enough to hurt and is the one thing you
+## cannot sell; junk is light enough that taking it is usually right and
+## occasionally not.
+const WEIGHT := {
+	"junk": 0.8,
+	"story": 2.2,
+	"offering": 0.4,
+}
+
+
+static func weight_of(kind: String) -> float:
+	return float(WEIGHT.get(kind, 0.8))
+
+
 const JUNK := "junk"
 const STORY := "story"
 const OFFERING := "offering"

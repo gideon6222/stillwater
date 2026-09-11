@@ -1259,7 +1259,7 @@ only here. A resuming session works from the first unticked box.
 
 ## Phase G — the game underneath. *"More fun and interactive"*
 
-- [ ] **G1 The livewell becomes a space you pack**, where fish and objects compete for the same room. Sharpens the Act III economy inversion rather than sitting beside it
+- [x] **G1 The livewell is a space you pack.** Junk no longer pays out on the way up: it is in your hands like a fish, it takes room a fish could have had, and it is sold by the piece rather than the kilo. One list, because two capacities would be no decision at all
 - [x] **G2 A second beat after the fight.** The fish is in your hands and stays there until you decide: keep it, or put it back. No timer on the choice, and a fish too big for the livewell says so
 - [ ] **G3 Bait that visibly matters** — more teases and a longer take, read in the minigame the player is already watching
 - [x] **G4 Daylight as a squeeze.** An hour runs down while you fish and turns on its own, so waiting a fish out finally costs something. The lamp buys the dark rather than more hours

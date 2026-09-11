@@ -77,6 +77,22 @@ func can_keep(weight: float) -> bool:
 	return weight <= capacity() and weight <= space_left() + 0.0001
 
 
+## G1: AN OBJECT IN THE WELL, competing with the fish for the same room.
+##
+## Stored in the same list, because the whole point is that they are the same
+## room - two lists would be two capacities and the decision would evaporate. The
+## `object` flag is what the shed reads to pay for it: junk is sold by the piece
+## at a fixed price, not by the kilo like a fish.
+func keep_object(id: String, weight: float, value: int) -> bool:
+	if not can_keep(weight):
+		return false
+	held.append({
+		"id": id, "weight": snappedf(weight, 0.001), "wrong": false,
+		"object": true, "value": value,
+	})
+	return true
+
+
 func keep(id: String, weight: float, wrong: bool) -> bool:
 	if not can_keep(weight):
 		return false
@@ -110,7 +126,14 @@ static func value_of(id: String, weight: float, wrong: bool) -> int:
 func sell_all() -> int:
 	var total := 0
 	for f in held:
-		total += value_of(f["id"], f["weight"], f["wrong"])
+		# G1: JUNK IS SOLD BY THE PIECE, a fish by the kilo. `value_of` reads the
+		# species table, and a boot is not in it - without this branch every
+		# object in the well weighed in as an unknown species worth nothing, which
+		# is a silent zero rather than the four coins a bicycle wheel is worth.
+		if bool(f.get("object", false)):
+			total += int(f.get("value", 0))
+		else:
+			total += value_of(f["id"], f["weight"], f["wrong"])
 	money += total
 	held = []
 	return total

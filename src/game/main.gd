@@ -1961,12 +1961,18 @@ func _sync_bars() -> void:
 			tint = Color(0.99, 0.84, 0.52)
 		_action.add_theme_color_override("font_color", tint)
 		_action.disabled = dead_select or (sim.state == Sim.HOLDING
-			and sim.fish_id != "" and not sim.econ.can_keep(sim.fish_weight))
+			and label == "Too big") or (sim.state == Sim.HOLDING and label == "No room")
 		_action.text = label
 	if _back != null:
 		# Beside the primary for exactly as long as there is a fish to decide
 		# about, and never in a room.
-		_back.visible = sim.state == Sim.HOLDING and sim.fish_id != "" and not in_room
+		# The second button is up whenever there is something to decide about -
+		# a fish, or an object that takes room. An offering is neither.
+		var deciding := sim.state == Sim.HOLDING and not in_room
+		if deciding and sim.fish_id == "":
+			var ho := Objects.by_id(sim.last_object)
+			deciding = not ho.is_empty() and String(ho["kind"]) != Objects.OFFERING
+		_back.visible = deciding
 	if _hint != null:
 		_hint.visible = not in_room
 		# Priority: something just happened > something is under the aim > the
@@ -2255,10 +2261,12 @@ func _cast_pressed() -> void:
 		return
 	match sim.state:
 		Sim.HOLDING:
-			# Whatever the button says is what it does. A fish too big for the box
-			# cannot be kept, and pressing it does nothing rather than silently
-			# throwing the fish back - the other button is right there.
-			if sim.econ.can_keep(sim.fish_weight):
+			# Whatever the button says is what it does. A fish or an object that
+			# will not fit cannot be kept, and pressing it does nothing rather
+			# than silently throwing it back - the other button is right there.
+			if _action_for_state() == "Too big" or _action_for_state() == "No room":
+				pass
+			else:
 				sim.keep_fish()
 				_sync_bars()
 		Sim.IDLE, Sim.LOST:
@@ -5950,10 +5958,16 @@ func _action_for_state() -> String:
 		return "Weigh in" if str(row["kind"]) == "sell" else "Buy"
 	match sim.state:
 		Sim.HOLDING:
-			# AN OBJECT IS NOT A DECISION. A boot off the bottom has already gone
-			# in the book and there is nothing to weigh - it just goes down.
+			# G1 MADE AN OBJECT A DECISION TOO. It takes livewell room now, so
+			# "keep" and "put it back" mean the same thing for a bicycle wheel as
+			# for a bream - and a well with no space says so the same way.
 			if sim.fish_id == "":
-				return "Put it down"
+				var o := Objects.by_id(sim.last_object)
+				if o.is_empty() or String(o["kind"]) == Objects.OFFERING:
+					return "Put it down"
+				if not sim.econ.can_keep(Objects.weight_of(String(o["kind"]))):
+					return "No room"
+				return "Keep"
 			# THE FISH IS IN YOUR HANDS. Not "Cast" - casting with a fish in your
 			# hands was what the old auto-keep let you do, and it read as the game
 			# having quietly taken it off you.
@@ -6025,7 +6039,12 @@ func _hint_for_state() -> String:
 			# your hands. That is the same fault the cast and look hints each had
 			# for one build after their controls changed.
 			if sim.fish_id == "":
-				return ""
+				var ho := Objects.by_id(sim.last_object)
+				if ho.is_empty() or String(ho["kind"]) == Objects.OFFERING:
+					return ""
+				if not sim.econ.can_keep(Objects.weight_of(String(ho["kind"]))):
+					return "no room in the livewell for it"
+				return "it takes room a fish could have"
 			if not sim.econ.can_keep(sim.fish_weight):
 				return "too big for the livewell   -   a bigger one is for sale"
 			return "keep it, or put it back"

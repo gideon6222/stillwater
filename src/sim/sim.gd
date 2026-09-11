@@ -818,9 +818,18 @@ func keep_fish() -> bool:
 	# session dropped from five casts to two and it read as the fight having got
 	# slower.
 	if fish_id == "":
+		# AN OBJECT IS KEPT LIKE A FISH, and takes room like one. It was paid out
+		# in coins on the way up before G1, so there was nothing to decide and
+		# nothing to carry.
+		var kept_it := true
+		if last_object != "":
+			var o := Objects.by_id(last_object)
+			if not o.is_empty() and String(o["kind"]) != Objects.OFFERING:
+				kept_it = econ.keep_object(last_object, Objects.weight_of(String(o["kind"])),
+					int(o["value"]))
 		_enter(IDLE)
 		_clear_fish()
-		return true
+		return kept_it
 	var row := Species.by_id(fish_id)
 	var wrong: bool = row.get("wrong", false)
 	var kept := econ.keep(fish_id, fish_weight, wrong)
@@ -857,11 +866,18 @@ func _hook_object() -> void:
 	# AN OFFERING GOES IN THE BAIT BOX. It is the only bait in the game that
 	# cannot be bought, and this is the only way to get one - which is what makes
 	# the bottom of the lake something you earn by paying attention rather than
-	# by grinding.
+	# by grinding. It goes in the moment it comes up: an offering is not a thing
+	# you weigh against a fish, it is the reason you were down there.
 	if o["kind"] == Objects.OFFERING:
 		econ.bait_left[Gear.OFFERING] = int(econ.bait_left.get(Gear.OFFERING, 0)) + 1
-	if o["kind"] == Objects.JUNK:
-		econ.money += int(o["value"])
+	# G1: EVERYTHING ELSE IS A DECISION, and it takes room.
+	#
+	# Junk used to turn into coins the instant it broke the surface, which made
+	# the bottom of the lake a slot machine and the boat infinite. It is in your
+	# hands now like a fish is, and keeping it costs livewell space that a fish
+	# could have had. That is what makes the well a space you PACK rather than a
+	# number that fills: with two kilos of room left, a bicycle wheel worth four
+	# coins and a bream worth thirty are the same decision.
 	econ.spend_bait()
 	_enter(HOLDING)
 	object_found.emit(o["id"])
