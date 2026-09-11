@@ -50,7 +50,7 @@ const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", 
 ## which was quietly resetting a page turn between setting it up and
 ## photographing it. Three separate real bugs were chased before the tool turned
 ## out to be one of them.
-const MID_ACTION := ["turn", "inshed", "hull"]
+const MID_ACTION := ["turn", "inshed", "hull", "stow"]
 
 
 func _initialize() -> void:
@@ -100,6 +100,23 @@ func _initialize() -> void:
 			_main._turn_page(1)
 			for i in 30:
 				_main.advance(1.0 / 60.0, 1.0 / 60.0)
+	elif _until == "stow":
+		# DOWN AT THE PORT SIDE, where the oars are stowed. They are scenery now
+		# rather than something you can use, and scenery still has to read - the
+		# last stowage drew "planks and sticks sticking up on the right".
+		if _main._title != null:
+			_main._title.skip()
+		for i in 90:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		var eye2: Vector3 = Sequence.SEAT
+		var at2 := Vector3(-0.45, 0.20, 1.70)
+		var to2 := at2 - eye2
+		_main._look_yaw_want = clampf(atan2(to2.x, to2.z),
+			-_main.LOOK_YAW_LIMIT, _main.LOOK_YAW_LIMIT)
+		_main._look_pitch_want = clampf(atan2(to2.y, Vector2(to2.x, to2.z).length()),
+			-_main.LOOK_PITCH_DOWN, _main.LOOK_PITCH_UP)
+		for i in 90:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
 	elif _until == "hull":
 		# OVER THE SIDE, at the waterline. The foam collar round the hull is the
 		# whole of W1 and it is invisible from the seat looking forward, because

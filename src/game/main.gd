@@ -3485,7 +3485,16 @@ func _build_chart() -> void:
 	_chart.position = Vector3(0.58, _hull_floor_y(2.22) + 0.09, 2.22)
 	_chart.rotation_degrees = Vector3(0, -14.0, 0)
 	_boat.add_child(_chart)
-	_chart.open()
+	# SHUT. The paper stays in the boat - it is the thing you look at - but the
+	# PRINTED SURFACE is only there while you are reading it.
+	#
+	# Gideon, from a screenshot: "the book is on the ground but the pages are in
+	# the air on the left." That was this. `open()` at build time left the map
+	# permanently printed on the thwart, and a Room3D surface is UNSHADED so that
+	# it stays readable at night - so it sat there glowing through every hour of
+	# the game. The logbook and the tackle box have always been shut until they
+	# are used; the chart was the one that was not.
+	_chart.close()
 	_refresh_chart()
 
 
@@ -3527,6 +3536,13 @@ func _chart_rows() -> Array:
 			"id": id, "name": str(spot["name"]), "note": note,
 			"here": sim.spot == id,
 			"can": not needs_motor and not window.is_empty() and sim.spot != id})
+
+	# AND THE SHED IS A PLACE ON THE LAKE, not a button and not an object in the
+	# boat. It is the last line because it is the one you row to rather than fish,
+	# and a chart is exactly where a person decides to do that.
+	rows.append({
+		"id": "shed", "name": "The shed", "note": "buy, sell, and weigh in",
+		"here": false, "can": true})
 	return rows
 
 
@@ -3580,6 +3596,7 @@ func _open_chart() -> void:
 	if _chart == null or _at_chart or sim.state != Sim.IDLE:
 		return
 	_at_chart = true
+	_chart.open()
 	_refresh_chart()
 	if _audio != null:
 		_audio.play("page", -6.0)
@@ -3589,6 +3606,7 @@ func _shut_chart() -> void:
 	if not _at_chart:
 		return
 	_at_chart = false
+	_chart.close()
 	if _audio != null:
 		_audio.play("page", -8.0)
 
@@ -3611,6 +3629,10 @@ func _chart_take() -> void:
 		return
 	var row: Dictionary = rows[_chart_pick]
 	if not bool(row["can"]):
+		return
+	if str(row["id"]) == "shed":
+		_shut_chart()
+		_enter_shed()
 		return
 	sim.travel_to(str(row["id"]))
 	_shut_chart()
@@ -5733,25 +5755,6 @@ func _build_things() -> void:
 			"use": func() -> void:
 				_open_chart(),
 		},
-		{
-			# THE WAY TO THE SHED, now that the button is gone.
-			"id": "oars",
-			"name": "The oars",
-			"at": Vector3(-0.44, _hull_floor_y(2.05) + 0.40, 2.07),
-			"look": func() -> String:
-				return "The oars. The shed is across the bay.",
-			"use": func() -> void:
-				_enter_shed(),
-		},
-		{
-			"id": "rope",
-			"name": "The rope",
-			"at": Vector3(0.34, _hull_rim_y(1.05) + 0.06, 1.05),
-			"look": func() -> String:
-				return "A coil of rope. Somebody else's knot.",
-			"use": func() -> void:
-				_say_hint("You leave it where it is."),
-		},
 	]
 
 
@@ -6030,33 +6033,56 @@ func _build_oars() -> void:
 
 		var grip := MeshInstance3D.new()
 		var gm := CylinderMesh.new()
-		gm.height = 0.13
+		# A LONG GRIP, and it is doing two jobs. An oar is leather-collared over
+		# the span a rower's hands cover, so 34 cm is the honest shape - and it is
+		# also the aim target, which at 13 cm was small enough that the look sweep
+		# stepped straight over it and the oars could not be selected at all.
+		gm.height = 0.34
 		gm.top_radius = 0.024
 		gm.bottom_radius = 0.024
 		gm.radial_segments = 8
 		grip.mesh = gm
 		grip.rotation_degrees = Vector3(90, 0, 0)
-		grip.position = Vector3(0, 0, 0.70)
+		grip.position = Vector3(0, 0, 0.60)
 		grip.material_override = pale
+		# NAMED, because it is the only part of the oar the crosshair looks for.
+		# See the note on the stowage below.
+		grip.name = "OarGrip%d" % i
 		oar.add_child(grip)
 
-		# STOOD IN THE BOW, blades up, leaning back against the stem.
+		# STOWED FLAT ALONG THE PORT SIDE, which is where oars live.
 		#
-		# They were stowed flat along the port side first, which is where oars
-		# actually live - and an oar is 1.34 m long, so lying down its hit box
-		# spanned half the boat and sat within six degrees of the livewell from
-		# the seat. Every position along that side failed the same way. Stood on
-		# end the footprint is a hand's width, and the pair reads as a pair from
-		# anywhere in the boat.
-		oar.position = Vector3(-0.47 + float(i) * 0.075,
-			_hull_floor_y(2.05) + 0.40, 2.05 + float(i) * 0.05)
-		# BLADES UP. The sign matters and it is not guessable from the code: the
-		# loom lies along +Z with the blade at -Z, so a NEGATIVE pitch stands the
-		# GRIPS up and buries the blades under the gunwale - which renders as two
-		# bare poles in the bow that nobody would read as oars. Positive puts the
-		# blades where they can be seen, which is the only part of an oar that
-		# says oar.
-		oar.rotation_degrees = Vector3(52.0, 0, -7.0 + float(i) * 5.0)
+		# They stood on end in the bow for one build, and that was the wrong fix
+		# to a real problem. An oar is over a metre long, so LYING DOWN its hit
+		# box spans half the boat and lands within six degrees of the livewell -
+		# and the aim rule wants twelve between any two things. Standing them up
+		# shrank the footprint and solved it, at the cost of the thing itself:
+		# Gideon's note on the screenshot was "planks and sticks sticking up on
+		# the right". He is right. Two poles in a bow do not read as oars.
+		#
+		# The hit box did not have to be the whole object. `AIM_NODE` takes a list
+		# of node names, so it is pointed at the GRIPS - a hand's width of angular
+		# footprint - and the oars themselves lie where oars actually lie. That
+		# was available the whole time.
+		# ALONG THE PORT SIDE, where oars live, and asked to be nothing but oars.
+		#
+		# THE BOAT RAN OUT OF ANGLES. Every interactable competes for room from the
+		# one seat in the game and no two may sit within twelve degrees of each
+		# other, and with seven things already in a four-metre hull there was
+		# nowhere left. The oars were tried flat to port (six degrees off the
+		# livewell), stood on end in the bow - which is what drew "planks and
+		# sticks sticking up on the right" - then flat to starboard, where they
+		# were either four degrees off the chart or, brought inboard, judged to be
+		# over the water and refused by the picker entirely.
+		#
+		# So they are not an interactable at all. The SHED IS A PLACE ON THE CHART
+		# now, which is where a person decides where to row anyway - and the oars
+		# get to lie where they look right and mean what they mean.
+		oar.position = Vector3(-0.45 + float(i) * 0.085,
+			_hull_floor_y(1.55) + 0.055, 1.55 - float(i) * 0.05)
+		# Blades forward, and a few degrees of cant so the pair reads as a pair
+		# left in a boat rather than as two rails bolted to the side.
+		oar.rotation_degrees = Vector3(0, 3.0 - float(i) * 3.0, 6.0)
 		_boat.add_child(oar)
 		if i == 0:
 			_oars = oar
@@ -7385,7 +7411,7 @@ const AIM_COS_NEAR := 0.93   ## about 21 degrees, for something right under you
 ## that is always there, and the player aims at whichever of them is on the boat.
 const AIM_NODE := {
 	"livewell": ["Prop_livewell"],
-	"oars": ["Oar0", "Oar1"],
+
 	"chart": ["Chart/Model"],
 	"baitbox": ["Prop_baitbox"],
 	"lamp": ["Prop_lamp", "LampBracket"],

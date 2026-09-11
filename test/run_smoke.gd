@@ -1348,9 +1348,32 @@ func _check_the_rooms_cannot_be_opened_mid_fight(main) -> void:
 	var reachable := {}
 	for thing in main._things:
 		reachable[str(thing["id"])] = true
-	for want in ["logbook", "tacklebox", "chart", "oars"]:
+	for want in ["logbook", "tacklebox", "chart"]:
 		_t.ok(reachable.has(want),
 			"'%s' is not in the boat, so that room cannot be reached at all" % want)
+	# THE SHED IS REACHED FROM THE CHART, not from a thing of its own. The boat
+	# ran out of angles - no two interactables may sit within twelve degrees of
+	# each other from the seat, and with seven things in a four-metre hull the
+	# oars had nowhere to go. A chart is where a person decides where to row.
+	var on_chart := false
+	for row in main._chart_rows():
+		if str(row["id"]) == "shed":
+			on_chart = true
+	_t.ok(on_chart, "the shed is on neither the chart nor anything in the boat")
+	# ...and picking it actually rows you there, which is the half that rots.
+	if on_chart:
+		main._open_chart()
+		for i in main._chart_rows().size():
+			if str(main._chart_rows()[i]["id"]) == "shed":
+				main._chart_pick = i
+		main._cast_pressed()
+		_t.ok(main._in_sequence or main._in_shed,
+			"the shed is written on the chart but picking it does nothing")
+		var trip := 0.0
+		while trip < 14.0 and main.any_room_open():
+			main.close_any_room()
+			main.advance(1.0 / 60.0)
+			trip += 1.0 / 60.0
 
 	# And none of them opens mid-fight either. The rooms are IDLE-only, and that
 	# used to be enforced by hiding a row of buttons; with the buttons gone it has
