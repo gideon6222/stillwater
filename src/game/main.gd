@@ -94,6 +94,8 @@ var _rod_lag_pitch := 0.0
 var _rod_lag_roll := 0.0
 var _rod_lag_last_pitch := 0.0
 var _rod_lag_last_roll := 0.0
+## Where the rod is pointing, which follows where the player is looking.
+var _rod_yaw := 0.0
 var _boat_time := 0.0
 var _boat_dt := 1.0 / 60.0
 var _grade: ColorRect
@@ -103,7 +105,6 @@ var _reeds: Node3D
 var _save_due := 0.0
 var _sounder: Control
 var _action: Button
-var _use: Button
 var _title: TitleScreen
 var _intro: Intro
 var _things: Array[Dictionary] = []
@@ -1503,31 +1504,12 @@ func _build_hud() -> void:
 	# USE, above the action and only when there is something to use. Same corner,
 	# same thumb, deliberately smaller and cooler - it is the second verb, not a
 	# rival to the first.
-	_use = Button.new()
-	_use.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_use.offset_left = -ACTION_SIZE - 46
-	_use.offset_right = -46
-	_use.offset_top = -ACTION_SIZE - 262 - SAFE_BOTTOM
-	_use.offset_bottom = -ACTION_SIZE - 158 - SAFE_BOTTOM
-	_use.focus_mode = Control.FOCUS_NONE
-	_use.add_theme_font_size_override("font_size", 30)
-	var ubox := StyleBoxFlat.new()
-	ubox.bg_color = Color(0.05, 0.09, 0.10, 0.86)
-	ubox.border_color = Color(0.93, 0.90, 0.82, 0.34)
-	ubox.set_border_width_all(2)
-	ubox.set_corner_radius_all(52)
-	_use.add_theme_stylebox_override("normal", ubox)
-	_use.add_theme_stylebox_override("hover", ubox)
-	var upress := ubox.duplicate() as StyleBoxFlat
-	upress.bg_color = Color(0.17, 0.25, 0.26, 0.94)
-	_use.add_theme_stylebox_override("pressed", upress)
-	_use.add_theme_color_override("font_color", Color(0.93, 0.90, 0.82))
-	_use.add_theme_color_override("font_hover_color", Color(0.93, 0.90, 0.82))
-	_use.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
-	_use.visible = false
-	_use.name = "Use"
-	_use.pressed.connect(_on_use)
-	_ui.add_child(_use)
+	# THE USE BUTTON IS GONE. Gideon: "I dont want the use button anymore because
+	# the cast button should turn into the interact button, so there should be no
+	# use for it." He is finishing the idea I only half took - the primary button
+	# was already saying Select and this was sitting beside it doing the same job,
+	# which is two buttons for one verb and exactly the fault the context button
+	# was meant to remove.
 
 	# A single line of what to do, under the action. Fades out once the player
 	# has done the thing a few times - a prompt that never leaves is a prompt
@@ -1689,10 +1671,6 @@ func _sync_bars() -> void:
 	# What is under the aim, and therefore what the second button offers.
 	var thing := _thing_under_aim()
 	_looking_at = str(thing.get("id", "")) if not thing.is_empty() else ""
-	if _use != null:
-		_use.visible = _looking_at != "" and not in_room
-		if _use.visible:
-			_use.text = "Use"
 
 	if _action != null:
 		var label := _action_for_state()
@@ -1977,10 +1955,13 @@ func _on_cast_input(event: InputEvent) -> void:
 	else:
 		return
 
-	# THE BOX: a tap picks a row, or shuts it if it lands outside.
+	# THE BOX IS DRIVEN BY ITS BAR, not by tapping the objects.
+	#
+	# `_tap_box` hit-tested the printed list that used to be inside the lid, and
+	# it went with it: there are real things in the trays now, and the up/down and
+	# left/right buttons are how you move between them. A ray test against a quad
+	# that no longer exists can only ever return a miss.
 	if _at_box and not _in_sequence:
-		if pressed:
-			_tap_box(at)
 		_cast_area.accept_event()
 		return
 
@@ -2491,6 +2472,30 @@ func _sync_rod() -> void:
 	# moves against the view instead of with it.
 	var lag_pitch := rad_to_deg(_rod_lag_pitch) * ROD_LAG_BEND
 	var lag_roll := rad_to_deg(_rod_lag_roll) * ROD_LAG_WHIP
+
+	# THE ROD POINTS WHERE THE CAST WILL GO.
+	#
+	# Gideon: "I also want the fishing rod to pull up in view like you are holding
+	# it follows the cursor so you can tell that where you look is where you are
+	# preparing to cast."
+	#
+	# The cast has always gone where the player is looking and nothing on screen
+	# said so until it was in the air. The rod tracking the view IS the aiming
+	# reticle, and it costs no HUD at all - the same instinct as the float being
+	# the nibble minigame rather than a bar above it.
+	#
+	# DERIVED FROM THE CAMERA'S OWN FORWARD rather than from `_look_yaw` with a
+	# guessed sign. That mistake has been made twice in this file already: the
+	# basis is composed after a PI turn and the naive angle does not survive it.
+	# Taking the camera's forward, bringing it into boat space and reading its
+	# bearing cannot be wrong about a convention.
+	var want_yaw := 0.0
+	if _cam != null:
+		var fwd := -_cam.transform.basis.z
+		var local := _boat_pose.basis.inverse() * fwd
+		if Vector2(local.x, local.z).length() > 0.01:
+			want_yaw = rad_to_deg(atan2(local.x, local.z))
+	_rod_yaw = lerpf(_rod_yaw, want_yaw * ROD_FOLLOW, 1.0 - exp(-ROD_FOLLOW_RATE * _boat_dt))
 	for i in _rod_chain.size():
 		var share: float = ROD_CURVE[i] * bend
 		# The lag builds along the rod exactly as the bend does - a butt barely
@@ -2501,7 +2506,7 @@ func _sync_rod() -> void:
 			# The butt carries the whole swing plus its share of the bend. Both
 			# are down-positive, and `back` is a lift, so it subtracts.
 			_rod_chain[i].rotation_degrees = Vector3(
-				ROD_REST - back + share + lag_share, whip_share, 9.0)
+				ROD_REST - back + share + lag_share, whip_share + _rod_yaw, 9.0)
 		else:
 			_rod_chain[i].rotation_degrees = Vector3(share + lag_share, whip_share, 0.0)
 	_update_rod_tip()
@@ -3846,6 +3851,15 @@ const ROD_LAG_FOLLOW := 0.14   ## seconds. Researched prop lag is 0.1-0.2 s
 const ROD_LAG_BEND := 0.55     ## degrees of tip lag per degree/s of hull pitch
 const ROD_LAG_WHIP := 0.42     ## ...and sideways, per degree/s of hull roll
 
+## How much of the view's bearing the rod takes, and how fast it gets there.
+##
+## Not all of it: a rod welded to the crosshair reads as a cursor rather than as a
+## thing being held, and the hands do not turn as far as the head does. Damped so
+## it swings after the look rather than with it, which is the same reason the rod
+## lags the hull.
+const ROD_FOLLOW := 0.82
+const ROD_FOLLOW_RATE := 7.5
+
 
 func _sync_rod_lag() -> void:
 	if _boat_dt <= 0.0:
@@ -4305,8 +4319,6 @@ var _page_swiped := false
 var _page_turn := 0.0
 ## THE TACKLE BOX. See `_build_tacklebox`.
 var _tacklebox: Room3D
-var _box_list: VBoxContainer
-var _box_rows: Array = []
 ## The real things lying in the box. See `_build_box_items`.
 var _box_items: Array[Node3D] = []
 var _box_lamp: OmniLight3D
@@ -4325,9 +4337,10 @@ var _boundary_held := 0
 var _box_sel := 0
 ## The bar of controls shown while a room is open. See `_build_room_bar`.
 var _room_bar: HBoxContainer
+var _room_up: Button
+var _room_down: Button
 var _room_prev: Button
 var _room_next: Button
-var _room_ok: Button
 var _room_close: Button
 var _gate_left: Node3D
 var _gate_right: Node3D
@@ -4350,6 +4363,15 @@ func _thing_under_aim() -> Dictionary:
 	if sim.state != Sim.IDLE and sim.state != Sim.WAITING:
 		return {}
 	if _cam == null:
+		return {}
+	# NOTHING IS UNDER THE CROSSHAIR WHILE IT IS OVER THE WATER, and this is one
+	# decision rather than two so they cannot disagree.
+	#
+	# Without it, the lamp on the stem sits about seven degrees below the resting
+	# view axis - inside the ten-degree cone - so at rest, looking at the horizon,
+	# the game believed the player was looking at the lamp. That turned the
+	# primary button into Select on the opening frame of every session.
+	if _aim_is_over_water():
 		return {}
 	var eye := _cam.global_transform.origin if is_inside_tree() else _cam.transform.origin
 	var fwd := -_cam.transform.basis.z.normalized()
@@ -5470,13 +5492,16 @@ func _build_tacklebox() -> void:
 	# lies on the book - and for the same reason: the camera reads it from above,
 	# and a surface standing up inside the lid faces the wrong way at that angle.
 	var lie_flat := Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, deg_to_rad(-90.0))
+	# An empty Control and a tiny viewport: the box prints nothing at all now, and
+	# `show_surface` is false below, so this exists only because `build` asks for
+	# one. The list that used to be here was the thing Gideon called a menu.
 	_tacklebox.build(model, Vector2(0.360, 0.180),
 		# ABOVE THE TRAY, not in it. The model's lift-out tray sits at y = 0.152 and
 		# is 0.087 tall (M, scripts/probe_prop.gd), so a surface at 0.150 is
 		# coplanar with it - photographed, the tray's centre divider ran straight
 		# across the panel and hid a whole heading. 0.205 clears its top face.
 		Transform3D(lie_flat, Vector3(0.0, 0.205, 0.0)),
-		_box_root(), BOX_PAGE_PX)
+		Control.new(), Vector2i(8, 8))
 
 	# The lid turns about its BACK EDGE. The mesh spans z from -0.106 to +0.111
 	# about its own origin, so the hinge line is at z = -0.106; turning it about
@@ -5495,38 +5520,6 @@ func _build_tacklebox() -> void:
 	if lid != null:
 		_tacklebox.set_hinge(lid, Vector3(0.0, 0.0, -0.106), Vector3.RIGHT, BOX_LID_DEGREES)
 	_refresh_tacklebox()
-
-
-## The Control tree printed on the inside of the box. Same trick as the page: the
-## layout is ordinary Controls rendered to a SubViewport and used as a texture,
-## so none of the layout work has to be redone in world space.
-func _box_root() -> Control:
-	var root := ColorRect.new()
-	root.color = Color(0.128, 0.132, 0.138)
-	root.size = Vector2(BOX_PAGE_PX)
-	var pad := MarginContainer.new()
-	pad.set_anchors_preset(Control.PRESET_FULL_RECT)
-	for side in ["left", "right", "top", "bottom"]:
-		pad.add_theme_constant_override("margin_" + side, 30)
-	root.add_child(pad)
-	_box_list = VBoxContainer.new()
-	_box_list.add_theme_constant_override("separation", 8)
-	pad.add_child(_box_list)
-	return root
-
-
-## What is in the box, right now. Rebuilt on every open and every change, from
-## `sim` - so it cannot describe gear the player does not have.
-## WHAT THE BOX SAYS ABOUT THE THING YOU HAVE SELECTED.
-##
-## The printed list that used to live on a quad inside the lid is gone - it was a
-## panel wearing an object's clothes, and Gideon said so. The objects are the rows
-## now, and the only words left are the name, the one line of description, and the
-## pips. Those live on the HUD rather than on the surface, for a reason he gave
-## directly: "since the text is small". Text printed on a quad at an angle 70 cm
-## away is the smallest text in the game; the same words on the HUD are the
-## largest, and the research puts the description on the screen after the
-## selection settles anyway.
 func _refresh_tacklebox() -> void:
 	if _box_name == null:
 		return
@@ -5544,51 +5537,6 @@ func _refresh_tacklebox() -> void:
 		var dead := Color(0.42, 0.41, 0.39)
 		_box_left.add_theme_color_override("font_color", live if many else dead)
 		_box_right.add_theme_color_override("font_color", live if many else dead)
-
-
-func _box_heading(text: String) -> void:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_font_size_override("font_size", 26)
-	l.add_theme_color_override("font_color", Color(0.62, 0.60, 0.55))
-	_box_list.add_child(l)
-
-
-## One row, and its hit rectangle recorded in PAGE pixels so a tap on the
-## physical surface can be turned back into the thing it landed on.
-func _box_row(name: String, state: String, id: String, tappable: bool) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 16)
-	var left := Label.new()
-	left.text = name
-	left.add_theme_font_size_override("font_size", 34)
-	# SAY THE STATE MORE THAN ONE WAY. Colour alone fails a colour-blind player
-	# and fails again on a dim phone in daylight, so the chosen bait carries the
-	# words "on the hook" as well as the brighter ink.
-	left.add_theme_color_override("font_color",
-		Color(0.94, 0.92, 0.86) if (tappable or state == "on the hook") else Color(0.52, 0.50, 0.47))
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(left)
-	var right := Label.new()
-	right.text = state
-	right.add_theme_font_size_override("font_size", 28)
-	right.add_theme_color_override("font_color",
-		Color(0.78, 0.68, 0.42) if state == "on the hook" else Color(0.55, 0.53, 0.50))
-	row.add_child(right)
-	_box_list.add_child(row)
-	if tappable and id != "":
-		_box_rows.append({"id": id, "row": row})
-		# THE ARROWS NEED SOMETHING TO POINT AT. A caret rather than a colour
-		# alone, for the same reason the state is said three ways: it survives a
-		# colour-blind player and a dim phone in daylight.
-		if _box_rows.size() - 1 == _box_sel:
-			left.text = "> " + name
-			left.add_theme_color_override("font_color", Color(1.0, 0.94, 0.78))
-
-
-## Where the camera sits to read the open box. Computed by `frame_pose` off the
-## surface's own size, not typed - the same arithmetic that frames the logbook,
-## and the reason a hand-tuned offset is wrong three times running.
 func _box_pose() -> Array:
 	var aspect := 0.46
 	if _cam != null and is_inside_tree() and _cam.get_viewport() != null:
@@ -5620,39 +5568,6 @@ func _shut_tacklebox() -> void:
 	])
 	if _audio != null:
 		_audio.play("clunk", -8.0)
-
-
-## A tap on the open box: work out which row it landed on, and equip it.
-##
-## The hit test goes through `Room3D.hit_page`, which returns the point in PAGE
-## PIXELS - so the row rectangles recorded during layout can be compared against
-## it directly. That is the whole reason the surface is a SubViewport of ordinary
-## Controls: the layout already knows where everything is, and none of it has to
-## be re-solved in world space.
-func _tap_box(at: Vector2) -> void:
-	if _tacklebox == null:
-		return
-	var from := _cam.transform.origin
-	var dir := _screen_ray(at)
-	var on := _tacklebox.hit_page(from, dir, _boat_pose)
-	if on.x < 0.0:
-		# Tapped off the box, and nothing happens - see the note in `_tap_page`.
-		# The X closes it.
-		return
-	for entry in _box_rows:
-		var row: Control = entry["row"]
-		var r := row.get_global_rect()
-		if r.has_point(on):
-			_set_bait(str(entry["id"]))
-			_refresh_tacklebox()
-			if _audio != null:
-				_audio.play("clunk", -10.0)
-			return
-
-
-## Put a bait on the hook, from the box. The shed is still where bait is BOUGHT -
-## this is the thing an angler does twenty times an hour, and it is why the tray
-## is the tappable part of the box and the rod's gear above it is only shown.
 func _set_bait(id: String) -> void:
 	if not sim.econ.has_bait(id) or str(sim.econ.bait) == id:
 		return
@@ -5704,17 +5619,18 @@ func _build_room_bar() -> void:
 	_room_bar.visible = false
 	_ui.add_child(_room_bar)
 
-	_room_prev = _room_button("<", func() -> void: _room_step(-1))
-	_room_next = _room_button(">", func() -> void: _room_step(1))
-	_room_ok = _room_button("Use", func() -> void: _room_confirm())
+	_room_up = _room_button("^", func() -> void: _room_step(-1))
+	_room_down = _room_button("v", func() -> void: _room_step(1))
+	_room_prev = _room_button("<", func() -> void: _room_variant(-1))
+	_room_next = _room_button(">", func() -> void: _room_variant(1))
 	_room_close = _room_button("X", func() -> void: _room_close_pressed())
-	for b in [_room_prev, _room_ok, _room_next, _room_close]:
+	for b in [_room_up, _room_down, _room_prev, _room_next, _room_close]:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_room_bar.add_child(b)
 	# The X is the way out, so it is the one that must never be pressed by
 	# accident on the way to something else: last, hard against the right edge,
 	# and coloured apart from the three that act on the contents.
-	_room_close.size_flags_stretch_ratio = 0.7
+	_room_close.size_flags_stretch_ratio = 0.8
 
 
 func _room_button(text: String, on_press: Callable) -> Button:
@@ -5746,16 +5662,11 @@ func _room_step(by: int) -> void:
 		_box_move(by)
 
 
-func _room_confirm() -> void:
-	if _reading:
-		# A book has nothing to confirm, so the middle button turns the page on -
-		# which is what a reader pressing the big button in the middle means.
-		_turn_page(1)
-	elif _at_box:
-		# The middle button steps to the next VERSION of the selected thing, which
-		# for bait is the choice and for everything else is a no-op the greyed
-		# arrows have already said is unavailable.
-		_box_variant(1)
+## Left and right: the other VERSION of the selected thing, where there is one.
+## Dead in the book, where there is only one of each page.
+func _room_variant(by: int) -> void:
+	if _at_box:
+		_box_variant(by)
 
 
 func _room_close_pressed() -> void:
@@ -5775,32 +5686,34 @@ func _sync_room_bar() -> void:
 	_room_bar.visible = open
 	if not open:
 		return
+	# FOUR DIRECTIONS AND A WAY OUT, the same five buttons whichever thing is open.
+	#
+	# Gideon: "I want to have up down and left right control buttons while looking
+	# at menus like it. up down selects the different equipment and left right
+	# changes the version of equipment if we have it."
+	#
+	# The book uses the same bar: up and down turn its pages, and left and right
+	# have nothing to do there so they grey out rather than disappear. One bar with
+	# a fixed shape is one habit - a bar that changes its buttons between the book
+	# and the box is two.
 	if _reading:
-		_room_ok.text = "Turn"
-		_room_prev.text = "<"
-		_room_next.text = ">"
-		# DIM, NEVER HIDE, at both covers - so the end of the book reads as the
-		# end rather than as a control that stopped working.
 		var page: int = _book.page if _book != null else 0
-		_room_prev.disabled = page <= 0
-		_room_next.disabled = page >= _book_pages - 1
-		_room_ok.disabled = _room_next.disabled
-		for b in [_room_prev, _room_next, _room_ok]:
-			b.add_theme_color_override("font_color",
-				Color(0.44, 0.42, 0.39) if b.disabled else Color(0.93, 0.90, 0.82))
+		_room_up.disabled = page <= 0
+		_room_down.disabled = page >= _book_pages - 1
+		_room_prev.disabled = true
+		_room_next.disabled = true
 	else:
-		_room_ok.text = "Swap"
-		_room_prev.text = "^"
-		_room_next.text = "v"
-		var nothing := int(_box_slot(_box_sel)["variants"]) <= 1
-		# Up and down always work - there is always another thing in the box.
-		# Only the middle button, which swaps the VERSION, can be dead.
-		_room_prev.disabled = false
-		_room_next.disabled = false
-		_room_ok.disabled = nothing
-		for b in [_room_prev, _room_next, _room_ok]:
-			b.add_theme_color_override("font_color",
-				Color(0.44, 0.42, 0.39) if b.disabled else Color(0.93, 0.90, 0.82))
+		# There is always another thing in the box, so up and down always work.
+		# Only left and right can be dead, and they are dead exactly when the
+		# greyed arrows beside the object say they are.
+		_room_up.disabled = false
+		_room_down.disabled = false
+		var one_only: bool = int(_box_slot(_box_sel)["variants"]) <= 1
+		_room_prev.disabled = one_only
+		_room_next.disabled = one_only
+	for b in [_room_up, _room_down, _room_prev, _room_next]:
+		b.add_theme_color_override("font_color",
+			Color(0.44, 0.42, 0.39) if b.disabled else Color(0.93, 0.90, 0.82))
 
 
 # --- where a thing actually IS ---------------------------------------------
@@ -5929,17 +5842,47 @@ func _aim_is_over_water() -> bool:
 		return true
 	var origin := _cam.transform.origin
 	var dir := -_cam.transform.basis.z.normalized()
-	if dir.y >= -0.0001:
-		return true
-	var t := -origin.y / dir.y
-	if t <= 0.0:
-		return true
-	var hit := origin + dir * t
-	# Inside the hull's plan view is the boat; anything past bow or stern, or
-	# outside the beam at that station, is open water.
-	if hit.z < -0.85 or hit.z > 2.25:
-		return true
-	return absf(hit.x) > _hull_half_width(hit.z)
+	# How far to look before giving up: either the waterline, or a few metres.
+	var far := 6.0
+	if dir.y < -0.0001:
+		far = minf(far, -origin.y / dir.y)
+	# DOES THE RAY MEET THE BOAT FIRST?
+	#
+	# The first version asked only where the ray CROSSES the waterline, and that
+	# is a different question. Looking down at the bucket on the port side, the
+	# ray carries on past the hull's side and crosses the water outside the boat -
+	# so a bucket the player is staring into reported "water" and offered a cast.
+	# Gideon: "I am still getting the cast button while looking in the boat."
+	#
+	# Marched rather than solved, because the hull is a swept profile rather than
+	# a shape with a closed-form intersection, and twenty-four samples of three
+	# cheap functions is nothing.
+	# THE THINGS IN THE BOAT ARE PART OF THE BOAT. The lamp stands on the stem,
+	# above the rail, so a ray aimed straight at it never enters the hull volume -
+	# and without this it was unselectable while being looked at. A closest-approach
+	# test against each aim point is six cheap dot products and says exactly what
+	# is meant: the ray meets something in the boat before it reaches the lake.
+	for t in _things:
+		var at: Vector3 = _boat_pose * aim_point_of(t)
+		var to := at - origin
+		var along := to.dot(dir)
+		if along <= 0.0 or along > far + 0.6:
+			continue
+		if (to - dir * along).length() < 0.16:
+			return false
+
+	var steps := 24
+	for i in range(1, steps + 1):
+		var p := origin + dir * (far * float(i) / float(steps))
+		if p.z < -0.85 or p.z > 2.25:
+			continue
+		if absf(p.x) > _hull_half_width(p.z):
+			continue
+		# Inside the beam and between the sole and a little over the rail: the
+		# boat is in the way, so this is the boat.
+		if p.y < _hull_rim_y(p.z) + 0.06 and p.y > _hull_floor_y(p.z) - 0.25:
+			return false
+	return true
 
 
 ## The primary button, debounced. Without the hysteresis a slow pan across the
@@ -5987,15 +5930,28 @@ const BOX_LIFT := 0.075        ## how far the selected item rises out of the tra
 ## the scale and the lamp below carry the highlight; this only pushes the rest back.
 const BOX_DIM := 0.78
 
+## Everything in the tray is shrunk to this before it is placed, so a 23 cm knife
+## and a 20 cm rod both sit inside a 118 mm cell. The lift scales the SELECTED one
+## back up, which is what makes it read as picked out of the others.
+const BOX_ITEM_SCALE := 0.62
+
 
 func _build_box_items() -> void:
 	_box_items.clear()
 	var tray := Vector3(0.0, 0.175, 0.0)
 	# Two rows of three across the box's 40 x 22 cm, laid out so nothing overlaps
 	# and the whole tray reads at the angle the camera comes down at.
+	# A REAL GRID. Gideon: "I want the items in it to be shrunk down and placed
+	# more in a grid so they down overlap."
+	#
+	# Three across and two deep inside the tray's 386 x 187 mm, on a 118 x 88 mm
+	# pitch, with everything scaled to BOX_ITEM_SCALE so a 20 cm rod and a 23 cm
+	# knife fit a cell instead of lying across their neighbours. The pitch and the
+	# scale are ONE decision: shrink until the longest of them fits the cell,
+	# rather than nudging positions until a screenshot happens to look clear.
 	var spots := [
-		Vector3(-0.125, 0.0, -0.045), Vector3(0.0, 0.0, -0.050), Vector3(0.125, 0.0, -0.045),
-		Vector3(-0.125, 0.0, 0.050), Vector3(0.0, 0.0, 0.052), Vector3(0.125, 0.0, 0.050),
+		Vector3(-0.118, 0.0, -0.044), Vector3(0.0, 0.0, -0.044), Vector3(0.118, 0.0, -0.044),
+		Vector3(-0.118, 0.0, 0.044), Vector3(0.0, 0.0, 0.044), Vector3(0.118, 0.0, 0.044),
 	]
 	var made: Array[Node3D] = [
 		_box_rod(), _box_reel(), _box_spool(),
@@ -6005,6 +5961,7 @@ func _build_box_items() -> void:
 		var n := made[i]
 		if n == null:
 			continue
+		n.scale = n.scale * BOX_ITEM_SCALE
 		n.position = tray + spots[i]
 		n.name = "BoxItem%d" % i
 		_tacklebox.add_child(n)
@@ -6270,7 +6227,7 @@ func _sync_box_items() -> void:
 		var chosen := i == _box_sel and _at_box
 		var want := Vector3(n.position.x, 0.175 + (BOX_LIFT if chosen else 0.0), n.position.z)
 		n.position = n.position.lerp(want, 0.25)
-		n.scale = n.scale.lerp(Vector3.ONE * (1.10 if chosen else 1.0), 0.25)
+		n.scale = n.scale.lerp(Vector3.ONE * (BOX_ITEM_SCALE * (1.45 if chosen else 1.0)), 0.25)
 		_tint_tree(n, 1.0 if chosen else BOX_DIM)
 		if chosen and _box_lamp != null:
 			# ONE OBJECT, LIT. The researched pattern is a single foregrounded and
@@ -6366,23 +6323,34 @@ func _arrow_button(text: String, on_press: Callable) -> Button:
 	return b
 
 
+## THE DOTS ONLY APPEAR WHEN THERE IS SOMETHING TO SWAP BETWEEN.
+##
+## Gideon: "if we dont have additional options yet, dont show the dots implying
+## that there are additional equipment. only show those if you have different
+## versions to swap between."
+##
+## This overrules the research, which wants a pip per rung so the whole ladder
+## shows, and he is right for this game. A row of dots beside a pair of arrows
+## means "there are versions here" - so six of them under a rod you cannot change
+## was the pips asserting exactly what the greyed arrows were denying. The ladder
+## belongs in the shed, where the rungs can actually be bought.
 func _draw_box_pips() -> void:
 	var slot := _box_slot(_box_sel)
-	var rungs: int = maxi(1, int(slot["rungs"]))
-	var owned: int = clampi(int(slot["owned"]), 0, rungs)
+	var rungs: int = int(slot["variants"])
 	if rungs <= 1:
 		return
+	var owned: int = clampi(int(slot["pick"]) + 1, 0, rungs)
 	var w := _box_pips.size.x
 	var y := _box_pips.size.y * 0.5
 	var gap := minf(46.0, w / float(rungs + 1))
 	var start := (w - gap * float(rungs - 1)) * 0.5
 	for i in rungs:
 		var at := Vector2(start + gap * float(i), y)
-		if i < owned:
+		if i == owned - 1:
+			# Where you are in the set. The others are outlines - things you own
+			# and could swap to, not rungs you have not reached.
 			_box_pips.draw_circle(at, 9.0, Color(0.95, 0.86, 0.58))
 		else:
-			# Outline only: the rung exists and you have not reached it. An absent
-			# pip would say the ladder is shorter than it is.
 			_box_pips.draw_arc(at, 9.0, 0.0, TAU, 18, Color(0.62, 0.60, 0.56, 0.85), 2.5)
 
 

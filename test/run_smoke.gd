@@ -75,6 +75,7 @@ func _initialize() -> void:
 	_check_the_tackle_box_is_the_equipment_menu(main)
 	_check_looking_at_a_thing_selects_it(main)
 	_check_the_button_says_what_the_moment_wants(main)
+	_check_the_rod_points_where_you_look(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -1191,6 +1192,60 @@ func _check_the_button_says_what_the_moment_wants(main) -> void:
 		main._shut_book()
 		for i in 60:
 			main.advance(1.0 / 60.0)
+
+
+## THE ROD POINTS WHERE THE CAST WILL GO.
+##
+## Gideon: "I also want the fishing rod to pull up in view like you are holding it
+## follows the cursor so you can tell that where you look is where you are
+## preparing to cast." The rod IS the aiming reticle, so the claim is that it
+## swings with the view - and that it swings the RIGHT WAY, which is the half a
+## sign error would get wrong while everything else still looked animated.
+func _check_the_rod_points_where_you_look(main) -> void:
+	_t.begin("smoke > the rod points where you are looking")
+	main.freeze(1)
+	main.sim.state = Sim.IDLE
+
+	var bearings: Array[float] = []
+	for yaw in [-0.7, 0.0, 0.7]:
+		main._look_yaw = yaw
+		main._look_yaw_want = yaw
+		for i in 120:
+			main.advance(1.0 / 60.0)
+		bearings.append(_rod_bearing(main))
+
+	# It moves at all...
+	_t.gt(absf(bearings[2] - bearings[0]), 0.4,
+		"the rod does not swing with the view (%.2f against %.2f)" % [bearings[0], bearings[2]])
+	# ...and it moves the same way the view does, monotonically, rather than
+	# against it. A sign error here still looks like a rod being animated.
+	_t.ok((bearings[1] - bearings[0]) * (bearings[2] - bearings[1]) > 0.0,
+		"the rod does not swing monotonically with the view: %.2f, %.2f, %.2f" % bearings)
+
+	# And the tip really does end up near the line of the cast. Measured against
+	# the camera's own forward, so no angle convention is assumed.
+	for yaw in [-0.5, 0.0, 0.5]:
+		main._look_yaw = yaw
+		main._look_yaw_want = yaw
+		for i in 120:
+			main.advance(1.0 / 60.0)
+		var cam: Transform3D = main._cam.transform
+		var fwd: Vector3 = -cam.basis.z
+		var flat_fwd := Vector2(fwd.x, fwd.z).normalized()
+		var tip: Vector3 = main._rod_tip - cam.origin
+		var flat_tip := Vector2(tip.x, tip.z).normalized()
+		var off := rad_to_deg(absf(flat_fwd.angle_to(flat_tip)))
+		_t.lt(off, 32.0,
+			"at look %.1f the rod tip is %.0f degrees off where the cast will go" % [yaw, off])
+
+
+## The rod's bearing in boat space, from the chain rather than from the constant
+## that drives it - so this measures the rod, not the intention.
+func _rod_bearing(main) -> float:
+	var tip: Vector3 = main._rod_tip
+	var butt: Vector3 = main._rod.global_position if main._rod.is_inside_tree() 		else main._boat_pose * main._rod.position
+	var d := tip - butt
+	return atan2(d.x, d.z)
 
 
 ## THE FLOAT FLOATS ON THE WATER, and this is the assertion that it reads the same
