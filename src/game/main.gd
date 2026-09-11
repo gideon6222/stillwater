@@ -757,7 +757,7 @@ func _build_boat() -> void:
 	tm.ring_segments = 12
 	rope.mesh = tm
 	rope.material_override = _mat(Color(0.44, 0.39, 0.29), 0.95)
-	rope.position = Vector3(-0.34, _hull_rim_y(0.85) + 0.030, 0.85)
+	rope.position = Vector3(0.34, _hull_rim_y(1.05) + 0.030, 1.05)
 	rope.name = "Rope"
 	rope.rotation_degrees = Vector3(4, 18, 0)
 	_boat.add_child(rope)
@@ -797,6 +797,8 @@ func _build_boat() -> void:
 	_build_props()
 	_build_book()
 	_build_tacklebox()
+	# AFTER everything in the boat exists, because it measures what is there.
+	_build_aim_points()
 	_build_things()
 	_build_reeds()
 
@@ -4196,7 +4198,7 @@ func _build_things() -> void:
 		{
 			"id": "baitbox",
 			"name": "The bait box",
-			"at": Vector3(-0.24, _hull_floor_y(1.84) + 0.10, 1.84),
+			"at": Vector3(-0.22, _hull_floor_y(1.90) + 0.10, 1.90),
 			"look": func() -> String:
 				var b := Gear.bait_by_id(sim.econ.bait)
 				return "%s on the hook   -   tap to change" % str(b["name"]),
@@ -4223,7 +4225,7 @@ func _build_things() -> void:
 		{
 			"id": "logbook",
 			"name": "The logbook",
-			"at": Vector3(-0.06, _hull_floor_y(1.32) + 0.11, 1.32),
+			"at": Vector3(-0.26, _hull_floor_y(1.30) + 0.11, 1.30),
 			"look": func() -> String:
 				var met := Keepers.hands_met(sim.deepest_ever)
 				return "The keeper's logbook   -   %d of %d hands" % [met, Keepers.total_hands()],
@@ -4243,7 +4245,7 @@ func _build_things() -> void:
 		{
 			"id": "rope",
 			"name": "The rope",
-			"at": Vector3(-0.34, _hull_rim_y(0.85) + 0.06, 0.85),
+			"at": Vector3(0.34, _hull_rim_y(1.05) + 0.06, 1.05),
 			"look": func() -> String:
 				return "A coil of rope. Somebody else's knot.",
 			"use": func() -> void:
@@ -4275,6 +4277,8 @@ var _tacklebox: Room3D
 var _box_list: VBoxContainer
 var _box_rows: Array = []
 var _at_box := false
+## id -> the measured centre of its geometry, in boat space. See `_build_aim_points`.
+var _aim_points: Dictionary = {}
 var _box_sel := 0
 ## The bar of controls shown while a room is open. See `_build_room_bar`.
 var _room_bar: HBoxContainer
@@ -4306,16 +4310,34 @@ func _thing_under_aim() -> Dictionary:
 		return {}
 	var eye := _cam.global_transform.origin if is_inside_tree() else _cam.transform.origin
 	var fwd := -_cam.transform.basis.z.normalized()
+	# THE NEAREST THING IN THE CONE, not the best aligned one.
+	#
+	# Taking the highest dot product means a distant object that happens to line
+	# up beats a near one you are looking straight at. Found by the assertion that
+	# looking at a thing must select it: the bait box and the tackle box selected
+	# EACH OTHER, because from the seat they are nearly collinear and whichever
+	# was further had the marginally smaller angle. "What am I looking at" means
+	# the closest thing along the line, the way an eye means it.
+	#
+	# The cone is widened for things that are close, because angular size grows as
+	# you approach: a bucket at 70 cm subtends far more than ten degrees, so a
+	# fixed cone made the nearest objects the hardest to select - which is the
+	# livewell reporting nothing at all while being stared at.
 	var best := {}
-	var best_dot := 0.985
+	var best_range := INF
 	for t in _things:
-		var at: Vector3 = _boat_pose * (t["at"] as Vector3)
+		var at: Vector3 = _boat_pose * aim_point_of(t)
 		var to := (at - eye)
-		if to.length() < 0.05:
+		var range_to := to.length()
+		if range_to < 0.05:
 			continue
 		var d := fwd.dot(to.normalized())
-		if d > best_dot:
-			best_dot = d
+		# AIM_COS at arm's length, opening up as the thing gets closer.
+		var cone: float = lerpf(AIM_COS_NEAR, AIM_COS, clampf((range_to - 0.5) / 0.9, 0.0, 1.0))
+		if d < cone:
+			continue
+		if range_to < best_range:
+			best_range = range_to
 			best = t
 	return best
 
@@ -4440,7 +4462,7 @@ func _build_props() -> void:
 	# them across the water the player is casting into, and none of them large
 	# enough to be the subject.
 	_place_prop("livewell", Vector3(-0.34, _hull_floor_y(0.98), 0.98), 0.80, 18.0)
-	_place_prop("baitbox", Vector3(-0.24, _hull_floor_y(1.84), 1.84), 0.50, -12.0)
+	_place_prop("baitbox", Vector3(-0.22, _hull_floor_y(1.90), 1.90), 0.50, -12.0)
 	# The lantern goes on the STEM, where it lights the water ahead rather than
 	# the boards - and where it is a silhouette against the sky at night.
 	var lamp := _place_prop("lamp", Vector3(0.0, _hull_rim_y(2.05) + 0.03, 2.05), 1.05, 0.0)
@@ -4959,7 +4981,7 @@ func _build_book() -> void:
 	# It was at z = 1.80, up by the bow, where the sole is narrow, dark and behind
 	# every other prop. Here it is the nearest thing on the floor, in the clear
 	# space between the tackle box and the bucket, and nothing overlaps it.
-	_book.position = Vector3(-0.06, _hull_floor_y(1.32) + 0.052, 1.32)
+	_book.position = Vector3(-0.26, _hull_floor_y(1.30) + 0.052, 1.30)
 	# Not square to the boat. A book somebody put down is never square to
 	# anything, and this is the whole difference between a prop and a menu.
 	_book.rotation_degrees = Vector3(0, 14, 0)
@@ -5700,3 +5722,105 @@ func _sync_room_bar() -> void:
 		_room_ok.text = "Use"
 		_room_prev.text = "^"
 		_room_next.text = "v"
+
+
+# --- where a thing actually IS ---------------------------------------------
+
+## THE AIM POINT OF EVERY INTERACTABLE, COMPUTED FROM ITS GEOMETRY.
+##
+## Gideon: "when I look at the book I cant click it but I can click it if I look
+## forward on the boat." Two screenshots proved it: in one the crosshair sits on
+## bare floorboards and the prompt reads "The keeper's logbook"; in the next the
+## book is plainly under the crosshair and there is no prompt at all.
+##
+## The cause is that each `_things` entry carried a hand-typed `at`, and an
+## imported model's ORIGIN is wherever the exporter left it rather than where the
+## shape is. Measured with `scripts/probe_anchor.gd`: the logbook's anchor was
+## 0.14 m from its own mesh, 0.13 m of it sideways. The aim cone is 0.985 of a dot
+## product, about ten degrees, and at that range 0.14 m IS nine degrees - so the
+## book was just outside its own hit box while the empty floor beside it was
+## inside. The livewell was out by 0.10 m and the tackle box by 0.11 m; nobody had
+## noticed because both are large enough to be found anyway.
+##
+## So the typed number is gone and the aim point is derived from the visible
+## bounds once, at build time. One source of truth: the thing you can see and the
+## thing you can aim at are the same object, and moving a prop moves its hit box
+## for free. `run_smoke.gd` asserts the two agree.
+## How far off centre a thing may be and still count as looked at, as a dot
+## product. Two values, because angular size grows as you approach: a bucket at
+## 70 cm subtends far more than a fixed ten-degree cone, so one constant made the
+## NEAREST objects the hardest to select.
+const AIM_COS := 0.985       ## about 10 degrees, at arm's length and beyond
+const AIM_COS_NEAR := 0.93   ## about 21 degrees, for something right under you
+
+const AIM_NODE := {
+	"livewell": "Prop_livewell",
+	"baitbox": "Prop_baitbox",
+	"lamp": "Prop_lamp",
+	"logbook": "Logbook",
+	"tacklebox": "TackleBox",
+	"rope": "Rope",
+}
+
+
+func _build_aim_points() -> void:
+	_aim_points.clear()
+	for id in AIM_NODE:
+		var n := _boat.get_node_or_null(NodePath(str(AIM_NODE[id]))) as Node3D
+		if n == null:
+			continue
+		var c := _visual_centre(n)
+		if c != Vector3.INF:
+			_aim_points[id] = c
+
+
+## Where a thing is aimed at: its measured centre if it has one, and the typed
+## `at` only as a fallback for something with no geometry yet.
+func aim_point_of(t: Dictionary) -> Vector3:
+	var id := str(t.get("id", ""))
+	if _aim_points.has(id):
+		return _aim_points[id]
+	return t["at"]
+
+
+## The centre of everything a node actually DRAWS, in boat space. The mesh AABB
+## rather than the node's origin, which is the whole point.
+func _visual_centre(n: Node3D) -> Vector3:
+	var lo := Vector3.INF
+	var hi := -Vector3.INF
+	var stack: Array = [n]
+	while not stack.is_empty():
+		var node = stack.pop_back()
+		var mi := node as MeshInstance3D
+		if mi != null and mi.mesh != null and mi.visible:
+			var aabb := mi.mesh.get_aabb()
+			var x := _relative_to(mi, n)
+			for i in 8:
+				var corner := aabb.position + Vector3(
+					aabb.size.x * float(i & 1),
+					aabb.size.y * float((i >> 1) & 1),
+					aabb.size.z * float((i >> 2) & 1))
+				var p := x * corner
+				lo = Vector3(minf(lo.x, p.x), minf(lo.y, p.y), minf(lo.z, p.z))
+				hi = Vector3(maxf(hi.x, p.x), maxf(hi.y, p.y), maxf(hi.z, p.z))
+		for c in node.get_children():
+			stack.append(c)
+	if lo.x == INF:
+		return Vector3.INF
+	# The middle of the box, then lifted to the upper third: a thing lying on the
+	# sole is aimed at where a person would look at it, which is its top face
+	# rather than its buried centre.
+	var mid := (lo + hi) * 0.5
+	mid.y = lerpf(mid.y, hi.y, 0.5)
+	return n.transform * mid
+
+
+## A node's transform relative to an ancestor, for turning a mesh's own AABB into
+## the space the ancestor lives in.
+func _relative_to(node: Node3D, ancestor: Node3D) -> Transform3D:
+	var t := Transform3D.IDENTITY
+	var cur: Node = node
+	while cur != null and cur is Node3D and cur != ancestor:
+		t = (cur as Node3D).transform * t
+		cur = cur.get_parent()
+	return t

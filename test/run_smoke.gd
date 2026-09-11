@@ -73,6 +73,7 @@ func _initialize() -> void:
 	_check_the_float_floats_on_the_water(main)
 	_check_a_swipe_does_not_turn_the_view(main)
 	_check_the_tackle_box_is_the_equipment_menu(main)
+	_check_looking_at_a_thing_selects_it(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -988,6 +989,92 @@ func _check_the_tackle_box_is_the_equipment_menu(main) -> void:
 	_t.ok(not main._at_box, "back did not shut the tackle box")
 
 
+## LOOKING STRAIGHT AT A THING SELECTS IT, and the whole chain is driven: point
+## the camera at the object's VISIBLE CENTRE and ask what the crosshair reports.
+##
+## Gideon, with two screenshots: "when I look at the book I cant click it but I can
+## click it if I look forward on the boat." In one frame the crosshair sat on bare
+## floorboards and the prompt read "The keeper's logbook"; in the next the book was
+## plainly under the crosshair and there was no prompt at all.
+##
+## The cause was a hand-typed `at` per thing, and an imported model's ORIGIN is
+## wherever the exporter left it. The logbook's was 0.14 m from its own mesh - and
+## the aim cone is about ten degrees, which at that range IS 0.14 m. So the book
+## sat just outside its own hit box.
+##
+## Asserting "the aim point equals the geometry" would be vacuous now that the aim
+## point is derived FROM the geometry. This drives the thing a thumb does instead:
+## look at it, and see whether the game agrees that you are looking at it.
+func _check_looking_at_a_thing_selects_it(main) -> void:
+	_t.begin("smoke > looking at a thing in the boat selects it")
+	main.freeze(1)
+	main.sim.state = Sim.IDLE
+	# AIMED BY SEARCHING, the way a player aims, rather than by an analytic angle.
+	#
+	# The first version computed yaw and pitch directly and was wrong: the camera
+	# reached exactly the values it was given and the ray still missed by fifty
+	# degrees, because the basis is composed after a PI turn and the naive formula
+	# does not survive it. Measured - the achieved yaw matched the requested yaw to
+	# two decimals while the dot product was 0.61.
+	#
+	# A search is also the more honest claim. It asks "is there an orientation the
+	# player can reach from which this thing is selected", which is the question,
+	# and it cannot be fooled by a convention changing underneath it.
+	var missed: Array[String] = []
+	for t in main._things:
+		var id: String = str(t["id"])
+		var best := -2.0
+		var best_yaw := 0.0
+		var best_pitch := 0.0
+		for yi in 25:
+			for pi in 25:
+				var yaw := lerpf(-main.LOOK_YAW_LIMIT, main.LOOK_YAW_LIMIT, float(yi) / 24.0)
+				var pitch := lerpf(-main.LOOK_PITCH_DOWN, main.LOOK_PITCH_UP, float(pi) / 24.0)
+				var d := _aim_dot(main, t, yaw, pitch)
+				if d > best:
+					best = d
+					best_yaw = yaw
+					best_pitch = pitch
+		# Anything that cannot be brought near the centre of the view at all is a
+		# placement bug, and the reachability sweep already reports those.
+		if best < 0.97:
+			continue
+		main._look_yaw = best_yaw
+		main._look_pitch = best_pitch
+		main._look_yaw_want = best_yaw
+		main._look_pitch_want = best_pitch
+		main._sync()
+		if main._looking_at != id:
+			missed.append("%s beside %s" % [id, main._looking_at])
+	_t.eq(missed.size(), 0,
+		"looking straight at these did not select them: %s" % ", ".join(missed))
+
+	# AND NO TWO THINGS MAY SIT ON TOP OF EACH OTHER. The livewell and the rope
+	# were 0.13 m apart, so whichever was nearer won every time and the other was
+	# unselectable from anywhere. A separation rule catches that at the moment a
+	# prop is moved, rather than as a mysterious dead object later.
+	# ...and the measure is ANGULAR, from the seat, not metric.
+	#
+	# A metre apart means nothing if the two are in line with the eye: the rope and
+	# the bait box passed a 0.30 m separation rule and were still 6 degrees apart
+	# from where the player sits, so the nearer one won every time and the other
+	# was unselectable from anywhere. What a thumb has to resolve is the angle.
+	var seat_eye: Vector3 = main._cam.transform.origin
+	var crowded: Array[String] = []
+	for i in main._things.size():
+		for j in range(i + 1, main._things.size()):
+			var a: Vector3 = (main._boat_pose * main.aim_point_of(main._things[i])) - seat_eye
+			var b: Vector3 = (main._boat_pose * main.aim_point_of(main._things[j])) - seat_eye
+			if a.length() < 0.05 or b.length() < 0.05:
+				continue
+			var deg := rad_to_deg(a.angle_to(b))
+			if deg < 12.0:
+				crowded.append("%s and %s are %.0f degrees apart" % [
+					main._things[i]["id"], main._things[j]["id"], deg])
+	_t.eq(crowded.size(), 0,
+		"two things in the boat are too close together to aim between: %s" % ", ".join(crowded))
+
+
 ## THE FLOAT FLOATS ON THE WATER, and this is the assertion that it reads the same
 ## surface the shader draws rather than a second copy of it.
 ##
@@ -1630,23 +1717,38 @@ func _check_the_logbook_is_in_shot(main) -> void:
 	# rather than clipped to an edge. That is strictly stronger than the old test
 	# in the way that matters - the old one never checked the book was reachable,
 	# only that it happened to be visible from one fixed pose.
-	var book_at: Vector3 = main._book.global_position if main._book.is_inside_tree() 		else main._boat_pose * main._book.position
-	var eye: Vector3 = main._cam.transform.origin
-	var to_book := book_at - eye
-	var need_pitch := atan2(to_book.y, Vector2(to_book.x, to_book.z).length())
-	var need_yaw := atan2(-to_book.x, to_book.z)
-	# `_look_pitch` is measured from the resting tilt, and negative is DOWN.
-	var want_pitch := need_pitch - deg_to_rad(main.REST_TILT)
-	_t.gt(want_pitch, -main.LOOK_PITCH_DOWN,
-		"the logbook is %.0f degrees below the seat and the player can only look %.0f down - it cannot be found" % [
-			-rad_to_deg(need_pitch), rad_to_deg(main.LOOK_PITCH_DOWN)])
-	_t.lt(absf(need_yaw), main.LOOK_YAW_LIMIT,
-		"the logbook is outside the yaw the player has")
-
-	main._look_yaw_want = need_yaw
-	main._look_pitch_want = want_pitch
-	for i in 120:
-		main.advance(1.0 / 60.0)
+	# AIMED BY SEARCH, for the reason given on `_check_looking_at_a_thing_selects_it`:
+	# the analytic yaw and pitch that reach a point are not what they look like,
+	# because the basis is composed after a PI turn, and the version of this that
+	# computed them was pointing the camera fifty degrees away while reporting the
+	# exact angles it had been asked for.
+	var book_thing := {}
+	for t in main._things:
+		if str(t["id"]) == "logbook":
+			book_thing = t
+	_t.ok(not book_thing.is_empty(), "there is no logbook among the things in the boat")
+	if book_thing.is_empty():
+		return
+	var best := -2.0
+	var best_yaw := 0.0
+	var best_pitch := 0.0
+	for yi in 25:
+		for pi in 25:
+			var yaw := lerpf(-main.LOOK_YAW_LIMIT, main.LOOK_YAW_LIMIT, float(yi) / 24.0)
+			var pitch := lerpf(-main.LOOK_PITCH_DOWN, main.LOOK_PITCH_UP, float(pi) / 24.0)
+			var d := _aim_dot(main, book_thing, yaw, pitch)
+			if d > best:
+				best = d
+				best_yaw = yaw
+				best_pitch = pitch
+	_t.gt(best, 0.97,
+		"the logbook cannot be brought near the centre of the view from the seat at all (best %.3f)" % best)
+	main._look_yaw = best_yaw
+	main._look_pitch = best_pitch
+	main._look_yaw_want = best_yaw
+	main._look_pitch_want = best_pitch
+	main._sync()
+	var book_at: Vector3 = main._boat_pose * main.aim_point_of(book_thing)
 	_in_frame(main, book_at, "the logbook, looked straight at,")
 
 
@@ -1672,3 +1774,20 @@ func _in_frame(main, at: Vector3, what: String) -> void:
 		what, up * 100.0])
 	_t.lt(across, 0.88, "%s sits %.0f%% of the way to the side of the frame" % [
 		what, across * 100.0])
+
+
+## How closely the view would point at a thing from a given yaw and pitch. Set,
+## sync, measure - the same path the game uses, so no convention is assumed.
+func _aim_dot(main, t: Dictionary, yaw: float, pitch: float) -> float:
+	main._look_yaw = yaw
+	main._look_pitch = pitch
+	main._look_yaw_want = yaw
+	main._look_pitch_want = pitch
+	main._sync()
+	var cam: Transform3D = main._cam.transform
+	var ap: Vector3 = main.aim_point_of(t)
+	var to: Vector3 = (main._boat_pose * ap) - cam.origin
+	if to.length() < 0.05:
+		return -2.0
+	var fwd: Vector3 = -cam.basis.z.normalized()
+	return fwd.dot(to.normalized())
