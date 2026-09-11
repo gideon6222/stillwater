@@ -499,6 +499,49 @@ the rod's bend is the tension gauge, the float's dip is the whole nibble minigam
 the mechanism. The nineteen generated sounds also stay: they crossfade on `dread`,
 and static loops would reintroduce a second thing that has to agree with the score.
 
+### 8.2 The second scout: the shed is premade, the tackle is not
+
+Gideon: *"make sure premade assets are used for everything possible."* Taken
+seriously and scouted properly. The honest answer splits in two, and the split is
+worth stating because it decides a lot of work.
+
+**The shed is almost entirely premade**, all CC0 from the same Poly Haven
+collections the boat's props already came from, so it needs no style reconciliation
+at all:
+
+| | |
+|---|---|
+| Structure | `wooden_bookshelf_worn`, `worn_metal_rack`, `WoodenTable_03` (counter) |
+| The shop | `CashRegister_01`, `standing_chalkboard_01` (prices in a hand you will recognise), `clipboard` |
+| Warmth and light | `barrel_stove`, `vintage_oil_lamp` |
+| Clutter | `wooden_crate_02`, `CheeseBox_01`, `old_military_crate`, `wicker_basket_01`, `Barrel_02`, `wooden_ladder`, `wooden_broom`, `rubber_boots`, `metal_tool_chest` |
+| Hanging tools | `wooden_hammer_01`, `crowbar_01`, `hand_plane_no4`, `vintage_hand_drill`, `flathead_screwdriver`, `handsaw_wood` |
+| Surfaces | ambientCG `Plaster007` (broken, old, painted), `Planks039` |
+
+**The tackle box is not, and no amount of looking changes it.** There is no
+photoreal free reel, spool of line, lure, spinner, float, hook or bait tin
+anywhere — Poly Haven has none of them, and what exists elsewhere is flat-shaded
+low-poly that would sit in the same tray as the two real imports. Two genuine hits:
+**`fish_knife`** and **`pliers`**, both CC0, both from the collection the toolbox
+itself came from.
+
+So the rest of the tray is modelled in code, and there is a real gain in it: **a
+code-modelled spool takes its colour from the line strength**, so the variants
+cannot drift from the economy the way a set of fixed meshes would.
+
+**Fish: still no, and the plan does not change.** Searched again by species. Nothing
+photoreal exists for perch, roach, bream, pike, carp, eel or trout; what is out
+there is aquarium and marine (goldfish, clownfish, blowfish) and the wrong style
+besides. Where the new requirement lands instead is R12: caught fish now sit in the
+livewell being LOOKED at, which is a different job from being glimpsed mid-fight,
+so the effort goes into a wet sheen, gill movement and a little more mesh — none of
+which could have been bought anyway.
+
+**One rule falls out of the split.** Anything modelled in code that sits beside an
+imported prop must use the same PBR material path as the imports, not the flatter
+shading the fish and reeds use. In a tray shot next to `fish_knife`, the seam would
+be immediate.
+
 **Misses worth knowing:** there is no CC0 photoreal rowboat, no freshwater fish, no
 reeds, no stone wall, gate, church or steeple anywhere. Those are generated
 geometry skinned with the textures above — which is what the existing hull already
@@ -592,6 +635,173 @@ be walked through.
 *Cost control.* One room, one door, three fixed camera poses (in the doorway, at
 the counter, at the shelf). It is not a walking simulator, it is the gate sequence
 pointed at a building, and the gate sequence already exists.
+
+---
+
+## 9.6 The interaction language, and why it is one language
+
+Gideon, after playing the rooms: *"It also just has a menu in it. instead can you
+make 3d objects for each option and make it look like they are physically in the
+box... go through all of my ideas, expand on them, use them to look into other
+ideas or similar issues, so we can catch multiple issues at once. research how to
+do all of this and how to apply it to other elements of the game like the shop and
+book."*
+
+He is right that the tackle box missed by one step. §9.4 said "an object IS what it
+contains" and then printed a menu on the inside of a lid, which is a panel wearing
+an object's clothes. This section is the correction, and it is written as ONE
+language rather than three fixes, because the same four pieces answer the tackle
+box, the logbook, the shed and the livewell. Researched against Resident Evil's
+attaché case and item inspection, Dead Space's diegetic rig, Half-Life: Alyx's
+selection glow, and mobile carousel and disabled-control guidance.
+
+**The whole language in four rules:**
+
+1. **One object at a time, lit, in front of you.** Not a grid to scan and not a
+   list. The thing is the row.
+2. **Highlight before commit.** Selection glows first; using it is a second act.
+3. **Arrows for input, pips for state.** Arrows say "you can move"; they do not say
+   how many or where you are.
+4. **Dim, never hide.** A control or an item with nothing behind it greys out and
+   stays exactly where it was. Removing it reflows the layout and reads as broken.
+
+### 9.6.1 The primary button says what the moment is
+
+*What.* One button, bottom right, in a fixed place at a fixed size, whose identity
+comes from what the crosshair is on:
+
+| Crosshair | Button | State |
+|---|---|---|
+| On the water | **Cast** | live |
+| On a thing in the boat | **Select** | live, warm |
+| On nothing usable | **Select** | dimmed, still there |
+| Fighting | **Reel** / **LET GO** | live, cold during a run |
+
+*Why it is not just a label swap.* Cast is currently offered while you are looking
+at the floorboards, which is an instruction the game cannot honour. The button is
+the answer to "what does this moment want", and that is the rule the caption
+already follows — this extends it to the whole control.
+
+*The two traps, both researched.* **Never move or resize it**: a button that
+changes shape under a thumb already travelling toward it is the worst version of
+this pattern. Change the label and the colour, cross-fade over about 200 ms, and
+leave the geometry alone. And **put hysteresis on the boundary**: the look ray
+crossing the gunwale must hold its new side for a few frames before the button
+changes, or a slow pan flickers Cast/Select at the edge.
+
+*Everywhere else.* The room bar's Use button follows the same rule: dimmed when the
+selected row cannot be chosen, never absent.
+
+### 9.6.2 The tackle box is its contents
+
+*What.* The lid opens and the camera comes over it. Inside, in the trays, the real
+things: a reel, spools of line, lures, floats, hooks, a bait tin, and the rod in
+two sections lying diagonally. The selected one lifts slightly, lights, and shows
+its name and a line of description. Up and down move between slots.
+
+*Left and right are the variants, and this is his mechanism.* Arrows either side of
+the selected object: **yellow when there is another version to move to, grey when
+this is all you own**. That is the whole line "you have one rod" said without a
+sentence, and it makes the empty rungs of the ladder visible — which is something
+the shed's list of prices can state but never show.
+
+*Plus a pip row, which the research adds.* Arrows say you can move; they do not say
+how far or where you are. One pip per rung of that ladder, filled for what you own,
+outline for what you do not, a caret on the current one. So the line ladder — the
+game's only progression — becomes a picture of itself: six pips, two filled, and
+the next one visibly waiting. **No silent wraparound**: the ends stop, so first and
+last are unambiguous.
+
+*What the objects are made of.* The asset scout checked, and this is worth stating
+plainly because he asked for premade assets wherever possible: **there is no
+photoreal free reel, spool, lure, hook, float or bait tin anywhere.** The ones that
+exist are flat-shaded low-poly, and they would be sitting in the same tray as the
+two real imports below. So these are modelled in code — they are simple shapes (a
+spool is a cylinder with end caps, a hook a bent capsule, a lure an ellipsoid and
+an eyelet) and there is a bonus: **a code-modelled spool takes its colour straight
+from the line strength**, so the variants cannot disagree with the economy.
+
+*What IS imported*, from the same Poly Haven collections the boat's props came from:
+`fish_knife` and `pliers`. Both CC0, both photoreal, both real fishing objects.
+
+*The rule that comes out of it:* anything modelled in code that sits beside an
+imported prop uses the same PBR material path as the imports, not the flatter
+shading the fish and reeds use. In a tray shot the seam would be immediate.
+
+### 9.6.3 The logbook is a book
+
+Gideon: *"the pages dont flip, they just change instantly, and you put it down
+instantly after running out of pages. I want it to be full of pages that I can flip
+through even if theh are blank and when you run iut of pages keep the book out.
+only exit when I hit the X button."*
+
+*Real page turns.* The researched technique is a **spine-pivot rotating quad**: one
+flat page mesh turned 180° about the spine, with the next page's texture on its
+back face, so the new page is revealed as the old one passes vertical. No shader,
+no subdivision, one transform animation — right for a phone. About 0.3–0.4 s, with
+the paper catching the light as it goes and the existing page sound timed to the
+moment it passes vertical. (A bent-plane vertex shader that bows the page is the
+upgrade if it ever looks too much like a card; it is not needed first.)
+
+*The book is full of pages.* It has as many leaves as a keeper's book should, and
+the ones with nothing on them yet are BLANK rather than absent. That is not filler:
+a blank page in a book you are filling in is the most on-theme object in the game,
+and the species you have not caught are meant to be visible gaps.
+
+*It never puts itself down.* Running out of pages greys the forward arrow — the
+same dim-not-hide rule as everywhere else — and the back cover is its own state so
+the end reads as the end. **The X is the only exit**, which is the third time he
+has asked for exactly that and the second time it has bitten.
+
+### 9.6.4 The shed is the same interaction, wearing a room
+
+The research is blunt about the constraint: in portrait the horizontal field is
+about 14° either side of centre, so a wide shelf of goods will always read as a
+sliver. Two arrangements work, and both are things already being built:
+
+- **Browse vertically**, because the screen is tall — tilt up and down a rack
+  rather than panning across it.
+- **Or a counter with one item on it**, cycled with the same arrows and pips as the
+  tackle box. A turntable needs no horizontal spread at all.
+
+So the shed is not a new system. It is §9.6.2 with a different skin and a price,
+and the unaffordable things **dim on the object with the price still showing**,
+never vanish — an empty shelf reads as broken, a dim one reads as "not yet".
+
+*And the shed is the one place the asset scout came back full*: shelving, a worn
+metal rack, a counter, a till, an oil lamp, a barrel stove, crates, a basket, a
+barrel, a chalkboard for prices, a clipboard, a ladder, a broom, boots, a second
+tool chest, and six hand tools — all CC0 from the same Poly Haven collections the
+boat already uses, plus plaster and plank textures from ambientCG. That is the
+whole room, premade.
+
+### 9.6.5 Every fish you catch goes in the livewell
+
+Gideon: *"can you make it so we see the fish when we catch it and put it in the
+live well, so that we can see every fish we catch?"*
+
+*What.* Landing a fish is a move, not a state change: it comes over the gunwale,
+you see it in your hands, and it goes into the bucket — where it stays, visible,
+for the rest of the day.
+
+*How it stays cheap.* **Fixed slots.** The livewell holds five or six real fish;
+past that, the newest replaces the oldest and a tally on the side counts the rest.
+Fish already in the well are background dressing and drop to a cheaper material, so
+the cost is flat no matter how good the day is. The abstraction fallback — murkier
+water, a fuller-looking bucket — is explicitly NOT the first build, because it does
+not answer "see every fish we catch".
+
+*What this costs the fish generator.* Nothing structural: fish stay generated,
+because the scout looked again and there is still no photoreal freshwater fish to
+buy in any species this game names. But they are now looked at **at rest, close,
+for a long time**, which is a different job from being glimpsed mid-fight — so the
+investment goes into a wet specular sheen, a slow gill movement, and a little more
+mesh detail on the ones in the well.
+
+*And it feeds the design that already exists.* §7.5 wants the livewell to be a
+space you pack rather than a number that says no. Visible slots ARE that space: the
+moment you can see six fish and a seventh on the line, "which one goes back" is a
+question the picture is asking on its own.
 
 ---
 
@@ -945,13 +1155,24 @@ only here. A resuming session works from the first unticked box.
 - [ ] **B7 Hands.** There is a rod and no one holding it. Two low-poly hands on the grip, and the near one leaves to tap
 - [ ] **B8 The cast is a body movement.** The rod comes back past the shoulder, so the butt moves and not only the tip
 
-## Phase R — the rooms as objects (§9.4). *"You actually pick up and view the log book"*
+## Phase R — the rooms as objects (§9.4, §9.6). *"You actually pick up and view the log book"*
 
-- [x] **R1 The logbook is picked up and held.** Into a reading pose over the lake, not a camera dive onto the sole. Front matter added: fish counted, biggest by species, days kept, deepest cast, spots visited, offerings kept
-- [x] **R2 Pages are swiped, and they turn.** *(swipe done; the rotating two-sided quad is still to do)* One rotating quad with the next page on its back. The one place a drag survives now the stick owns looking. Subsumes 11.9d
-- [x] **R3 The tackle box replaces the Kit panel.** Look at the box, the lid opens, the gear is in the trays, tap to equip. The line ladder becomes a picture of itself. Subsumes 11.9b
-- [ ] **R4 The shed is a room you are taken to.** Shop button, rowed to the bank, walked in, no cut. Three fixed poses; it is the gate sequence pointed at a building. Subsumes 11.9c and P3
-- [ ] **R5 The dock disappears.** Shed / Lake / Log / Kit exists only because there was nowhere else to put four buttons. Once each is a thing, the HUD is the action button and the stick
+- [x] **R1 The logbook is picked up and held**, with front matter to come in R7
+- [x] **R2 Pages are swiped** *(gesture done; the turn animation is R6)*
+- [x] **R3 The tackle box opens** *(lid and camera done; its contents are R8)*
+- [x] **R3b Aim points are derived from geometry.** Every hit box is measured from the visible bounds, the picker takes the NEAREST thing in a distance-aware cone, and no two things may sit within 12° of each other from the seat
+- [ ] **R4 The shed is a room you are rowed to.** Subsumes 11.9c and P3. The whole room is premade (§8.2): shelving, rack, counter, till, stove, crates, chalkboard, tools
+- [ ] **R5 The dock disappears.** Shed / Lake / Log / Kit exists only because there was nowhere else to put four buttons
+
+### Phase R2 — the interaction language (§9.6), from the 2026-09-10 phone session
+
+- [ ] **R6 Real page turns**, and a book that does not put itself down. Spine-pivot rotating quad, next page on the back face, 0.3–0.4 s, light catching the paper, the flap sound on vertical. Blank leaves rather than absent ones, the forward arrow greys at the back cover, and **the X is the only exit**. Subsumes 11.9d
+- [ ] **R7 The logbook's front matter.** Fish counted, biggest by species, days kept, deepest cast, spots visited, offerings kept — the save file made visible, which is what makes it worth handing over in Act III
+- [ ] **R8 The tackle box is its contents.** Real objects in the trays, one lit at a time, up/down to move, name and description on settle. `fish_knife` and `pliers` imported; reel, spools, lures, floats, hooks, bait tin and the broken-down rod modelled in code because no photoreal free version of any of them exists (§8.2)
+- [ ] **R9 Arrows and pips for variants.** Yellow arrows when there is another version, grey when this is all you own — his mechanism. Plus a pip row so the ladder shows its empty rungs. No silent wraparound
+- [ ] **R10 The primary button says what the moment is.** Cast over water, Select over a thing, dimmed over nothing, Reel/LET GO in a fight. Fixed position and size, ~200 ms cross-fade, hysteresis on the gunwale boundary
+- [ ] **R11 Every caught fish is visible in the livewell.** Over the gunwale, into the bucket, five or six real slots and a tally past that, cheaper material once placed. Feeds §7.5's "the livewell is a space you pack"
+- [ ] **R12 The generated fish earn close inspection.** A wet specular sheen, slow gill movement, more mesh detail on the ones at rest - because R11 puts them under the player's nose for minutes rather than seconds
 
 ## Phase W — the water and the art pass. *"Update all of the models, textures, sounds, graphics"*
 
