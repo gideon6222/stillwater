@@ -57,6 +57,7 @@ func _initialize() -> void:
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
 	_check_the_lake_is_six_places(main)
+	_check_rowing_is_a_crossing(main)
 	_check_the_new_sounds_exist_and_are_placed(main)
 	_check_the_water_breaks_against_the_hull(main)
 	_check_the_sky_has_more_than_one_kind_of_cloud(main)
@@ -309,6 +310,66 @@ func _page_hand(page) -> String:
 		for c in n.get_children():
 			stack.append(c)
 	return ""
+
+
+## P2: THE CHART IS A CROSSING, NOT A TELEPORT.
+##
+## Three claims, and the third is the one that bites: a sequence you can tap away
+## must still ARRIVE. A crossing skipped before its swap shot would otherwise put
+## the player back in the water they were trying to leave, which reads as the
+## chart being broken rather than as a skip.
+func _check_rowing_is_a_crossing(main) -> void:
+	_t.begin("smoke > rowing between spots is a crossing")
+	main.freeze(2)
+	main.sim.reel_in()
+	main.sim.state = Sim.IDLE
+	main.sim.econ.has_motor = true
+	main.sim.econ.line = 5
+	main.sim.spot = "reed_bay"
+	main.advance(0.2)
+
+	# IT TAKES TIME, and the spot does not change on the frame you ask.
+	main._row_to("steeple")
+	_t.ok(main._in_sequence, "asking to row did not start a crossing")
+	_t.eq(main.sim.spot, "reed_bay", "the boat teleported before the crossing began")
+	var crossed := 0.0
+	while crossed < 12.0 and main._in_sequence:
+		main.advance(1.0 / 60.0)
+		crossed += 1.0 / 60.0
+	_t.eq(main.sim.spot, "steeple", "the crossing finished somewhere else")
+	_t.gt(crossed, 2.0, "the crossing took %.1fs, which is a cut" % crossed)
+	_t.lt(crossed, 8.0, "the crossing took %.1fs, which is a wait" % crossed)
+
+	# THE WATER CHANGES UNDER THE MIDDLE OF IT, not at either end - the swap has
+	# to happen while the camera is turned away from both landmarks.
+	main.sim.spot = "reed_bay"
+	main.advance(0.2)
+	main._row_to("quarry")
+	main.advance(0.5)
+	_t.eq(main.sim.spot, "reed_bay", "the water changed while the old landmark was still in shot")
+	while main._in_sequence:
+		main.advance(1.0 / 60.0)
+	_t.eq(main.sim.spot, "quarry", "the crossing did not arrive")
+
+	# A CUT CROSSING STILL ARRIVES.
+	main.sim.spot = "reed_bay"
+	main.advance(0.2)
+	main._row_to("narrows")
+	main.advance(0.3)
+	main._seq.skip()
+	main._end_sequence()
+	_t.eq(main.sim.spot, "narrows",
+		"a crossing that was tapped away left the player where they started")
+
+	# AND A REFUSED CROSSING PLAYS NOTHING. Four seconds of rowing followed by
+	# still being at the bay is worse than an honest no.
+	main.sim.econ.has_motor = false
+	main.sim.spot = "reed_bay"
+	main.advance(0.2)
+	main._row_to("quarry")
+	_t.ok(not main._in_sequence, "the boat rowed off toward water it cannot reach")
+	_t.eq(main.sim.spot, "reed_bay", "a refused crossing moved the boat anyway")
+	main.sim.econ.has_motor = true
 
 
 

@@ -138,6 +138,45 @@ static func from_the_shed() -> Array:
 	]
 
 
+## ROWING BETWEEN SPOTS. P2: "The map stops being a teleport."
+##
+## It was one: pick a line on the chart and the water's colour changed. The lake
+## has landmarks now, which is what makes a crossing worth showing - you can see
+## the place you are leaving and the place you are going to, and until P1 there
+## was nothing to see either way.
+##
+## The shape is a LOOK BACK, then the crossing, then the new water. Shot three is
+## where the spot actually changes, so the landmark you leave is up for the first
+## half and the one you arrive at for the second: the swap happens while the
+## camera is turned away from both, which is the only moment it can happen without
+## something popping.
+##
+## Under five seconds and a tap cuts it, like the walk to the boat. Every sequence
+## in this game is played more often than it is watched.
+static func rowing() -> Array:
+	return [
+		# Over the shoulder at the water you are leaving.
+		{"at": SEAT, "look": Vector3(-3.0, 1.10, -7.0), "for": 0.9, "gate": 1.0, "ease": "out"},
+		# Round to the bow, and the oars go in.
+		{"at": Vector3(0.0, 1.26, 0.40), "look": Vector3(0.0, 0.80, 9.0), "for": 1.0,
+			"gate": 1.0, "ease": "inout"},
+		# THE CROSSING. Low and forward, looking at nothing but water - this is the
+		# shot the spot changes under.
+		{"at": Vector3(0.0, 1.12, 1.10), "look": Vector3(0.0, 0.55, 12.0), "for": 1.3,
+			"gate": 1.0, "ease": "inout"},
+		# Up, and the new place is there.
+		{"at": Vector3(0.0, 1.22, 0.90), "look": Vector3(0.0, 1.20, 16.0), "for": 1.2,
+			"gate": 1.0, "ease": "inout"},
+		{"at": SEAT, "look": SEAT_LOOK, "for": 0.8, "gate": 1.0, "ease": "out"},
+	]
+
+
+## Which shot the water changes under. Named rather than typed at the call site,
+## because the sequence and the swap have to agree and they live in different
+## files - the whole trick is that it happens while the camera faces open water.
+const ROWING_SWAP := 2
+
+
 var shots: Array = []
 var index := 0
 var elapsed := 0.0

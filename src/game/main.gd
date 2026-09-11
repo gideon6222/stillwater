@@ -3640,11 +3640,7 @@ func _chart_take() -> void:
 		_shut_chart()
 		_enter_shed()
 		return
-	sim.travel_to(str(row["id"]))
-	# THE ONLY SOUND ROWING HAS EVER HAD. Travel between spots used to be silent -
-	# the water changed under you and nothing said you had moved.
-	if _audio != null:
-		_audio.play("oars", -3.0)
+	_row_to(str(row["id"]))
 	_shut_chart()
 	_say_hint("You row over to %s." % str(row["name"]))
 	_save_due = 0.6
@@ -4120,6 +4116,45 @@ func _shed_take() -> void:
 		_build_shed_stock()
 	_refresh_shed_board()
 	_sync_bars()
+
+
+## ROW THERE, rather than arriving there.
+##
+## P2. `travel_to` is still the only thing that moves the boat - this wraps it in
+## the crossing rather than replacing it, so the rules stay the one authority on
+## whether a spot can be reached and the sequence is only ever presentation.
+##
+## The order matters: ASK FIRST. A refused travel must not play four seconds of
+## rowing and then leave the player where they started.
+var _row_pending := ""
+
+
+func _row_to(spot: String) -> void:
+	if _in_sequence or sim.state != Sim.IDLE:
+		return
+	if not World.line_reaches_water(spot, sim.econ.line):
+		return
+	var row_spot := World.spot_by_id(spot)
+	if bool(row_spot["needs_motor"]) and not sim.econ.has_motor:
+		return
+	_shut_chart()
+	_row_pending = spot
+	if _audio != null:
+		_audio.play("oars", -3.0)
+	_play_sequence(Sequence.rowing())
+
+
+## Swap the water under the crossing shot. Called every frame of a sequence, and
+## it fires once: `_row_pending` is cleared by the travel itself.
+func _sync_rowing() -> void:
+	if _row_pending == "" or not _in_sequence:
+		return
+	if _seq.index < Sequence.ROWING_SWAP:
+		return
+	var want := _row_pending
+	_row_pending = ""
+	sim.travel_to(want)
+	_save_due = 0.8
 
 
 
@@ -6817,6 +6852,7 @@ func _sync_sequence(dt: float) -> void:
 	_seq_at = f["at"]
 	_seq_look = f["look"]
 	_gate_open = float(f["gate"])
+	_sync_rowing()
 	if _seq_line != null:
 		var say := str(f.get("say", ""))
 		_seq_line.text = say
@@ -6831,6 +6867,15 @@ func _sync_sequence(dt: float) -> void:
 func _end_sequence() -> void:
 	_in_sequence = false
 	_gate_open = 1.0
+	# A CUT CROSSING STILL ARRIVES. Every sequence in this game can be tapped
+	# away, and one that is skipped before its swap shot would otherwise leave the
+	# player sitting in the water they were trying to leave - which reads as the
+	# chart being broken rather than as a skip.
+	if _row_pending != "":
+		var want := _row_pending
+		_row_pending = ""
+		sim.travel_to(want)
+		_save_due = 0.8
 	# THE NOTE THE CALLER LEFT. Arriving at the shed is the only thing that
 	# survives the end of a sequence, and leaving it is the only thing that has to
 	# put the room away again.
