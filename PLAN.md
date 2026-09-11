@@ -1226,7 +1226,7 @@ only here. A resuming session works from the first unticked box.
 - [x] **R3 The tackle box opens** *(lid and camera done; its contents are R8)*
 - [x] **R3b Aim points are derived from geometry.** Every hit box is measured from the visible bounds, the picker takes the NEAREST thing in a distance-aware cone, and no two things may sit within 12° of each other from the seat
 - [x] **R4 The shed is a room you are rowed to.** Subsumes 11.9c and P3. The whole room is premade (§8.2): shelving, rack, counter, till, stove, crates, chalkboard, tools. **And its stock is objects on the counter**, one lit and lifted at a time, reusing the tackle box's own generators so the spool sold and the spool owned cannot drift
-- [ ] **R5 The dock disappears.** Shed / Lake / Log / Kit exists only because there was nowhere else to put four buttons
+- [x] **R5 The dock disappears.** Shed / Lake / Log / Kit exists only because there was nowhere else to put four buttons. All four are things in the boat now: the logbook, the tackle box, a chart on the forward thwart, and the oars stood in the bow
 
 ### Phase R2 — the interaction language (§9.6), from the 2026-09-10 phone session
 

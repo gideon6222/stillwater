@@ -1133,11 +1133,29 @@ func _check_the_rooms_cannot_be_opened_mid_fight(main) -> void:
 	main._open(Menus.SHED)
 	_t.ok(not main._menus.is_open(), "the shed opened in the middle of a fight")
 	main._sync_bars()
-	_t.ok(not main._dock.visible, "the dock is under the thumb during a fight")
 
+	# THE DOCK IS GONE, so this no longer asks whether a row of buttons is
+	# visible. What has to hold is that every room can still be REACHED, and each
+	# one is now a thing in the boat - so the claim is about the things.
 	main.sim.state = Sim.IDLE
 	main._sync_bars()
-	_t.ok(main._dock.visible, "there is no way to reach the rooms from the boat")
+	var reachable := {}
+	for thing in main._things:
+		reachable[str(thing["id"])] = true
+	for want in ["logbook", "tacklebox", "chart", "oars"]:
+		_t.ok(reachable.has(want),
+			"'%s' is not in the boat, so that room cannot be reached at all" % want)
+
+	# And none of them opens mid-fight either. The rooms are IDLE-only, and that
+	# used to be enforced by hiding a row of buttons; with the buttons gone it has
+	# to be enforced by the openers themselves.
+	main.sim.state = Sim.FIGHTING
+	main._open_chart()
+	_t.ok(not main._at_chart, "the chart opened in the middle of a fight")
+	main._enter_shed()
+	_t.ok(not main._in_shed and not main._in_sequence,
+		"the oars rowed you to the shed in the middle of a fight")
+	main.sim.state = Sim.IDLE
 
 
 ## Travel and the clock, through the same buttons the player presses.
@@ -2035,8 +2053,20 @@ func _check_everything_in_the_boat_can_be_looked_at_and_used(main) -> void:
 		_t.ok(text != "", "'%s' has nothing to say when looked at" % t["id"])
 		main._looking_at = str(t["id"])
 		main._on_use()
-		if main._menus.is_open():
-			main._menus.close()
+		# AND THE WORLD GOES BACK, whatever using it opened.
+		#
+		# This used to close a menu and nothing else, which was enough while every
+		# `use` either said a line or opened a panel. The oars ROW YOU TO THE
+		# SHED, so the first thing to open something that is not a menu left the
+		# player standing at a counter and the next six checks failed looking for
+		# a cast button, a distance meter and every aim point in the hull.
+		var undo := 0.0
+		while undo < 14.0 and main.any_room_open():
+			main.close_any_room()
+			main.advance(1.0 / 60.0)
+			undo += 1.0 / 60.0
+		_t.ok(not main.any_room_open(),
+			"using '%s' left something open over the boat" % t["id"])
 	_t.ok(true, "every thing in the boat can be used without erroring")
 
 	main._look_yaw = 0.0

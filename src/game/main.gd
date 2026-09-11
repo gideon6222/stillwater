@@ -54,7 +54,6 @@ var _distance_bar: Control
 var _needle := 0.0
 var _needle_v := 0.0
 var _menus: Menus
-var _dock: HBoxContainer
 var _world_line: Label
 var _audio: Audio
 var _env: Environment
@@ -1719,39 +1718,20 @@ func _build_hud() -> void:
 	# to land a sturgeon. `_sync_bars` hides it in every state but IDLE, and that
 	# is not a nicety: the alternative is a button under the one gesture the game
 	# asks for most.
-	# Navigation lives bottom-LEFT and is deliberately quiet: flat, unboxed,
-	# low contrast. It is read once every few minutes; the action is pressed
-	# every few seconds. Giving them equal weight was the bug.
-	_dock = HBoxContainer.new()
-	# UP AND OUT OF THE WAY. The stick now owns the bottom-left corner, and two
-	# controls in one thumb's rest position is one control the player hits by
-	# mistake. The rooms are read once every few minutes; they can be reached
-	# for.
-	_dock.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_dock.offset_left = 34
-	_dock.offset_right = 600
-	_dock.offset_top = 196
-	_dock.offset_bottom = 282
-	_dock.add_theme_constant_override("separation", 10)
-	_dock.name = "Dock"
-	_ui.add_child(_dock)
-	for pair in [[Menus.SHED, "Shed"], [Menus.MAP, "Lake"], [Menus.LOG, "Log"],
-			[Menus.KIT, "Kit"]]:
-		var screen: String = pair[0]
-		var b := _dock_button(str(pair[1]))
-		if screen == Menus.LOG:
-			# THE REAL BOOK, not the flat page. There were two logbooks - a
-			# notebook lying in the boat and a panel behind a button - and the
-			# button is the one anybody finds, so the object might as well not
-			# have existed.
-			b.pressed.connect(func() -> void: _open_book())
-		elif screen == Menus.SHED:
-			# THE REAL SHED, for the same reason. This button used to open a list
-			# over the top of the lake; it rows you there now.
-			b.pressed.connect(func() -> void: _enter_shed())
-		else:
-			b.pressed.connect(func() -> void: _open(screen))
-		_dock.add_child(b)
+	# THE DOCK IS GONE. R5, and it is the whole of it.
+	#
+	# "Shed / Lake / Log / Kit exists only because there was nowhere else to put
+	# four buttons." By now all four have somewhere to be, and every one of them
+	# is a thing in the boat you look at:
+	#
+	#   Log    the keeper's logbook, on the sole. Picked up and read
+	#   Kit    the tackle box, beside it. Opened and leaned over
+	#   Lake   the chart on the forward thwart. Leaned over and rowed from
+	#   Shed   the oars, stood in the bow. Used, and they row you across
+	#
+	# The row of four words over the water was the last piece of phone furniture
+	# in a game that has spent four milestones taking it out. Nothing replaces it:
+	# the boat is the menu.
 
 	_load_game()
 
@@ -1843,8 +1823,6 @@ func _sync_bars() -> void:
 	var in_room := _hud_is_down()
 	_distance_bar.visible = sim.state == Sim.FIGHTING and not in_room
 	_distance_bar.queue_redraw()
-	if _dock != null:
-		_dock.visible = sim.state == Sim.IDLE and not in_room
 	if _world_line != null:
 		_world_line.visible = not in_room
 	if _readout != null:
@@ -1857,7 +1835,7 @@ func _sync_bars() -> void:
 
 	if _action != null:
 		var label := _action_for_state()
-		_action.visible = label != "" and (not in_room or _in_shed)
+		_action.visible = label != "" and (not in_room or _in_shed or _at_chart)
 		# ...and it goes cold when the fish is about to pull. Colour, caption and
 		# the wake are three readings of one state: no single channel has to be
 		# the one the player happens to be watching.
@@ -1912,36 +1890,6 @@ func _sync_bars() -> void:
 		# Visibility HERE, never inside the draw callback - see the note above.
 		_sounder.visible = sim.econ.has_sounder and not in_room
 		_sounder.queue_redraw()
-
-
-func _dock_button(text: String) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_size_override("font_size", 28)
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.048, 0.062, 0.068, 0.72)
-	box.border_color = Color(0.72, 0.58, 0.32, 0.34)
-	box.set_border_width_all(2)
-	box.set_corner_radius_all(8)
-	box.shadow_color = Color(0, 0, 0, 0.32)
-	box.shadow_size = 6
-	box.shadow_offset = Vector2(0, 3)
-	b.add_theme_stylebox_override("normal", box)
-	b.add_theme_stylebox_override("hover", box)
-	var press := box.duplicate() as StyleBoxFlat
-	press.bg_color = Color(0.26, 0.19, 0.10, 0.92)
-	press.border_color = Color(0.98, 0.86, 0.56, 0.85)
-	# Down, and the shadow goes with it - the same press the cast ring uses, so
-	# every button on the boat answers a thumb the same way.
-	press.shadow_size = 2
-	press.shadow_offset = Vector2(0, 1)
-	b.add_theme_stylebox_override("pressed", press)
-	b.add_theme_color_override("font_color", Color(0.94, 0.89, 0.78, 0.84))
-	b.add_theme_color_override("font_hover_color", Color(0.94, 0.89, 0.78, 0.84))
-	b.add_theme_color_override("font_pressed_color", Color(1, 0.97, 0.90))
-	return b
 
 
 ## Rooms open only from the boat. Refused rather than queued: a shop that opens
@@ -2187,6 +2135,9 @@ func _on_cast_input(event: InputEvent) -> void:
 func _cast_pressed() -> void:
 	if _in_shed:
 		_shed_take()
+		return
+	if _at_chart:
+		_chart_take()
 		return
 	match sim.state:
 		Sim.IDLE, Sim.HOLDING, Sim.LOST:
@@ -2489,7 +2440,14 @@ func _sync() -> void:
 	# the book hangs off the camera and the camera hung off the book, so the two
 	# chased each other; measured, they were sixteen metres away at the gate
 	# within two hundred frames. The camera stays on the seat. The book moves.
-	if _at_box and not _in_sequence and _tacklebox != null:
+	if _at_chart and not _in_sequence and _chart != null:
+		# LEANING OVER THE CHART, the same as over the box: a thing spread out on a
+		# thwart is not picked up, so the view comes to it. Recomputed every frame
+		# so it rides the swell with the hull.
+		var cp := _chart_pose()
+		var cup: Vector3 = cp[2] if cp.size() > 2 else _boat_pose.basis.y
+		_cam.transform = Transform3D(Basis.IDENTITY, cp[0]).looking_at(cp[1], cup)
+	elif _at_box and not _in_sequence and _tacklebox != null:
 		# LEANING OVER THE BOX. A toolbox on the sole is not picked up, so unlike
 		# the logbook the camera comes to it - which is safe here for the reason
 		# it was not there: the box does not move, so there is no pair to chase
@@ -3397,6 +3355,192 @@ func _sync_shed_items() -> void:
 		_shed_lamp.light_energy = 0.0
 
 
+# --- the chart --------------------------------------------------------------
+
+## WHERE TO FISH IS A CHART IN THE BOAT.
+##
+## R5, and the last quarter of it: "The dock disappears. Shed / Lake / Log / Kit
+## exists only because there was nowhere else to put four buttons." The log was a
+## book on the sole, the kit a box beside it, the shed a room across the bay - and
+## the lake was still a panel behind a word.
+##
+## A chart is what a person actually uses to decide where to fish, and it is the
+## one screen in this game whose CONTENT is a place. It lies on the forward thwart
+## weighed down at one corner, and the camera comes down to it the way it does to
+## the tackle box - a chart is spread out and leaned over, not picked up.
+const CHART_SIZE := Vector2(0.42, 0.30)
+
+
+func _build_chart() -> void:
+	_chart = Room3D.new()
+	_chart.name = "Chart"
+
+	# The paper itself, and a batten along the top edge where it has been rolled
+	# and unrolled a hundred times. Generated: there is no CC0 photoreal chart,
+	# and a sheet of paper is one box.
+	var model := Node3D.new()
+	var paper := MeshInstance3D.new()
+	var pm := BoxMesh.new()
+	pm.size = Vector3(CHART_SIZE.x, 0.004, CHART_SIZE.y)
+	paper.mesh = pm
+	paper.material_override = _mat(Color(0.80, 0.75, 0.62), 0.74)
+	model.add_child(paper)
+	for edge in [-1.0, 1.0]:
+		var batten := MeshInstance3D.new()
+		var bm := CylinderMesh.new()
+		bm.height = CHART_SIZE.x * 1.02
+		bm.top_radius = 0.009
+		bm.bottom_radius = 0.009
+		bm.radial_segments = 8
+		batten.mesh = bm
+		batten.rotation_degrees = Vector3(0, 0, 90)
+		batten.position = Vector3(0, 0.004, edge * CHART_SIZE.y * 0.5)
+		batten.material_override = _mat(Color(0.44, 0.34, 0.22), 0.6)
+		model.add_child(batten)
+
+	# The printed side faces UP, so the surface lies flat on the paper - the same
+	# basis the logbook's page uses, and for the same reason.
+	var lie_flat := Basis(Vector3.RIGHT, deg_to_rad(-90.0))
+	_chart.build(model, CHART_SIZE * 0.94,
+		Transform3D(lie_flat, Vector3(0.0, 0.006, 0.0)),
+		_chart_page(), Vector2i(840, 600))
+	_chart.position = Vector3(0.52, _hull_floor_y(2.05) + 0.09, 2.05)
+	_chart.rotation_degrees = Vector3(0, -14.0, 0)
+	_boat.add_child(_chart)
+	_chart.open()
+	_refresh_chart()
+
+
+func _chart_page() -> Control:
+	var root := ColorRect.new()
+	root.color = Color(0.84, 0.79, 0.66)
+	root.custom_minimum_size = Vector2(840, 600)
+	var pad := MarginContainer.new()
+	pad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		pad.add_theme_constant_override("margin_" + side, 30)
+	root.add_child(pad)
+	_chart_list = VBoxContainer.new()
+	_chart_list.add_theme_constant_override("separation", 10)
+	pad.add_child(_chart_list)
+	return root
+
+
+## Which waters are on the chart, and what each one is worth knowing about.
+##
+## Read straight off `World.SPOTS` and the line in the boat, so the chart and the
+## rules cannot disagree about where you can reach.
+func _chart_rows() -> Array:
+	var rows: Array = []
+	for spot in World.SPOTS:
+		var id: String = spot["id"]
+		var window := World.fishable_window(id, sim.econ.line)
+		var needs_motor: bool = bool(spot["needs_motor"]) and not sim.econ.has_motor
+		var note := ""
+		if window.is_empty():
+			note = "your line does not reach"
+		elif World.reachable_depth(id, sim.econ.line) >= float(spot["bed"]) - 0.01:
+			note = "all of it, %s down" % SimUtil.fmt_m(window[1])
+		else:
+			note = "the top %s of %s" % [SimUtil.fmt_m(window[1]), SimUtil.fmt_m(float(spot["bed"]))]
+		if needs_motor:
+			note = "needs a motor"
+		rows.append({
+			"id": id, "name": str(spot["name"]), "note": note,
+			"here": sim.spot == id,
+			"can": not needs_motor and not window.is_empty() and sim.spot != id})
+	return rows
+
+
+func _refresh_chart() -> void:
+	if _chart_list == null:
+		return
+	for c in _chart_list.get_children():
+		_chart_list.remove_child(c)
+		c.queue_free()
+	var rows := _chart_rows()
+	_chart_pick = clampi(_chart_pick, 0, maxi(0, rows.size() - 1))
+
+	var head := Label.new()
+	head.text = "REED LAKE          day %d, %s" % [sim.day, sim.hour]
+	head.add_theme_font_size_override("font_size", 30)
+	head.add_theme_color_override("font_color", Color(0.24, 0.20, 0.14))
+	_chart_list.add_child(head)
+	var rule := ColorRect.new()
+	rule.color = Color(0.40, 0.33, 0.22, 0.55)
+	rule.custom_minimum_size = Vector2(0, 2)
+	_chart_list.add_child(rule)
+
+	for i in rows.size():
+		var row: Dictionary = rows[i]
+		var line := Label.new()
+		var mark := ">" if i == _chart_pick else " "
+		var where := "  (here)" if bool(row["here"]) else ""
+		line.text = "%s %s%s   %s" % [mark, str(row["name"]), where, str(row["note"])]
+		line.add_theme_font_size_override("font_size", 25)
+		# INK ON PAPER, so the states are darker and lighter rather than brighter:
+		# a chart is read in daylight and nothing on it glows.
+		var col := Color(0.30, 0.26, 0.19)
+		if not bool(row["can"]) and not bool(row["here"]):
+			col = Color(0.58, 0.54, 0.47)
+		if i == _chart_pick:
+			col = Color(0.52, 0.20, 0.12) if bool(row["can"]) else Color(0.46, 0.40, 0.32)
+		line.add_theme_color_override("font_color", col)
+		_chart_list.add_child(line)
+
+
+func _chart_pose() -> Array:
+	var aspect := 0.46
+	if _cam != null and is_inside_tree() and _cam.get_viewport() != null:
+		var vs := _cam.get_viewport().get_visible_rect().size
+		if vs.y > 1.0:
+			aspect = vs.x / vs.y
+	return _chart.frame_pose(_boat_pose, _cam.fov if _cam != null else 58.0, aspect)
+
+
+func _open_chart() -> void:
+	if _chart == null or _at_chart or sim.state != Sim.IDLE:
+		return
+	_at_chart = true
+	_refresh_chart()
+	if _audio != null:
+		_audio.play("page", -6.0)
+
+
+func _shut_chart() -> void:
+	if not _at_chart:
+		return
+	_at_chart = false
+	if _audio != null:
+		_audio.play("page", -8.0)
+
+
+func _chart_move(by: int) -> void:
+	var rows := _chart_rows()
+	if rows.is_empty():
+		return
+	_chart_pick = clampi(_chart_pick + by, 0, rows.size() - 1)
+	_refresh_chart()
+	if _audio != null:
+		_audio.play("page", -10.0)
+
+
+## GO THERE. The same one-button rule the rest of the game follows: what the
+## button says is what it does, and it says whatever the line under the mark is.
+func _chart_take() -> void:
+	var rows := _chart_rows()
+	if _chart_pick < 0 or _chart_pick >= rows.size():
+		return
+	var row: Dictionary = rows[_chart_pick]
+	if not bool(row["can"]):
+		return
+	sim.travel_to(str(row["id"]))
+	_shut_chart()
+	_say_hint("You row over to %s." % str(row["name"]))
+	_save_due = 0.6
+	_sync_bars()
+
+
 
 # --- the shed ---------------------------------------------------------------
 
@@ -3932,6 +4076,8 @@ func _sync_mood(dt: float) -> void:
 		_book.advance(dt)
 		_sync_book_hold(dt)
 	_sync_shed_items()
+	if _chart != null:
+		_chart.advance(dt)
 	if _shed_board != null:
 		# The board is a Room3D like the book and the box, and a Room3D that is
 		# never advanced never shows its surface: `openness` stays at 0 and the
@@ -5112,6 +5258,11 @@ func water_height(x: float, z: float) -> float:
 func _action_for_state() -> String:
 	# THE COUNTER FIRST, because standing in the shed the sim is IDLE and the
 	# lake's answer to IDLE is "Cast" - which would offer a cast at a chalkboard.
+	if _at_chart:
+		var crows := _chart_rows()
+		if _chart_pick < 0 or _chart_pick >= crows.size():
+			return "Row there"
+		return "Here" if bool(crows[_chart_pick]["here"]) else "Row there"
 	if _in_shed:
 		var rows := _shed_rows()
 		if _shed_pick < 0 or _shed_pick >= rows.size():
@@ -5421,6 +5572,26 @@ func _build_things() -> void:
 				_open_tacklebox(),
 		},
 		{
+			# WHERE TO FISH, now that the button is gone.
+			"id": "chart",
+			"name": "The chart",
+			"at": Vector3(0.52, _hull_floor_y(2.05) + 0.10, 2.05),
+			"look": func() -> String:
+				return "A chart of the lake, gone soft at the folds.",
+			"use": func() -> void:
+				_open_chart(),
+		},
+		{
+			# THE WAY TO THE SHED, now that the button is gone.
+			"id": "oars",
+			"name": "The oars",
+			"at": Vector3(-0.44, _hull_floor_y(2.05) + 0.40, 2.07),
+			"look": func() -> String:
+				return "The oars. The shed is across the bay.",
+			"use": func() -> void:
+				_enter_shed(),
+		},
+		{
 			"id": "rope",
 			"name": "The rope",
 			"at": Vector3(0.34, _hull_rim_y(1.05) + 0.06, 1.05),
@@ -5669,6 +5840,86 @@ func _place_prop(id: String, at: Vector3, scale: float, yaw: float) -> Node3D:
 	_boat.add_child(n)
 	return n
 
+## THE OARS, and they are how you get to the shed.
+##
+## R5: the dock disappears. "Shed / Lake / Log / Kit exists only because there was
+## nowhere else to put four buttons" - and by now three of the four have somewhere
+## to be. The log is a book on the sole, the kit is a box on the sole, and the
+## shed is a room on the bank. What was missing was the thing you touch to GO
+## there, and a boat already has one.
+##
+## Generated rather than imported: PLAN.md 8.2 found no CC0 photoreal oar, and a
+## pair of tapered looms with blades on them is six boxes. They are stowed along
+## the port side where they do not cross the water the player casts into.
+func _build_oars() -> void:
+	var wood := _mat(Color(0.55, 0.44, 0.30), 0.62)
+	var pale := _mat(Color(0.66, 0.56, 0.40), 0.58)
+	for i in 2:
+		var oar := Node3D.new()
+		oar.name = "Oar%d" % i
+		var loom := MeshInstance3D.new()
+		var lm := CylinderMesh.new()
+		lm.height = 1.18
+		lm.top_radius = 0.020
+		lm.bottom_radius = 0.028
+		lm.radial_segments = 8
+		loom.mesh = lm
+		loom.rotation_degrees = Vector3(90, 0, 0)
+		loom.material_override = wood
+		oar.add_child(loom)
+
+		var blade := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.105, 0.014, 0.40)
+		blade.mesh = bm
+		blade.position = Vector3(0, 0, -0.84)
+		blade.material_override = pale
+		oar.add_child(blade)
+
+		var grip := MeshInstance3D.new()
+		var gm := CylinderMesh.new()
+		gm.height = 0.13
+		gm.top_radius = 0.024
+		gm.bottom_radius = 0.024
+		gm.radial_segments = 8
+		grip.mesh = gm
+		grip.rotation_degrees = Vector3(90, 0, 0)
+		grip.position = Vector3(0, 0, 0.70)
+		grip.material_override = pale
+		oar.add_child(grip)
+
+		# STOOD IN THE BOW, blades up, leaning back against the stem.
+		#
+		# They were stowed flat along the port side first, which is where oars
+		# actually live - and an oar is 1.34 m long, so lying down its hit box
+		# spanned half the boat and sat within six degrees of the livewell from
+		# the seat. Every position along that side failed the same way. Stood on
+		# end the footprint is a hand's width, and the pair reads as a pair from
+		# anywhere in the boat.
+		oar.position = Vector3(-0.47 + float(i) * 0.075,
+			_hull_floor_y(2.05) + 0.40, 2.05 + float(i) * 0.05)
+		# BLADES UP. The sign matters and it is not guessable from the code: the
+		# loom lies along +Z with the blade at -Z, so a NEGATIVE pitch stands the
+		# GRIPS up and buries the blades under the gunwale - which renders as two
+		# bare poles in the bow that nobody would read as oars. Positive puts the
+		# blades where they can be seen, which is the only part of an oar that
+		# says oar.
+		oar.rotation_degrees = Vector3(52.0, 0, -7.0 + float(i) * 5.0)
+		_boat.add_child(oar)
+		if i == 0:
+			_oars = oar
+
+
+## Where the oars are, for the aim point. Their own node, so moving them moves
+## what the crosshair has to be on.
+var _oars: Node3D = null
+## The chart on the forward thwart. See `_build_chart`.
+var _chart: Room3D = null
+var _chart_list: VBoxContainer = null
+var _chart_pick := 0
+var _at_chart := false
+
+
 
 func _build_props() -> void:
 	# Each sits ON the sole at its own station, read from the hull functions, so
@@ -5686,6 +5937,8 @@ func _build_props() -> void:
 	if lamp != null:
 		_lamp_prop = lamp
 	_place_prop("lifebuoy", Vector3(-0.56, _hull_rim_y(0.95) - 0.16, 0.95), 0.62, 90.0)
+	_build_oars()
+	_build_chart()
 
 	# THE BRACKET IS ALWAYS THERE, the lantern only once bought. Hiding the lamp
 	# until it is paid for immediately re-created the invisible-prompt bug in the
@@ -6167,7 +6420,7 @@ func _hud_is_down() -> bool:
 	# water, so the lake's HUD goes down exactly as it does over the book - but the
 	# thing you came to do is BUY, and R10 says the primary button is what says
 	# what the moment is. So it stays, and says "Buy".
-	return _in_sequence or _reading or _at_box or _in_shed
+	return _in_sequence or _reading or _at_box or _in_shed or _at_chart
 
 
 # --- the book, as a thing in the boat ---------------------------------------
@@ -6840,6 +7093,8 @@ func _room_step(by: int) -> void:
 		_box_move(by)
 	elif _in_shed:
 		_shed_move(by)
+	elif _at_chart:
+		_chart_move(by)
 
 
 ## Left and right: the other VERSION of the selected thing, where there is one.
@@ -6849,6 +7104,33 @@ func _room_variant(by: int) -> void:
 		_box_variant(by)
 
 
+## PUT EVERYTHING AWAY, whatever is open.
+##
+## One place that knows the full list of rooms, because the alternative is every
+## caller keeping its own copy of it - and the copies go stale one room at a time.
+## The smoke suite learned this twice in one afternoon: the oars opened the shed
+## and six later checks failed, and the chart did it again the moment it existed.
+##
+## The shed is the odd one: leaving it is a SEQUENCE, so this asks for it and the
+## caller has to keep advancing until it lands.
+func close_any_room() -> void:
+	if _menus != null and _menus.is_open():
+		_menus.close()
+	if _reading:
+		_shut_book()
+	if _at_box:
+		_shut_tacklebox()
+	if _at_chart:
+		_shut_chart()
+	if _in_shed and not _in_sequence:
+		_leave_shed()
+
+
+## True while anything is open over the boat, including a trip to the shed.
+func any_room_open() -> bool:
+	return _reading or _at_box or _at_chart or _in_shed or _in_sequence 		or (_menus != null and _menus.is_open())
+
+
 func _room_close_pressed() -> void:
 	if _reading:
 		_shut_book()
@@ -6856,6 +7138,8 @@ func _room_close_pressed() -> void:
 		_shut_tacklebox()
 	elif _in_shed:
 		_leave_shed()
+	elif _at_chart:
+		_shut_chart()
 
 
 ## Show the bar only while a room is open, and label the middle button for the
@@ -6864,7 +7148,7 @@ func _room_close_pressed() -> void:
 func _sync_room_bar() -> void:
 	if _room_bar == null:
 		return
-	var open := (_reading or _at_box or _in_shed) and not _in_sequence
+	var open := (_reading or _at_box or _in_shed or _at_chart) and not _in_sequence
 	_room_bar.visible = open
 	if not open:
 		return
@@ -6882,6 +7166,12 @@ func _sync_room_bar() -> void:
 		var page: int = _book.page if _book != null else 0
 		_room_up.disabled = page <= 0
 		_room_down.disabled = page >= _book_pages - 1
+		_room_prev.disabled = true
+		_room_next.disabled = true
+	elif _at_chart:
+		var crows := _chart_rows()
+		_room_up.disabled = _chart_pick <= 0
+		_room_down.disabled = _chart_pick >= crows.size() - 1
 		_room_prev.disabled = true
 		_room_next.disabled = true
 	elif _in_shed:
@@ -6943,6 +7233,8 @@ const AIM_COS_NEAR := 0.93   ## about 21 degrees, for something right under you
 ## that is always there, and the player aims at whichever of them is on the boat.
 const AIM_NODE := {
 	"livewell": ["Prop_livewell"],
+	"oars": ["Oar0", "Oar1"],
+	"chart": ["Chart/Model"],
 	"baitbox": ["Prop_baitbox"],
 	"lamp": ["Prop_lamp", "LampBracket"],
 	"logbook": ["Logbook/Model"],
