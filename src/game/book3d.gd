@@ -50,7 +50,15 @@ static func fill(into: VBoxContainer, sim: Sim, page_index: int,
 	for row in Species.TABLE:
 		records.append(row)
 
-	var sheets: Array = []
+	# THE FRONT MATTER IS THE FIRST SHEET, and it is the save file made visible.
+	#
+	# R7. Every number here already existed and none of it was anywhere the player
+	# could see: how many fish, how heavy, how deep, how many days, which waters,
+	# what the lake has given back. A logbook whose first page is a stranger's
+	# handwriting and whose own keeper has no page at all is the wrong way round -
+	# and this is the book that gets handed over in Act III, so what is written in
+	# it by then has to be the player's own record.
+	var sheets: Array = [{"kind": "front", "items": []}]
 	var i := 0
 	while i < entries.size():
 		sheets.append({"kind": "hand", "items": entries.slice(i, i + PER_PAGE)})
@@ -67,6 +75,8 @@ static func fill(into: VBoxContainer, sim: Sim, page_index: int,
 	var here: Dictionary = sheets[clampi(page_index, 0, n - 1)]
 
 	match str(here["kind"]):
+		"front":
+			_front(into, sim, ink, ink_dim, rule)
 		"empty":
 			_head(into, "The keeper's book", ink_dim, rule)
 			_body(into, "The pages before yours are still shut. They open as you "
@@ -110,6 +120,85 @@ static func fill(into: VBoxContainer, sim: Sim, page_index: int,
 	foot.size_flags_vertical = Control.SIZE_EXPAND | Control.SIZE_SHRINK_END
 	into.add_child(foot)
 	return n
+
+## THE KEEPER'S OWN PAGE.
+##
+## Written as a record rather than a scoreboard: no percentages, no "best", no
+## progress bars. A line of it is what a person would actually write down at the
+## end of a day, which is also why the empty state reads "nothing yet" instead of
+## a zero - a blank line in a logbook is a fact about the season, not a null.
+static func _front(into: VBoxContainer, sim: Sim, ink: Color, ink_dim: Color,
+		rule: Color) -> void:
+	_head(into, "Kept by", ink_dim, rule)
+	_body(into, "This water, and this book.", ink_dim)
+
+	var days := "day %d" % sim.day
+	var fish := "nothing yet" if sim.caught == 0 else (
+		"%d fish, %.1f kg" % [sim.caught, sim.total_weight])
+	var deep := "not yet sounded" if sim.deepest_ever <= 0.01 else (
+		"%s down" % SimUtil.fmt_m(sim.deepest_ever))
+	var lost := "none lost" if sim.lost_count == 0 else (
+		"%d lost" % sim.lost_count)
+
+	_line(into, "Days kept", days, ink, ink_dim)
+	_line(into, "Taken", fish, ink, ink_dim)
+	_line(into, "Deepest cast", deep, ink, ink_dim)
+	_line(into, "Broken off", lost, ink, ink_dim)
+
+	# WATERS, by name, because the names are the story. A spot is "visited" once
+	# the line has reached it - `deepest_ever` is the honest record of that, and it
+	# needs no second field in the save.
+	var waters: Array[String] = []
+	for spot in World.SPOTS:
+		if sim.deepest_ever + 0.01 >= float(spot["shallow"]):
+			waters.append(str(spot["name"]))
+	_line(into, "Waters", "the reeds only" if waters.size() <= 1 else
+		("%d of %d" % [waters.size(), World.SPOTS.size()]), ink, ink_dim)
+
+	# WHAT THE LAKE GAVE BACK. Offerings are found and never sold, so this is the
+	# one line that is not about fishing at all.
+	var kept := 0
+	for id in sim.found:
+		if bool(sim.found[id]):
+			kept += 1
+	_line(into, "Brought up", "nothing" if kept == 0 else "%d things" % kept,
+		ink, ink_dim)
+
+	# THE BIGGEST OF EACH, as far as there is room. `logged` holds the heaviest
+	# ever seen of every species, which is exactly what a keeper underlines.
+	var best: Array = []
+	for id in sim.logged:
+		var row := Species.by_id(String(id))
+		if not row.is_empty():
+			best.append({"name": str(row["name"]), "kg": float(sim.logged[id])})
+	best.sort_custom(func(a, b): return float(a["kg"]) > float(b["kg"]))
+	if not best.is_empty():
+		_head(into, "Best of each", ink_dim, rule)
+		for k in mini(best.size(), 4):
+			_line(into, str(best[k]["name"]), "%.2f kg" % float(best[k]["kg"]),
+				ink, ink_dim)
+
+
+## One ruled line: what it is on the left, what it says on the right.
+static func _line(into: VBoxContainer, what: String, says: String,
+		ink: Color, ink_dim: Color) -> void:
+	var row := HBoxContainer.new()
+	var left := Label.new()
+	left.text = what
+	left.add_theme_color_override("font_color", ink_dim)
+	# THE SAME SIZE AS THE REST OF THE BOOK. Left at the theme default these came
+	# out about a third of the height of the heading above them - legible in a
+	# screenshot on a desk and not on a phone, which is the only place it matters.
+	left.add_theme_font_size_override("font_size", 30)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(left)
+	var right := Label.new()
+	right.text = says
+	right.add_theme_color_override("font_color", ink)
+	right.add_theme_font_size_override("font_size", 30)
+	row.add_child(right)
+	into.add_child(row)
+
 
 
 static func _head(into: VBoxContainer, text: String, col: Color, rule: Color) -> void:

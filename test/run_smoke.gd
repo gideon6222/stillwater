@@ -292,6 +292,20 @@ func _on_screen(cam: Camera3D, world: Vector3) -> Vector2:
 	return Vector2(0.5 + ndc.x * 0.5, 0.5 - ndc.y * 0.5)
 
 
+## Everything written on a page, as one lowercase string. The book is built out of
+## Labels in a VBox, so this is what a reader sees and nothing else.
+func _page_text(page) -> String:
+	var out := ""
+	var stack: Array = [page]
+	while not stack.is_empty():
+		var n = stack.pop_back()
+		if n is Label:
+			out += " " + (n as Label).text
+		for c in n.get_children():
+			stack.append(c)
+	return out.to_lower()
+
+
 
 ## The cast is a SWING and only a fish is a BEND.
 ##
@@ -546,6 +560,27 @@ func _check_the_pages_really_turn(main) -> void:
 	main.advance(2.0)
 	_t.ok(main._book.is_open(), "the book never opened")
 	_t.ok(not main._book.is_turning(), "a page is turning before anything was pressed")
+
+	# R7: THE FIRST PAGE IS THE KEEPER'S OWN RECORD, and it is the live save
+	# rather than a page of prose. Asserted by reading the page's text, because
+	# the failure that matters is a number that has stopped tracking the game -
+	# which a test against the page COUNT would never see.
+	_t.eq(main._book.page, 0, "the book does not open at its first page")
+	var front := _page_text(main._book_page)
+	_t.ok(front.findn("days kept") >= 0, "the first page is not the keeper's own record")
+	_t.ok(front.findn("deepest cast") >= 0, "the front matter does not say how deep you have fished")
+	_t.ok(front.findn("nothing yet") >= 0,
+		"a book with no fish in it does not say so - it is showing a zero")
+	# And it TRACKS. Land something and the same line has to change.
+	main.sim.caught = 3
+	main.sim.total_weight = 4.25
+	main._refresh_book()
+	var after := _page_text(main._book_page)
+	_t.ok(after.findn("3 fish") >= 0,
+		"the front matter did not follow the catch - it is a printed page, not a record")
+	main.sim.caught = 0
+	main.sim.total_weight = 0.0
+	main._refresh_book()
 
 	var was: int = main._book.page
 	main._turn_page(1)

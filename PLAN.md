@@ -1231,7 +1231,7 @@ only here. A resuming session works from the first unticked box.
 ### Phase R2 — the interaction language (§9.6), from the 2026-09-10 phone session
 
 - [x] **R6 Real page turns** *(the book now keeps itself out, greys at the covers and has blank leaves; the spine-pivot animation is what remains)*, and a book that does not put itself down. Spine-pivot rotating quad, next page on the back face, 0.3–0.4 s, light catching the paper, the flap sound on vertical. Blank leaves rather than absent ones, the forward arrow greys at the back cover, and **the X is the only exit**. Subsumes 11.9d
-- [ ] **R7 The logbook's front matter.** Fish counted, biggest by species, days kept, deepest cast, spots visited, offerings kept — the save file made visible, which is what makes it worth handing over in Act III
+- [x] **R7 The logbook's front matter.** Fish counted, biggest by species, days kept, deepest cast, spots visited, offerings kept — the save file made visible, which is what makes it worth handing over in Act III
 - [x] **R8 The tackle box is its contents.** Real objects in the trays, one lit at a time, up/down to move, name and description on settle. `fish_knife` and `pliers` imported; reel, spools, lures, floats, hooks, bait tin and the broken-down rod modelled in code because no photoreal free version of any of them exists (§8.2)
 - [x] **R9 Arrows and pips for variants.** Yellow arrows when there is another version, grey when this is all you own — his mechanism. Plus a pip row so the ladder shows its empty rungs. No silent wraparound
 - [x] **R10 The primary button says what the moment is.** Cast over water, Select over a thing, dimmed over nothing, Reel/LET GO in a fight. Fixed position and size, ~200 ms cross-fade, hysteresis on the gunwale boundary
