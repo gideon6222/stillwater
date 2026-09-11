@@ -69,6 +69,11 @@ func build(model: Node3D, surface_size: Vector2, surface_at: Transform3D,
 		content: Control, pixels: Vector2i) -> void:
 	_model = model
 	if _model != null:
+		# NAMED, so a caller can ask for the object's own bounds without picking
+		# up whatever else has been parented to it. The tackle box's contents hang
+		# off the box, and a hit box built from the whole subtree was half a metre
+		# across for a 40 cm toolbox.
+		_model.name = "Model"
 		add_child(_model)
 
 	# The off-screen page. `update_always` because the content changes whenever

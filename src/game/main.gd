@@ -4330,6 +4330,8 @@ var _box_right: Button
 var _at_box := false
 ## id -> the measured centre of its geometry, in boat space. See `_build_aim_points`.
 var _aim_points: Dictionary = {}
+## id -> its hit box in boat space, grown by AIM_PAD. See `_build_aim_points`.
+var _aim_boxes: Dictionary = {}
 ## Which side of the gunwale the primary button is currently showing, and how
 ## long the ray has been on the other one. See `_sync_primary_button`.
 var _over_water_shown := true
@@ -4375,34 +4377,33 @@ func _thing_under_aim() -> Dictionary:
 		return {}
 	var eye := _cam.global_transform.origin if is_inside_tree() else _cam.transform.origin
 	var fwd := -_cam.transform.basis.z.normalized()
-	# THE NEAREST THING IN THE CONE, not the best aligned one.
+	# THE CROSSHAIR HAS TO BE ON THE THING.
 	#
-	# Taking the highest dot product means a distant object that happens to line
-	# up beats a near one you are looking straight at. Found by the assertion that
-	# looking at a thing must select it: the bait box and the tackle box selected
-	# EACH OTHER, because from the seat they are nearly collinear and whichever
-	# was further had the marginally smaller angle. "What am I looking at" means
-	# the closest thing along the line, the way an eye means it.
+	# Gideon: "I can select the book by looking anywhere at the bottom of the boat,
+	# and I can select the tacklebox when not looking directly at it. also the spot
+	# where the lamp goes pops up text even when im a good amount above it."
 	#
-	# The cone is widened for things that are close, because angular size grows as
-	# you approach: a bucket at 70 cm subtends far more than ten degrees, so a
-	# fixed cone made the nearest objects the hardest to select - which is the
-	# livewell reporting nothing at all while being stared at.
+	# All three are one fault: this asked whether the thing was within a CONE of
+	# the view axis. A cone is an angle, so it covers a small object generously at
+	# distance and a large one meanly up close - the lamp bracket answered from
+	# fifteen degrees off while the book had to be stared at. A ray against the
+	# thing's own bounds asks the question he actually means, and it needs no
+	# distance fudge because the box already IS the object's size.
+	var local := _boat_pose.affine_inverse()
+	var from := local * eye
+	var dir := (local.basis * fwd).normalized()
 	var best := {}
 	var best_range := INF
 	for t in _things:
-		var at: Vector3 = _boat_pose * aim_point_of(t)
-		var to := (at - eye)
-		var range_to := to.length()
-		if range_to < 0.05:
+		var id := str(t.get("id", ""))
+		if not _aim_boxes.has(id):
 			continue
-		var d := fwd.dot(to.normalized())
-		# AIM_COS at arm's length, opening up as the thing gets closer.
-		var cone: float = lerpf(AIM_COS_NEAR, AIM_COS, clampf((range_to - 0.5) / 0.9, 0.0, 1.0))
-		if d < cone:
-			continue
-		if range_to < best_range:
-			best_range = range_to
+		for part in _aim_boxes[id]:
+			var inv: Transform3D = (part["xform"] as Transform3D).affine_inverse()
+			var hit := _ray_box(inv * from, (inv.basis * dir).normalized(), part["box"])
+			if hit < 0.0 or hit >= best_range:
+				continue
+			best_range = hit
 			best = t
 	return best
 
@@ -5745,25 +5746,70 @@ func _sync_room_bar() -> void:
 const AIM_COS := 0.985       ## about 10 degrees, at arm's length and beyond
 const AIM_COS_NEAR := 0.93   ## about 21 degrees, for something right under you
 
+## Which nodes each thing is MADE of. A list, because a thing can be more than one
+## node: the lamp is a lantern that may not have been bought yet plus the bracket
+## that is always there, and the player aims at whichever of them is on the boat.
 const AIM_NODE := {
-	"livewell": "Prop_livewell",
-	"baitbox": "Prop_baitbox",
-	"lamp": "Prop_lamp",
-	"logbook": "Logbook",
-	"tacklebox": "TackleBox",
-	"rope": "Rope",
+	"livewell": ["Prop_livewell"],
+	"baitbox": ["Prop_baitbox"],
+	"lamp": ["Prop_lamp", "LampBracket"],
+	"logbook": ["Logbook/Model"],
+	"tacklebox": ["TackleBox/Model"],
+	"rope": ["Rope"],
 }
+
+## How much bigger than the thing itself its hit box is.
+##
+## Gideon: "can you make it so the crosshairs need to be touching some part of the
+## object to click it." So the answer is a box around the GEOMETRY rather than a
+## cone around a point - a cone is an angle, and an angle covers more of a small
+## object at distance than of a large one up close, which is why the lamp bracket
+## was answering from fifteen degrees away while the book needed to be stared at.
+##
+## 1.5 cm of padding, and it is small on purpose. Four was tried first and the
+## neighbours began answering for each other: the ray to the bait box clipped the
+## padded corner of the tackle box in front of it, so the crate was unselectable.
+## Padding a box that is already the size of the real object mostly buys overlap,
+## and the box is big enough to hit without it - the smallest thing in the boat is
+## the lamp bracket at 13 cm.
+const AIM_PAD := 0.015
 
 
 func _build_aim_points() -> void:
 	_aim_points.clear()
+	_aim_boxes.clear()
+	# Let anything with two states settle first, or BOTH of them count: the
+	# logbook carries an open mesh and a closed one, and before a frame has run
+	# they are both visible, which made its hit box 70 cm wide for a 36 cm book.
+	if _book != null:
+		_book.advance(0.0)
+	if _tacklebox != null:
+		_tacklebox.advance(0.0)
 	for id in AIM_NODE:
-		var n := _boat.get_node_or_null(NodePath(str(AIM_NODE[id]))) as Node3D
-		if n == null:
+		var parts: Array = []
+		var centre := Vector3.ZERO
+		var n_parts := 0
+		for want in AIM_NODE[id]:
+			var n := _boat.get_node_or_null(NodePath(str(want))) as Node3D
+			if n == null:
+				continue
+			var b := _local_bounds(n)
+			if b.size == Vector3.ZERO:
+				continue
+			# BOX IN THE OBJECT'S OWN SPACE, plus the transform that puts it in the
+			# boat. An axis-aligned box around a ROTATED object is bigger than the
+			# object - the tackle box sits at -24 degrees, so its world-aligned box
+			# was 48 cm across a 40 cm toolbox before it was padded at all. Keeping
+			# the box in the object's frame and bringing the RAY to it instead is
+			# both tighter and simpler than fitting a hull.
+			var x := _relative_to(n, _boat)
+			parts.append({"box": b.grow(AIM_PAD), "xform": x})
+			centre += x * b.get_center()
+			n_parts += 1
+		if n_parts == 0:
 			continue
-		var c := _visual_centre(n)
-		if c != Vector3.INF:
-			_aim_points[id] = c
+		_aim_boxes[id] = parts
+		_aim_points[id] = centre / float(n_parts)
 
 
 ## Where a thing is aimed at: its measured centre if it has one, and the typed
@@ -5773,6 +5819,76 @@ func aim_point_of(t: Dictionary) -> Vector3:
 	if _aim_points.has(id):
 		return _aim_points[id]
 	return t["at"]
+
+
+## THE BOX AROUND EVERYTHING A NODE ACTUALLY DRAWS, in its OWN space.
+##
+## Built from the mesh AABBs rather than from node origins, which is the whole
+## point: an imported model's origin is wherever the exporter left it, and the
+## thing the player is aiming at is the shape.
+func _local_bounds(n: Node3D) -> AABB:
+	var lo := Vector3.INF
+	var hi := -Vector3.INF
+	var stack: Array = [n]
+	while not stack.is_empty():
+		var node = stack.pop_back()
+		var mi := node as MeshInstance3D
+		# ONLY WHAT IS ACTUALLY DRAWN. A logbook carries an open mesh, a closed
+		# one and a page quad, and counting all three made its hit box 70 cm wide
+		# for a 36 cm book - which is most of "I can select the book by looking
+		# anywhere at the bottom of the boat".
+		if mi != null and mi.mesh != null and mi.visible:
+			var aabb := mi.mesh.get_aabb()
+			var x := _relative_to(mi, n)
+			for i in 8:
+				var corner := aabb.position + Vector3(
+					aabb.size.x * float(i & 1),
+					aabb.size.y * float((i >> 1) & 1),
+					aabb.size.z * float((i >> 2) & 1))
+				var p := x * corner
+				lo = Vector3(minf(lo.x, p.x), minf(lo.y, p.y), minf(lo.z, p.z))
+				hi = Vector3(maxf(hi.x, p.x), maxf(hi.y, p.y), maxf(hi.z, p.z))
+		for c in node.get_children():
+			stack.append(c)
+	if lo.x == INF:
+		return AABB()
+	# LEFT IN THE NODE'S OWN SPACE. The caller pairs it with the transform that
+	# puts it in the boat and brings the ray here instead, which is what keeps the
+	# box the size of the object rather than the size of its shadow.
+	return AABB(lo, hi - lo)
+
+
+## Where a ray meets a box, or -1. The slab method: clip the ray's parameter
+## against each pair of planes and see whether anything survives.
+##
+## `visible` is deliberately NOT consulted when building these boxes. The lantern
+## is hidden until it is bought and the bracket is always there, and the player
+## aims at the same place either way - a hit box that appears when you buy a lamp
+## would be a second thing to reason about.
+func _ray_box(from: Vector3, dir: Vector3, box: AABB) -> float:
+	var near := -INF
+	var far := INF
+	for a in 3:
+		var d: float = dir[a]
+		var lo: float = box.position[a]
+		var hi: float = lo + box.size[a]
+		if absf(d) < 1e-6:
+			if from[a] < lo or from[a] > hi:
+				return -1.0
+			continue
+		var t1 := (lo - from[a]) / d
+		var t2 := (hi - from[a]) / d
+		if t1 > t2:
+			var swap := t1
+			t1 = t2
+			t2 = swap
+		near = maxf(near, t1)
+		far = minf(far, t2)
+		if near > far:
+			return -1.0
+	if far < 0.0:
+		return -1.0
+	return maxf(near, 0.0)
 
 
 ## The centre of everything a node actually DRAWS, in boat space. The mesh AABB

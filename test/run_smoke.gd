@@ -1111,6 +1111,65 @@ func _check_looking_at_a_thing_selects_it(main) -> void:
 	_t.eq(missed.size(), 0,
 		"looking straight at these did not select them: %s" % ", ".join(missed))
 
+	# AND LOOKING OFF A THING MUST NOT SELECT IT, which is the half he reported:
+	# "the spot where the lamp goes pops up text even when im a good amount above
+	# it with the crosshairs."
+	#
+	# Swept as a ring around each thing rather than at one offset, because the old
+	# cone was generous in every direction and a single probe angle would have
+	# passed against it by luck. Twenty degrees off is "a good amount above it".
+	var sticky: Array[String] = []
+	for t in main._things:
+		var id: String = str(t["id"])
+		var base_yaw := 0.0
+		var base_pitch := 0.0
+		var best2 := -2.0
+		for yi in 25:
+			for pi in 25:
+				var yaw := lerpf(-main.LOOK_YAW_LIMIT, main.LOOK_YAW_LIMIT, float(yi) / 24.0)
+				var pitch := lerpf(-main.LOOK_PITCH_DOWN, main.LOOK_PITCH_UP, float(pi) / 24.0)
+				var d := _aim_dot(main, t, yaw, pitch)
+				if d > best2:
+					best2 = d
+					base_yaw = yaw
+					base_pitch = pitch
+		if best2 < 0.97:
+			continue
+		# HOW FAR OFF IS "OFF" DEPENDS ON THE THING. A bucket 70 cm away subtends
+		# a lot of angle, so twenty degrees from its centre is still on it - the
+		# first version of this failed the livewell and the rope for being large
+		# and close, which is not a bug. Offset by the object's own angular radius
+		# plus twelve degrees, so the claim is "clear of the thing" rather than
+		# "some fixed angle", which is the same mistake the cone made.
+		var eye2: Vector3 = main._cam.transform.origin
+		var here: Vector3 = main._boat_pose * main.aim_point_of(t) - eye2
+		var radius := 0.2
+		for part in main._aim_boxes.get(id, []):
+			var bx: AABB = part["box"]
+			var xf: Transform3D = part["xform"]
+			radius = maxf(radius, (xf.basis * bx.size).length() * 0.5)
+		var off := atan(radius / maxf(0.3, here.length())) + deg_to_rad(12.0)
+		for step in [Vector2(off, 0), Vector2(-off, 0), Vector2(0, off), Vector2(0, -off)]:
+			var yaw2 := clampf(base_yaw + step.x, -main.LOOK_YAW_LIMIT, main.LOOK_YAW_LIMIT)
+			var pitch2 := clampf(base_pitch + step.y, -main.LOOK_PITCH_DOWN, main.LOOK_PITCH_UP)
+			# Only test a direction the player can actually aim in. The rope sits
+			# at 44 degrees of yaw and the limit is 60, so "29 degrees further
+			# round" clamps to 16 and the test would be asserting about an
+			# orientation nobody can reach. Skip unless the full offset survives.
+			var got_off := maxf(absf(yaw2 - base_yaw), absf(pitch2 - base_pitch))
+			if got_off < off * 0.9:
+				continue
+			main._look_yaw = yaw2
+			main._look_pitch = pitch2
+			main._look_yaw_want = yaw2
+			main._look_pitch_want = pitch2
+			main._sync()
+			if main._looking_at == id:
+				sticky.append("%s at %.0f degrees off" % [id, rad_to_deg(off)])
+				break
+	_t.eq(sticky.size(), 0,
+		"these answered from well off the object: %s" % ", ".join(sticky))
+
 	# AND NO TWO THINGS MAY SIT ON TOP OF EACH OTHER. The livewell and the rope
 	# were 0.13 m apart, so whichever was nearer won every time and the other was
 	# unselectable from anywhere. A separation rule catches that at the moment a
