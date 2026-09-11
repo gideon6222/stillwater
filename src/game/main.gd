@@ -68,6 +68,7 @@ var _sky_grey := 0.0
 var _sky_dark := 0.0
 var _sky_tint := Color(1, 1, 1)
 var _sky_cloud := 0.0
+var _sky_pall := 0.0
 var _fish_shown := ""
 
 # --- the boat's pose on the water, and where the player is looking ----------
@@ -4428,10 +4429,36 @@ const SKIES := {
 ## rather than a second complete sky that has to agree with the first.
 const STORM_SKY := "res://assets/sky/sky_storm.hdr"
 
+## THE OVERCAST SKY, which is the one weather the other six panoramas do not
+## cover and the right sky for the middle of the lake.
+##
+## W2. Before this, "overcast" was 55% of the STORM sky - so the four weathers
+## that are not clear were all the same sky at four strengths, and an overcast
+## afternoon was a weak thunderstorm. A pall of even grey cloud is a completely
+## different thing from a storm: no structure, no towers, no dark heart, and it
+## is the sky this game spends most of its middle hours under.
+const OVERCAST_SKY := "res://assets/sky/sky_overcast.hdr"
+
 ## How much of the storm sky each weather pulls in.
 const SKY_CLOUD := {
-	"clear": 0.00, "overcast": 0.55, "fog": 0.30, "rain": 0.70, "storm": 0.92,
+	"clear": 0.00, "overcast": 0.00, "fog": 0.08, "rain": 0.34, "storm": 0.92,
 }
+
+## ...and how much FLAT CLOUD each one pulls in. Overcast is almost all pall and
+## no storm; rain is both, because rain has structure in it; a storm keeps a
+## little so its towers sit on an overcast base rather than on blue.
+const SKY_PALL := {
+	"clear": 0.00, "overcast": 0.82, "fog": 0.58, "rain": 0.55, "storm": 0.26,
+}
+
+## AND THE MIDDLE BANDS SIT UNDER IT WHATEVER THE WEATHER SAYS.
+##
+## "The overcast sky, and the middle bands moved onto it." Depth is time in this
+## game, and the arc from the reeds to the quarry is supposed to be one curve
+## rather than a set of rooms - so the sky flattens as the player fishes deeper
+## even on a clear day. It is the same `dread` that drives the water's colour, the
+## music and the grade, which is the whole point: one number, six readouts.
+const SKY_PALL_FROM_DREAD := 0.46
 
 
 ## A real sky, WITHOUT giving up the mood arc.
@@ -4455,6 +4482,8 @@ func _build_sky_material() -> ShaderMaterial:
 	m.set_shader_parameter("sky_b", load(SKIES["dawn"]))
 	m.set_shader_parameter("blend", 0.0)
 	m.set_shader_parameter("sky_cloud", load(STORM_SKY))
+	m.set_shader_parameter("sky_pall", load(OVERCAST_SKY))
+	m.set_shader_parameter("pall", 0.0)
 	m.set_shader_parameter("cloud", 0.0)
 	m.set_shader_parameter("tint", Color(1, 1, 1))
 	m.set_shader_parameter("grey", 0.0)
@@ -4471,6 +4500,8 @@ shader_type sky;
 uniform sampler2D sky_a : source_color, filter_linear;
 uniform sampler2D sky_b : source_color, filter_linear;
 uniform sampler2D sky_cloud : source_color, filter_linear;
+uniform sampler2D sky_pall : source_color, filter_linear;
+uniform float pall = 0.0;
 uniform float blend = 0.0;
 uniform float cloud = 0.0;
 uniform vec3 tint : source_color = vec3(1.0);
@@ -4495,6 +4526,25 @@ void sky() {
 		vec2 folded = vec2(uv.x, 0.5 - (uv.y - 0.5) * 0.55);
 		vec3 f = mix(texture(sky_a, folded).rgb, texture(sky_b, folded).rgb, blend);
 		c = mix(c, f, clamp(-EYEDIR.y * 2.4, 0.0, 0.85));
+	}
+
+	// THE PALL FIRST, then the storm on top of it. Order matters: a storm is
+	// towers of cloud standing ON an overcast base, so laying the flat grey down
+	// first and the structure over it is both what the sky does and what keeps a
+	// rainy dusk from turning into a clear dusk with a bruise in it.
+	//
+	// Multiplied rather than mixed, the same as the storm layer below and for the
+	// same reason - it takes its light from whatever hour is running instead of
+	// dragging its own noon in with it.
+	if (pall > 0.001) {
+		vec3 pl = texture(sky_pall, uv).rgb;
+		float plum = dot(pl, vec3(0.299, 0.587, 0.114));
+		// A TIGHTER RANGE than the storm's. Flat cloud is flat: 0.62 to 1.28
+		// keeps the sky legible as a sky instead of crushing it to a grey card,
+		// which is what the storm's 0.35 floor does when there is no structure
+		// in the source to carry it.
+		vec3 palled = c * (0.62 + 0.66 * plum);
+		c = mix(c, palled, pall);
 	}
 
 	// The weather's cloud, laid over the hour and MULTIPLIED rather than mixed,
@@ -4535,6 +4585,13 @@ func _sync_sky(look: Dictionary, k: float) -> void:
 	var tint: Color = w["tint"]
 	_sky_cloud = lerpf(_sky_cloud, float(SKY_CLOUD.get(sim.weather, 0.0)), k)
 	_sky_mat.set_shader_parameter("cloud", _sky_cloud)
+	# The deeper you have fished, the flatter the sky - whatever the forecast
+	# says. `maxf` rather than a sum, so a storm in the quarry is still a storm
+	# and not an impossible doubling of cloud.
+	var want_pall := maxf(float(SKY_PALL.get(sim.weather, 0.0)),
+		_dread * SKY_PALL_FROM_DREAD)
+	_sky_pall = lerpf(_sky_pall, want_pall, k)
+	_sky_mat.set_shader_parameter("pall", _sky_pall)
 	# Weather greys the sky and depth drains it, exactly as they do everything
 	# else - the numbers come from the same table the water and the light use.
 	_sky_grey = lerpf(_sky_grey, float(w["grey"]) + (1.0 - float(w["grey"])) * _dread * 0.75, k)

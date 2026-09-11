@@ -57,6 +57,7 @@ func _initialize() -> void:
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
 	_check_the_water_breaks_against_the_hull(main)
+	_check_the_sky_has_more_than_one_kind_of_cloud(main)
 	_check_the_shed_is_a_room(main)
 	_check_the_shed_stock_is_physical(main)
 	_check_the_lure_is_where_the_line_ends(main)
@@ -305,6 +306,72 @@ func _page_text(page) -> String:
 		for c in n.get_children():
 			stack.append(c)
 	return out.to_lower()
+
+## W2: OVERCAST IS ITS OWN WEATHER, AND THE DEEP HAS ITS OWN SKY.
+##
+## Before this, "overcast" was 55% of the STORM panorama - so the four weathers
+## that are not clear were one sky at four strengths, and an overcast afternoon
+## was a weak thunderstorm. The failure is invisible in any single screenshot,
+## which is why it lasted: each weather looks fine on its own and only the SET of
+## them is wrong.
+func _check_the_sky_has_more_than_one_kind_of_cloud(main) -> void:
+	_t.begin("smoke > overcast is its own weather, not a weak storm")
+	var mat: ShaderMaterial = main._sky_mat
+	_t.ok(mat != null, "there is no sky material")
+	if mat == null:
+		return
+	_t.ok(mat.get_shader_parameter("sky_pall") != null,
+		"the sky has no flat-cloud panorama - overcast is still borrowing the storm")
+
+	var seen := {}
+	for weather in ["clear", "overcast", "storm"]:
+		main.sim.weather = weather
+		for i in 600:
+			main._sync_mood(1.0 / 12.0)
+		seen[weather] = {
+			"pall": float(mat.get_shader_parameter("pall")),
+			"cloud": float(mat.get_shader_parameter("cloud")),
+		}
+
+	_t.lt(float(seen["clear"]["pall"]), 0.08, "a clear sky has cloud in it")
+	_t.lt(float(seen["clear"]["cloud"]), 0.08, "a clear sky has a storm in it")
+	# OVERCAST IS FLAT CLOUD AND ALMOST NO STORM. This is the whole claim.
+	_t.gt(float(seen["overcast"]["pall"]), 0.5,
+		"an overcast sky is not mostly flat cloud")
+	_t.lt(float(seen["overcast"]["cloud"]), 0.2,
+		"an overcast sky is still mostly the storm panorama")
+	# ...AND A STORM IS THE OTHER WAY ROUND.
+	_t.gt(float(seen["storm"]["cloud"]), float(seen["overcast"]["cloud"]) + 0.3,
+		"a storm has no more storm in it than an overcast day")
+	_t.gt(float(seen["storm"]["pall"]), 0.05,
+		"a storm's towers stand on blue sky rather than on an overcast base")
+
+	# AND THE MIDDLE BANDS SIT UNDER IT WHATEVER THE FORECAST SAYS. Depth is the
+	# same curve as the weather, not a second one.
+	# DRIVEN FROM THE LURE, not by writing `_dread`. `_sync_mood` recomputes it
+	# from how deep the line is every call, so assigning it directly lasts exactly
+	# one frame and the check measured nothing - it reported 0.01 against 0.01 and
+	# looked like the feature was missing.
+	main.sim.weather = "clear"
+	var was_state: String = main.sim.state
+	var was_depth: float = main.sim.lure_depth
+	main.sim.state = Sim.WAITING
+	main.sim.lure_depth = 0.0
+	for i in 600:
+		main._sync_mood(1.0 / 12.0)
+	var shallow_pall := float(mat.get_shader_parameter("pall"))
+	main.sim.lure_depth = Audio.DREAD_FULL
+	for i in 600:
+		main._sync_mood(1.0 / 12.0)
+	var deep_pall := float(mat.get_shader_parameter("pall"))
+	_t.gt(deep_pall, shallow_pall + 0.2,
+		"the sky over the quarry is the same as the sky over the reeds (%.2f against %.2f)" % [
+			deep_pall, shallow_pall])
+	main.sim.lure_depth = was_depth
+	main.sim.state = was_state
+	for i in 600:
+		main._sync_mood(1.0 / 12.0)
+
 
 
 ## W1: THE WATER BREAKS AGAINST THE HULL.
