@@ -4754,12 +4754,25 @@ func _wood_mat(albedo: Color, tiling: Vector3) -> StandardMaterial3D:
 	# speckle but smears the grain at a glancing angle, which is exactly the
 	# angle everything here is at; anisotropic keeps both.
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-	var n := load("res://assets/tex/wood_normal.jpg")
+	# W7: A COLOUR MAP AT LAST, and from the same set as the normal and the
+	# roughness. The hull had a normal and a roughness and no albedo texture at
+	# all - every plank in the boat was one flat tint with relief lit across it,
+	# which is why the timber read as moulded rather than sawn.
+	#
+	# It is the shed's plank set, which was already in the project, so this costs
+	# nothing and replaces a second wood set that only ever supplied two of its
+	# three maps. Mixing one set's colour with another's normal is worse than
+	# either: the grain in the picture and the grain in the relief run different
+	# ways and the eye catches it immediately.
+	var c := load("res://assets/tex/Planks039/Planks039_1K-JPG_Color.jpg")
+	if c != null:
+		m.albedo_texture = c
+	var n := load("res://assets/tex/Planks039/Planks039_1K-JPG_NormalGL.jpg")
 	if n != null:
 		m.normal_enabled = true
 		m.normal_texture = n
 		m.normal_scale = 0.85
-	var r := load("res://assets/tex/wood_rough.jpg")
+	var r := load("res://assets/tex/Planks039/Planks039_1K-JPG_Roughness.jpg")
 	if r != null:
 		m.roughness_texture = r
 	return m

@@ -1246,7 +1246,7 @@ only here. A resuming session works from the first unticked box.
 - [x] **W4 Five real hands in the logbook.** Five typefaces, not one at five weights. Assigned chronologically: Crake in a 1680s English cut, Vance in a slow upright penmanship hand, Moss and Alder in fast modern ones, and the player in the roundest of the lot. Only the Regular weight of each is kept
 - [ ] **W5 UI face, kit and icons**, with the atlas recoloured once to the game's palette
 - [ ] **W6 Oars and dawn birds.** The two sounds that genuinely do not exist. Everything else generated stays generated
-- [ ] **W7 The planking and rope textures** on the hull that already exists
+- [x] **W7 The planking on the hull that already exists.** It had a normal and a roughness and no albedo map at all - every plank was one flat tint with relief lit across it. Moved onto the shed's plank set, which was already in the project, and the second wood set it replaced is deleted
 
 ## Phase P — the lake as a place. *"Not that one boat in that one spot"*
 
