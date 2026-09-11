@@ -1262,7 +1262,7 @@ only here. A resuming session works from the first unticked box.
 - [ ] **G1 The livewell becomes a space you pack**, where fish and objects compete for the same room. Sharpens the Act III economy inversion rather than sitting beside it
 - [ ] **G2 A second beat after the fight.** Over the gunwale, weight in the hands, then keep or return
 - [ ] **G3 Bait that visibly matters** — more teases and a longer take, read in the minigame the player is already watching
-- [ ] **G4 Daylight as a squeeze.** The good fish at dawn and dusk; the lamp buys a little; running out of light should feel like it
+- [x] **G4 Daylight as a squeeze.** An hour runs down while you fish and turns on its own, so waiting a fish out finally costs something. The lamp buys the dark rather than more hours
 - [ ] **G5 Objects from the wrong era for their depth**, in Act III. The player's own logbook is what contradicts itself
 
 ## Phase S — the story finished. *"Make the story and progression fleshed out"*
@@ -1282,7 +1282,7 @@ only here. A resuming session works from the first unticked box.
 
 ### Open, and not milestones
 
-- [ ] **The lamp doing something.** Fishing after dark is currently identical to fishing at noon. Folded into G4
+- [x] **The lamp doing something.** Done with G4: the night is 18% of daylight without a lamp and 75% with one
 - [ ] **The sheer hairline remnant** on the near port rail at a low sun. Mechanism understood (NOTES.md); the fix is one number in two places
 
 ### The order, and why
