@@ -161,6 +161,70 @@ slip are untouched. And the fight is not replaced with a two-button reel/give: t
 research ranks it third, it costs a second thumb target in portrait, and it is two
 buttons doing one job.
 
+### 4.3c The fifth fight: distance is the score, tension is the danger
+
+Gideon, after playing the fourth: *"something with the fishing mini game still
+feels off. I think we are not showing a different between reeling speed and
+tension on the line. instead of having bar at the top that increases when you hold
+the button, can you have have a distance meter at the top, showing how far the
+fish is from the boat... there should be a give and take, where you can keep
+reeling but risk losing the fish, but if you get in a good rythem and wear the
+fish out, you can reel while the fish is calm and stop when it starts pulling too
+hard."*
+
+He named the fault in the MODEL and he was right. One `tension` value was the
+throttle, the score and the danger at once, so none of the three could be read.
+
+**Three quantities now, each answering a different question.**
+
+| | what it is | where the player sees it |
+|---|---|---|
+| `fish_distance` | PROGRESS. The fight is about this | the distance meter, top of screen |
+| `tension` | DANGER, and only danger | the ROD: bend, shake, the line going red |
+| `fish_stamina` | the resource that turns danger into progress | nowhere. It is FELT, in the reel |
+
+**The fish fights the reel, and a spent one does not.** Holding the reel settles
+the tension at `HOLD_RISE * resist / TAP_DECAY`, and `resist` scales with
+`run_power²` times the stamina left. A reeds fish settles at 0.63 against a danger
+line of 0.78, so the tutorial can be played by holding the button down; Old Town
+settles at 0.96, so it has to be feathered; the Old Fish cannot be held at all
+while it is fresh. That ladder is free — `run_power` already has to climb with
+depth — and because stamina multiplies it, **wearing a fish out is felt in the
+thumb rather than read off a number.** The button that parted the line at the
+start of the fight can be held flat at the end of it.
+
+**Pressure tires it, so the greedy line is genuinely faster.** Fishing near the
+red wears a fish down about twice as fast as fishing gently. That is the risk dial
+he asked for, and it is the same rule `CRAFT.md` has carried for a while.
+
+**Holding on BRAKES a run** rather than out-hauling it. As an additive reel term
+it bought back a third of a metre out of twelve, so "keep reeling and risk it" was
+never a real option. As a brake it cancels 40% of the run, which makes the gamble
+real in both directions: let go and the fish takes line but the rod is safe; hold
+on and you keep it close while the tension pins and the line has `SNAP_SECONDS`
+left.
+
+**Three readouts and two haptics**, all off the one tension number: the rod bends,
+the rod shakes, the line reddens *before* the danger line rather than at it, a
+small tap on the palm when the fish goes, and a repeating heavy pulse while the
+rod is over-bent. The heavy one is a pulse train and never a hum — Android's own
+guidance is explicit that continuous vibration costs battery, desensitises the
+hand in seconds and is an accessibility problem.
+
+**What it measures.** Landed, by band, `human` bot: 100 / 100 / 100 / 99 / 72 / 56.
+The first three waters are a reliable win for someone who feathers well, and that
+is a property of the model rather than a tuning miss — a weak fish cannot escape a
+player doing it right. The ladder shows up in what a *less* careful player loses:
+`blind` reads 100 / 100 / 99 / 85 / 59 / 38, and `masher`, which never lets go,
+lands 91% in the reeds and nothing at all in the Quarry. The tutorial forgives and
+nothing after it does.
+
+**What the instruments cost.** Two probes paid for themselves immediately.
+`probe_loss.gd` split losses by cause and showed the first cut of this fight could
+not be lost at all; `probe_rod.gd` measured where the rod sits on screen and found
+the reel a full viewport width off the left edge, invisible on the phone while
+looking fine in a screenshot taken at the wrong aspect.
+
 ### 4.3 The fight — hold the tension band
 
 Tap to raise tension, it decays on its own, keep it inside the safe band. During

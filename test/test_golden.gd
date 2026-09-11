@@ -32,22 +32,22 @@ const GOLDEN := [
 		"expect": {
 			"cast_distance": 12.609000,
 			"casts": 5,
-			"caught": 2,
-			"draws": 46,
-			"fighting": 23.333000,
-			"fish_distance": 4.796000,
-			"fish_id": "carp",
-			"fish_stamina": 0.000000,
+			"caught": 3,
+			"draws": 51,
+			"fighting": 31.783000,
+			"fish_distance": 12.609000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
 			"lost": 0,
-			"lure_depth": 2.330000,
+			"lure_depth": 0.288000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "fighting",
+			"state": "sinking",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.502000,
-			"total_weight": 10.878000,
+			"tension": 0.000000,
+			"total_weight": 10.976000,
 			"tug": 0.000000,
 		},
 	},
@@ -58,22 +58,22 @@ const GOLDEN := [
 		"expect": {
 			"cast_distance": 12.609000,
 			"casts": 5,
-			"caught": 2,
-			"draws": 46,
-			"fighting": 22.967000,
-			"fish_distance": 5.119000,
-			"fish_id": "carp",
-			"fish_stamina": 0.026000,
+			"caught": 3,
+			"draws": 51,
+			"fighting": 32.117000,
+			"fish_distance": 12.609000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
 			"lost": 0,
-			"lure_depth": 2.330000,
+			"lure_depth": 0.000000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "fighting",
+			"state": "flying",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.631000,
-			"total_weight": 10.878000,
+			"tension": 0.000000,
+			"total_weight": 10.976000,
 			"tug": 0.000000,
 		},
 	},
@@ -83,24 +83,24 @@ const GOLDEN := [
 		"seed": 4,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 5,
-			"caught": 4,
-			"draws": 58,
-			"fighting": 25.900000,
-			"fish_distance": 12.609000,
-			"fish_id": "perch",
-			"fish_stamina": 1.000000,
+			"casts": 4,
+			"caught": 3,
+			"draws": 53,
+			"fighting": 30.633000,
+			"fish_distance": 6.147000,
+			"fish_id": "carp",
+			"fish_stamina": 0.599000,
 			"lost": 0,
 			"lure_depth": 2.330000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "nibbling",
+			"state": "fighting",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.000000,
-			"total_weight": 4.652000,
-			"tug": 0.108000,
+			"tension": 0.600000,
+			"total_weight": 0.788000,
+			"tug": 0.000000,
 		},
 	},
 	{
@@ -110,22 +110,22 @@ const GOLDEN := [
 		"expect": {
 			"cast_distance": 12.609000,
 			"casts": 5,
-			"caught": 2,
-			"draws": 45,
-			"fighting": 23.333000,
-			"fish_distance": 5.839000,
-			"fish_id": "carp",
-			"fish_stamina": 0.119000,
+			"caught": 3,
+			"draws": 51,
+			"fighting": 32.200000,
+			"fish_distance": 12.609000,
+			"fish_id": "",
+			"fish_stamina": 1.000000,
 			"lost": 0,
-			"lure_depth": 2.330000,
+			"lure_depth": 0.000000,
 			"running": false,
 			"seconds": 60.000000,
-			"state": "fighting",
+			"state": "flying",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.654000,
-			"total_weight": 10.878000,
+			"tension": 0.000000,
+			"total_weight": 10.976000,
 			"tug": 0.000000,
 		},
 	},
@@ -187,14 +187,14 @@ const GOLDEN := [
 		"seed": 1,
 		"expect": {
 			"cast_distance": 12.609000,
-			"casts": 4,
+			"casts": 1,
 			"caught": 0,
-			"draws": 45,
-			"fighting": 28.550000,
-			"fish_distance": 12.902000,
-			"fish_id": "bluegill",
-			"fish_stamina": 0.628000,
-			"lost": 2,
+			"draws": 43,
+			"fighting": 52.783000,
+			"fish_distance": 12.236000,
+			"fish_id": "carp",
+			"fish_stamina": 0.225000,
+			"lost": 0,
 			"lure_depth": 2.330000,
 			"running": false,
 			"seconds": 60.000000,
@@ -202,7 +202,7 @@ const GOLDEN := [
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.233000,
+			"tension": 0.236000,
 			"total_weight": 0.000000,
 			"tug": 0.000000,
 		},
@@ -227,13 +227,35 @@ func test_every_recorded_session_replays_exactly(t: TestHarness) -> void:
 ## game is any good, and a golden recorded from a broken build is a broken build
 ## defended by a test. These are the properties that make those numbers mean
 ## something, asserted separately so a failure says which one went.
-func test_nobody_who_ignores_the_gauges_catches_anything(t: TestHarness) -> void:
-	for policy in [Policies.IDLE_HANDS, Policies.MASHER, Policies.SLOWPOKE]:
+## THE TWO REAL FAILURES CATCH NOTHING, and the third one is merely slow.
+##
+## The claim had to be split when the fifth fight separated reeling from tension.
+## There are now exactly two ways to fail outright - never reel, and never let go -
+## and both still catch zero. Being TIMID is no longer one of them: a player who
+## reels only when the line is nearly slack lands fish, just far fewer of them,
+## because the cost of caution in this model is the clock rather than the fish.
+##
+## That is the design working rather than a weakened test. "A cautious player
+## lands everything slowly; a greedy one lands more and loses some" is the whole
+## give and take he asked for, and a slowpoke that caught nothing at all would
+## mean caution was punished rather than merely expensive.
+func test_the_two_real_failures_catch_nothing(t: TestHarness) -> void:
+	for policy in [Policies.IDLE_HANDS, Policies.MASHER]:
 		for seed_value in [1, 2, 3]:
 			var r := Policies.play(policy, 90.0, seed_value)
 			t.eq(r["caught"], 0,
 				"%s catches fish on seed %d, so the minigames are decoration" % [policy, seed_value])
 			t.gt(float(r["lost"]), 0.0, "%s never even loses one" % policy)
+
+	# And caution costs real fish against someone playing properly.
+	var timid := 0
+	var played := 0
+	for seed_value in [1, 2, 3, 4, 5, 6]:
+		timid += int(Policies.play(Policies.SLOWPOKE, 90.0, seed_value)["caught"])
+		played += int(Policies.play(Policies.ANGLER, 90.0, seed_value)["caught"])
+	t.lt(float(timid), float(played) * 0.7,
+		"reeling only when the line is slack lands %d against %d - caution costs nothing" % [
+			timid, played])
 
 
 ## The claim the WARNING makes, and the pair that proves it.
@@ -255,14 +277,24 @@ func test_nobody_who_ignores_the_gauges_catches_anything(t: TestHarness) -> void
 ## beginner nothing, which is the whole point of a tutorial. The claim was being
 ## made in the one band where it is not supposed to hold.
 ##
-## So it is measured on the Drowned Road, which is the first water that can take
-## a fish off you, and the reeds get their own weaker claim underneath.
+## And a FOURTH time, when the fifth fight changed what the tell is worth.
+##
+## It is not "let go for the whole run" any more - holding on brakes a run, so a
+## good player feathers straight through one. What the warning buys is the chance
+## to shed tension BEFORE the jolt lands, and that only matters where the jolt can
+## put the rod past the red. On the Drowned Road it barely can: measured, BLIND
+## parts a line on one fish in a hundred there, which across six ninety-second
+## sessions is not a signal, it is a rounding error.
+##
+## So it moved down to The Steeple, in Old Town, which is the first water where
+## eating a jolt at a reeling tension actually pins the rod. There the same pair
+## reads 100% against 85%, and the difference is parted lines.
 func test_watching_the_water_is_worth_something(t: TestHarness) -> void:
 	var watched := 0
 	var blind := 0
 	for seed_value in [1, 2, 3, 4, 5, 6]:
-		watched += int(Policies.play(Policies.ANGLER, 90.0, seed_value, "road", 2)["lost"])
-		blind += int(Policies.play(Policies.BLIND, 90.0, seed_value, "road", 2)["lost"])
+		watched += int(Policies.play(Policies.ANGLER, 90.0, seed_value, "steeple", 3)["lost"])
+		blind += int(Policies.play(Policies.BLIND, 90.0, seed_value, "steeple", 3)["lost"])
 	t.lt(float(watched), float(blind),
 		"ignoring the run warning costs nothing, so the warning is decoration")
 	t.gt(float(blind), 0.0, "the blind player loses nothing, so nothing was measured")
@@ -370,17 +402,50 @@ func test_the_bands_form_a_difficulty_ladder(t: TestHarness) -> void:
 
 	t.gt(float(means.size()), 2.0, "there are not enough bands to be a ladder")
 
-	# A real STEP, not merely non-decreasing. The measurement is a sample - fixed
-	# seeds, so it is deterministic rather than flaky, but a one-point gap would
-	# still be a ladder only by accident, and the next content change would flip
-	# it without meaning to.
+	# NEVER EASIER GOING DEEPER. This is the half of the claim that has to hold
+	# between every single pair, because a band that is easier than the one above
+	# it would make reaching further back a reward with no cost.
 	for i in means.size() - 1:
-		t.gt(means[i] - means[i + 1], 0.03,
-			"%s (%.0f%% landed) is not meaningfully easier than %s (%.0f%%)" % [
-				names[i], means[i] * 100.0, names[i + 1], means[i + 1] * 100.0])
+		t.lt(means[i + 1], means[i] + 0.001,
+			"%s (%.0f%% landed) is EASIER than %s (%.0f%%), so going deeper is not going somewhere harder" % [
+				names[i + 1], means[i + 1] * 100.0, names[i], means[i] * 100.0])
+
+	# AND A REAL DROP ACROSS THE LAKE, which is where the demand for a step now
+	# lives.
+	#
+	# It used to demand better than three points between EVERY adjacent pair, and
+	# the fifth fight cannot honour that at the shallow end - measured, the human
+	# bot lands 100 / 100 / 100 / 99 / 72 / 56 across the six bands. That is not a
+	# flat game; it is what happens when the skill the fight asks for is FEATHERING
+	# and the bot performs it perfectly. A weak fish cannot get away from someone
+	# doing that, whatever its stats say, so the first three waters are a reliable
+	# win for a competent player and the difficulty is expressed in the time they
+	# take and in what a less careful player loses. The same six bands read
+	# 100 / 100 / 99 / 85 / 59 / 38 for BLIND, a plausible beginner.
+	#
+	# Weakening the per-pair demand is deliberate and it is the second time this
+	# test has been rewritten to say what the game actually claims rather than what
+	# an earlier fight claimed. The guard that replaces it is the one that would
+	# still catch the regression that matters: the deep half going soft.
+	var drop := means[0] - means[means.size() - 1]
+	t.gt(drop, 0.30,
+		"the whole lake only spans %.0f points of difficulty, so depth costs nothing" % (drop * 100.0))
+
+	var real_steps := 0
+	for i in means.size() - 1:
+		if means[i] - means[i + 1] > 0.03:
+			real_steps += 1
+	t.gt(float(real_steps), 1.5,
+		"only %d of the %d rungs is a real step, so the lake is one difficulty with an ending" % [
+			real_steps, means.size() - 1])
 
 	t.gt(means[0], 0.80, "the first water a player ever fishes is not a reliable win")
 	t.lt(means[means.size() - 1], 0.75, "the deepest water is not a gamble")
+
+	# And the deep half has to be a gamble rather than a grind. A band nobody can
+	# land anything in is not difficulty, it is a wall.
+	t.gt(means[means.size() - 1], 0.15,
+		"the deepest water lands %.0f%% - that is a wall rather than a gamble" % (means[means.size() - 1] * 100.0))
 
 
 ## Land rate for one species with the human, from a worst-case full-length cast.

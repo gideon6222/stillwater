@@ -73,18 +73,13 @@ const HOOK_WOBBLE := 0.19        ## per-cast wobble, so it sometimes dips under 
 const THINK_EVERY := 0.30
 const GAIN := 0.55
 
-## Where the bots aim on the tension gauge - the middle of the band, so the
-## reading is about the game rather than about how close to the edge a bot was
-## willing to sit.
-## WHERE A COMPETENT PLAYER AIMS, and it moved up the band when greed arrived.
+## WHERE A COMPETENT PLAYER LETS OFF THE REEL.
 ##
-## The haul now scales with height (Tuning.greed), so the middle of the band is
-## no longer the right answer - it is the timid one. A bot aiming there would
-## measure the game as slower and safer than it is for anyone trying to win, and
-## every balance number in the repo would inherit that. 0.80 of the way up leaves
-## room for the jolt at the start of a run without giving away most of the haul.
-const AIM := Tuning.SAFE_LO + (Tuning.SAFE_HI - Tuning.SAFE_LO) * 0.55
-const CYCLE := 0.85               ## seconds of one hold-and-release cycle
+## Just under the danger line, because that is where the fish tires fastest and a
+## bot that sat lower would measure the game as slower and safer than it is for
+## anyone trying to win. The margin is for the jolt at the start of a run: a
+## player who is already at 0.78 when the fish goes has no room at all.
+const REEL_CEILING := Tuning.DANGER - 0.07
 
 ## How long every bot holds the cast. Fixed, so all six fish the same water at
 ## the same distance and the only variable left is the fight.
@@ -156,102 +151,133 @@ static func _should_strike(name: String, s: Sim, mem: Dictionary) -> bool:
 		_:
 			# Perfect information: strikes the instant the take begins.
 			return s.can_hook()
-
-
-## MINIGAME 2. Tap to hold the needle at AIM, and - for everyone but BLIND -
-## stop tapping when the water says a run is coming.
+## WHEN TO REEL, IN THE FIFTH FIGHT.
+##
+## The decision got much simpler when the model did, and that is the strongest
+## evidence the model is better: the bots used to be duty-cycle controllers aiming
+## at a point on a needle, because that is what a conflated value forces. Now the
+## question is the one a player actually asks - "is the fish pulling?" - and the
+## whole difference between the policies is whether they can tell, and how late.
+##
+## `watches` is whether it reads the TELL at all; `delay` is how long it takes to
+## notice. Those two arguments are the only difference between BLIND, ANGLER and
+## HUMAN, so the gaps between them are claims about the game rather than about the
+## bots.
 static func _should_reel(name: String, s: Sim, dt: float, mem: Dictionary) -> bool:
 	match name:
 		IDLE_HANDS:
 			return false
 		MASHER:
-			# Holds the button down and never lets go. Breaks the line, every
-			# time, which is the same failure it always had for the same reason.
+			# Never lets go. Parts the line on anything that fights back.
 			return true
 		SLOWPOKE:
-			# Reels far too timidly - lets go the moment there is any tension at
-			# all. Never breaks anything; loses every fish to the line going
-			# slack and the fish taking line back.
+			# Frightened of the rod. Reels only when the line is almost slack, so
+			# it never breaks anything and never gets a fish to the boat either.
 			return s.tension < Tuning.SAFE_LO * 0.55
 		BLIND:
-			# Plays the gauge well and never looks at the water, so it learns
-			# about a run from the NEEDLE - a reaction time after it has already
-			# started, and after the jolt has already landed. Same reaction as
-			# HUMAN; the only difference between them is the warning.
-			return _rhythm(s, dt, mem, false, REACTION)
+			# Feathers the rod - it can feel that much - but never reads the water,
+			# so every run's jolt lands on top of whatever tension it happened to
+			# be carrying. It does not release EARLY, it releases LATE, and the
+			# overshoot is what it pays.
+			return not _believes_bent(s, dt, mem, REACTION)
 		ANGLER:
-			return _rhythm(s, dt, mem, true)
+			# The same player, plus the one thing: it reads the tell and sheds
+			# tension before the jolt arrives. That is the only difference between
+			# these two, so the gap between them is a claim about the game.
+			#
+			# And it sheds only what it has to. An earlier version let go for the
+			# whole of the warning, every time, and measured WORSE than BLIND -
+			# obeying the tell cost it two thirds of a second of reeling per run
+			# and bought it nothing. That was the bot being wrong rather than the
+			# game: the warning is worth acting on only when the jolt would
+			# actually put the rod over, and a perfect player knows when that is.
+			return not _believes_bent(s, dt, mem, 0.0) 				and not (_believes_tell(s, dt, mem, 0.0) and _jolt_would_hurt(s, 0.0))
 		HUMAN:
-			return _rhythm(s, dt, mem, true, REACTION)
+			# The same judgement with a person's information: no idea what this
+			# particular fish's kick is worth, so it leaves a flat margin and is
+			# sometimes wrong in both directions.
+			return not _believes_bent(s, dt, mem, REACTION) 				and not (_believes_tell(s, dt, mem, REACTION) and _jolt_would_hurt(s, 0.06))
 		_:
 			return false
 
 
-## Tapping on a RHYTHM rather than as a per-frame controller.
+## Whether letting the run start from HERE would put the rod over the line.
 ##
-## This is the correction that made the probe mean anything. A bot that re-reads
-## the gauge every frame and taps only when the needle is below the aim point
-## **automatically stops tapping during a run**, because a run pushes the needle
-## up - so the run solved itself and every policy scored identically at 100%.
-## No amount of tuning the run would have shown up, because the fault was that
-## the model of a player was wrong: nobody taps by sampling sixty times a second.
-##
-## A person settles into a rate and corrects it every few tenths of a second. So
-## these hold a tap interval, adjust it on a slow cadence, and are therefore
-## still tapping for a moment after something changes - which is what makes a
-## run a threat and the warning worth watching.
-##
-## `watches` is whether it acts on the tell at all, and `delay` is how long it
-## takes to notice. Those two arguments are the ONLY difference between BLIND,
-## ANGLER and HUMAN, so the gaps between them are claims about the game.
-static func _rhythm(s: Sim, dt: float, mem: Dictionary, watches: bool, delay: float = 0.0) -> bool:
-	if not mem.has("duty"):
-		# The duty that HOLDS the aim point, from the sim's own arithmetic:
-		# tension settles at `duty * HOLD_RISE / TAP_DECAY`, so the duty needed
-		# for a tension is that ratio inverted. Derived rather than guessed, so a
-		# change to either constant moves the bot with the game.
-		mem["duty"] = clampf(AIM / (Tuning.HOLD_RISE / Tuning.TAP_DECAY), 0.0, 1.0)
-		mem["since"] = 0.0
-		mem["think"] = 0.0
-		mem["hold"] = false
-		mem["lag"] = 0.0
+## ANGLER reads the fish's actual kick, which is what "perfect information" means.
+## HUMAN gets the same question with a flat guess and a margin, because a person
+## knows a strong fish kicks harder without knowing the number.
+static func _jolt_would_hurt(s: Sim, margin: float) -> bool:
+	var row := Species.by_id(s.fish_id)
+	if row.is_empty():
+		return true
+	var jolt := Tuning.RUN_JOLT * Tuning.jolt_scale(float(row["run_power"]))
+	return s.tension + jolt + margin > Tuning.DANGER
 
-	# What it believes the fish is doing, lagged by `delay`.
-	var alarmed := (s.running or s.tell > 0.0) if watches else s.running
-	if alarmed != bool(mem["hold"]):
+
+## Whether this policy has NOTICED THE WARNING, which is a different reading from
+## either the rod or the run.
+##
+## It latches on the tell alone rather than on `running`, because letting go for
+## the whole of a run is no longer how the fight is played: holding on brakes the
+## run, so a good player sheds tension during the WARNING and then feathers
+## through the run itself, taking back what ground the rod will allow.
+static func _believes_tell(s: Sim, dt: float, mem: Dictionary, delay: float) -> bool:
+	if not mem.has("tell"):
+		mem["tell"] = false
+		mem["tell_lag"] = 0.0
+	var truth := s.tell > 0.0
+	if truth != bool(mem["tell"]):
+		mem["tell_lag"] = float(mem["tell_lag"]) + dt
+		if float(mem["tell_lag"]) >= delay:
+			mem["tell"] = truth
+			mem["tell_lag"] = 0.0
+	else:
+		mem["tell_lag"] = 0.0
+	return bool(mem["tell"])
+
+
+## What this policy BELIEVES the rod is doing, lagged the same way.
+##
+## Separate memory keys from `_believes_pulling` on purpose: these are two
+## different readings a player takes - the water, and the rod in their hands - and
+## they go wrong independently. Sharing a latch between them would have made a bot
+## that misread one automatically misread the other.
+static func _believes_bent(s: Sim, dt: float, mem: Dictionary, delay: float) -> bool:
+	if not mem.has("bent"):
+		mem["bent"] = false
+		mem["bent_lag"] = 0.0
+	var truth := s.tension >= REEL_CEILING
+	if truth != bool(mem["bent"]):
+		mem["bent_lag"] = float(mem["bent_lag"]) + dt
+		if float(mem["bent_lag"]) >= delay:
+			mem["bent"] = truth
+			mem["bent_lag"] = 0.0
+	else:
+		mem["bent_lag"] = 0.0
+	return bool(mem["bent"])
+
+
+## What this policy BELIEVES the fish is doing, lagged by its reaction time.
+##
+## The lag is the whole mechanic: a player is still reeling for a moment after the
+## fish starts to pull, and that moment is where the tension comes from. A bot
+## that sampled the truth every frame would let go before anything ever happened
+## and would measure a game with no danger in it - which is the mistake an earlier
+## version of these bots made, and it showed as every policy scoring identically.
+static func _believes_pulling(s: Sim, dt: float, mem: Dictionary, watches: bool,
+		delay: float) -> bool:
+	if not mem.has("think"):
+		mem["think"] = false
+		mem["lag"] = 0.0
+	var truth := (s.running or s.tell > 0.0) if watches else s.running
+	if truth != bool(mem["think"]):
 		mem["lag"] = float(mem["lag"]) + dt
 		if float(mem["lag"]) >= delay:
-			mem["hold"] = alarmed
+			mem["think"] = truth
 			mem["lag"] = 0.0
 	else:
 		mem["lag"] = 0.0
-
-	# Correct the duty every so often rather than every frame. This is the part
-	# that makes a run dangerous: the bot is still holding the button for a moment
-	# after the fish starts pulling, exactly as a person would be.
-	mem["think"] = float(mem["think"]) + dt
-	if float(mem["think"]) >= THINK_EVERY:
-		mem["think"] = 0.0
-		var err := AIM - s.tension
-		mem["duty"] = clampf(float(mem["duty"]) + err * GAIN, 0.0, 1.0)
-
-	if bool(mem["hold"]):
-		return false
-
-	# A DUTY CYCLE, which is what a tap rhythm becomes when the control is a
-	# hold. The bot still commits to a rate and corrects it on a slow cadence -
-	# that is the part that matters, and the reason the run stays a threat - but
-	# it now expresses that rate as "button down for this fraction of each
-	# cycle" rather than "one instant press every `gap` seconds".
-	#
-	# Aiming HIGH in the band on purpose. The haul now scales with height (see
-	# Tuning.greed), so a player who parks in the middle is leaving half the
-	# fight on the table, and a bot that did so would measure the game as slower
-	# and safer than it is for anyone actually trying to win.
-	mem["since"] = float(mem["since"]) + dt
-	if float(mem["since"]) >= CYCLE:
-		mem["since"] = float(mem["since"]) - CYCLE
-	return float(mem["since"]) < CYCLE * float(mem["duty"])
+	return bool(mem["think"])
 
 
 ## Fish one session with one policy and hand back the final state, plus the

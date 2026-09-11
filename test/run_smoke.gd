@@ -53,6 +53,7 @@ func _initialize() -> void:
 	_check_the_controls_are_anchored(main)
 	_check_the_float_is_the_nibble_minigame(main)
 	_check_the_cast_is_a_swing_not_a_bend(main)
+	_check_the_fight_is_visible_and_felt(main)
 	_check_the_lure_is_where_the_line_ends(main)
 	_check_every_room_opens_and_closes(main)
 	_check_the_shed_actually_spends_money(main)
@@ -130,20 +131,56 @@ func _check_the_line_always_comes_back(main) -> void:
 
 	_t.begin("smoke > a lost fish returns the player to the boat")
 	main.freeze(2)
+	# DEEP WATER FIRST, and before the cast rather than after it. Set after the
+	# fish was already on, the change did nothing: `_drive_until` saw the sim
+	# already FIGHTING and returned on the spot, so the break-off was attempted
+	# against the reeds fish that was already hooked - in the one band built to
+	# forgive exactly that. The test reported a LANDED fish and was right to.
+	main.sim.spot = "steeple"
+	main.sim.econ.line = 3
+	main.sim.econ.has_motor = true
 	var reached_fight := _drive_until(main, Sim.FIGHTING, 180.0)
 	_t.ok(reached_fight, "no fish was ever hooked to lose")
 	if reached_fight:
 		# Break it off deliberately, through the same seam a thumb uses.
+		#
+		# TWO THINGS WERE WRONG HERE AND BOTH MADE IT UNFALSIFIABLE. It drove the
+		# fight with `tap()`, which the fifth fight documents as doing NOTHING
+		# while fighting - so it was applying no input at all and waiting to see
+		# whether a fish lost itself. And it did it in THE REEDS, which are built
+		# to forgive exactly this: a beginner who holds on through a run in the
+		# tutorial keeps the fish, by design.
+		#
+		# So it holds the reel flat, through `set_reeling`, in water deep enough
+		# that doing so parts the line.
 		var step := 1.0 / 60.0
 		for i in int(round(25.0 / step)):
 			if main.sim.state != Sim.FIGHTING:
 				break
-			main.sim.tap()
-			main.sim.tap()
+			main.sim.set_reeling(true)
 			main.advance(step, step)
-		_t.eq(main.sim.state, Sim.LOST, "holding the thumb flat out never ends the fight")
+		_t.eq(main.sim.state, Sim.LOST, "holding the reel flat out never ends the fight")
 		main.advance(Tuning.HOLD_TIME + 0.5)
 		_t.eq(main.sim.state, Sim.IDLE, "a lost fish leaves the player stuck")
+
+## WORLD TRANSFORM WITHOUT THE TREE.
+##
+## `global_transform` returns IDENTITY for every node in this harness - the scene
+## is instantiated and stepped by hand, not run, so Godot does not consider it
+## inside the tree and every position comes back as the origin. The first version
+## of the guard below used it and duly reported the reel as "behind the camera",
+## which was a fact about the harness and not about the game.
+##
+## Multiplying the local transforms up the parent chain needs no tree and is what
+## `main.gd` itself does to find the rod tip.
+func _world_of(node: Node3D, stop: Node) -> Transform3D:
+	var t := Transform3D.IDENTITY
+	var n: Node3D = node
+	while n != null and n != stop:
+		t = n.transform * t
+		n = n.get_parent() as Node3D
+	return t
+
 
 
 ## The gauges have to be READABLE and CLEAR OF THE THUMB, and they have to draw
@@ -161,7 +198,7 @@ func _check_the_gauges_are_clear_of_the_thumb(main) -> void:
 		_t.ok(false, "no fish was hooked to check the gauges against")
 		return
 
-	var gauge: Control = main._tension_bar
+	var gauge: Control = main._distance_bar
 
 	# **THE GAUGE IS ACTUALLY ON SCREEN.**
 	#
@@ -205,11 +242,12 @@ func _check_the_gauges_are_clear_of_the_thumb(main) -> void:
 		_t.eq(c.mouse_filter, Control.MOUSE_FILTER_IGNORE,
 			"%s consumes touches, so tapping over it does nothing" % c.name)
 
-	# The tension gauge draws Tuning.SAFE_LO/SAFE_HI and the rules use
-	# Tuning.in_band(). One source, so the player aims at what is scored.
+	# The rod and the rules read the SAME tension. The band and its gauge are gone
+	# - danger lives on the rod now - so what has to agree is the bend the player
+	# sees and the number that can part the line.
 	var live: float = main.sim.tension
-	_t.eq(main.sim.in_band(), Tuning.in_band(live),
-		"in_band disagrees with the band the gauge draws")
+	_t.eq(main.tension_shown(), live,
+		"the rod is drawn from a different tension than the one that breaks the line")
 
 	# The rod still bends under load, and the line still leaves its bent tip.
 	var bend: float = main.rod_bend_degrees()
@@ -218,6 +256,37 @@ func _check_the_gauges_are_clear_of_the_thumb(main) -> void:
 	var seg_count: int = main.ROD_SEGMENTS
 	_t.gt(float(seg_count), 1.0, "the rod is a single stick again, so it tilts rather than bends")
 	_t.gt(tip.z, 0.0, "the rod tip is behind the boat")
+
+## THE PHONE'S REAL SHAPE, 1080 x 2338 on the S26 Ultra.
+##
+## Not the project's 1080 x 1920 base and not whatever window a desktop run
+## happens to open. `stretch/aspect = "expand"` means the canvas the game renders
+## into is the DEVICE's, so a check against anything else is a check about the
+## wrong screen - which is how the rod came to be mounted a full viewport width
+## off the left edge with a screenshot that looked fine.
+const PHONE_ASPECT := 1080.0 / 2338.0
+
+
+## Where a world point lands, as a fraction of the viewport, WITHOUT a viewport.
+##
+## `Camera3D.unproject_position` needs a live one and returns null-dereferences
+## headless, so the guard that used it passed in CI by not running at all. This is
+## the same arithmetic done by hand: into camera space, divide by depth, scale by
+## the tangent of the half-angle. Godot's default `keep_aspect` is KEEP_HEIGHT, so
+## `fov` is the VERTICAL angle and the horizontal one follows from the aspect.
+##
+## Returns (-1, -1) for anything behind the camera, which fails the bounds check
+## the same way being off an edge does.
+func _on_screen(cam: Camera3D, world: Vector3) -> Vector2:
+	var local := _world_of(cam, cam.get_parent()).affine_inverse() * world
+	if local.z >= -0.0001:
+		return Vector2(-1.0, -1.0)
+	var half := tan(deg_to_rad(cam.fov) * 0.5)
+	var ndc := Vector2(
+		(local.x / -local.z) / (half * PHONE_ASPECT),
+		(local.y / -local.z) / half)
+	return Vector2(0.5 + ndc.x * 0.5, 0.5 - ndc.y * 0.5)
+
 
 
 ## The cast is a SWING and only a fish is a BEND.
@@ -237,8 +306,26 @@ func _check_the_cast_is_a_swing_not_a_bend(main) -> void:
 	_t.eq(main.sim.state, Sim.CHARGING, "the cast is not still charging")
 	_t.gt(main.sim.charge, 0.4, "the charge did not build")
 
-	var bend: float = main.rod_bend_degrees()
-	_t.lt(bend, 1.0, "the rod BENDS while being charged - a cast is a swing, not a load")
+	# MEASURED AS A DIFFERENCE, not as an absolute.
+	#
+	# `rod_bend_degrees` includes the rod TRAILING THE BOAT, which is a degree or
+	# two of real, wanted motion that has nothing to do with the charge. Asserting
+	# the total was under a threshold made this test a hostage to where the swell
+	# happened to be when it ran: it passed for months and then failed at 1.71
+	# degrees because a change to the FIGHT altered how many frames the earlier
+	# checks took and left the boat on a different part of its cycle. It was never
+	# testing what it claimed.
+	#
+	# What it claims is that the charge does not bend the rod, and that is a
+	# difference: take the bend early in the pull and again at full charge, with
+	# the boat moving the same amount either way, and the charge must not have
+	# added to it.
+	var bend_early: float = main.rod_bend_degrees()
+	main.advance(0.5)
+	_t.gt(main.sim.charge, 0.8, "the charge did not reach the top")
+	var bend_full: float = main.rod_bend_degrees()
+	_t.lt(absf(bend_full - bend_early), 1.2,
+		"pulling the rod further back BENT it by %.2f degrees - a cast is a swing, not a load" % absf(bend_full - bend_early))
 
 	# And it lifts UP AND BACK, not down.
 	#
@@ -275,6 +362,95 @@ func _check_the_cast_is_a_swing_not_a_bend(main) -> void:
 	var tip_seg: Node3D = main._rod_chain[main.ROD_SEGMENTS - 1]
 	_t.gt(tip_seg.rotation_degrees.x, 0.0,
 		"the rod bends UP under load - a fish pulls the tip down and forward")
+
+## THE THREE THINGS GIDEON ASKED TO SEE AND FEEL.
+##
+## "when you hold your finger on the reel button, I want to see an actual reeling
+## animation on the fishing pole. if the fish starts fighting, the pole should get
+## more bent, start shaking, the line turns red, then eventually snaps... when the
+## fish pulls, you should feel a small vibration, and when the pole is getting too
+## bent, you should get a good amount of vibration to match."
+##
+## Three separate readouts of one number, so each is checked separately: a handle
+## that turns, a line that reddens, and two levels of buzz.
+func _check_the_fight_is_visible_and_felt(main) -> void:
+	_t.begin("smoke > the reel turns, the line reddens and the rod buzzes")
+	main.freeze(2)
+	if not _drive_until(main, Sim.FIGHTING, 180.0):
+		_t.ok(false, "no fish was hooked to fight")
+		return
+
+	# 1. THE HANDLE TURNS WHILE THE REEL IS HELD, AND ONLY THEN.
+	main.sim.set_reeling(false)
+	var still_a: float = main.reel_turned()
+	main.advance(0.4)
+	_t.eq(main.reel_turned(), still_a,
+		"the reel handle turns with nobody holding the reel")
+
+	main.sim.set_reeling(true)
+	var before: float = main.reel_turned()
+	main.advance(0.4)
+	_t.gt(main.reel_turned(), before,
+		"holding the reel does not turn the handle - there is no reeling animation")
+
+	# 1b. AND THE PLAYER CAN SEE IT. A reeling animation off the edge of the
+	# screen is not an animation, and that is exactly what shipped: measured at
+	# the phone's real aspect, the reel sat more than a full viewport width off
+	# the left edge and only the rod's tip was ever in frame. Three of the
+	# fight's four readouts live on this rod, so where it sits is not decoration.
+	var cam: Camera3D = main._cam
+	for i in 5:
+		main.advance(0.25)
+		for part in [["the reel", main._reel_crank], ["the rod butt", main._rod_chain[0]]]:
+			var node: Node3D = part[1]
+			var at := _on_screen(cam, _world_of(node, main).origin)
+			_t.ok(at.x > 0.0 and at.x < 1.0 and at.y > 0.0 and at.y < 1.0,
+				"%s is off the edge of the screen during a fight, at (%.2f, %.2f) of the viewport" % [
+					part[0], at.x, at.y])
+
+	# 2. THE LINE REDDENS BEFORE THE DANGER LINE, NOT AT IT. A colour that only
+	# arrives once the damage has started is a verdict, not a warning.
+	main.sim.tension = Tuning.DANGER - main.LINE_WARN_FROM - 0.05
+	main.advance(1.0 / 60.0)
+	_t.eq(main.line_heat(), 0.0, "the line is already reddening well below the danger line")
+	main.sim.tension = Tuning.DANGER - main.LINE_WARN_FROM * 0.4
+	main.advance(1.0 / 60.0)
+	var warning: float = main.line_heat()
+	_t.gt(warning, 0.0,
+		"the line has not started to redden by the time the rod is near the danger line")
+	main.sim.tension = Tuning.TENSION_MAX
+	main.advance(1.0 / 60.0)
+	_t.gt(main.line_heat(), warning, "the line does not redden further as the rod bends further")
+
+	# And it is drawn from the SAME tension that parts the line.
+	_t.eq(main.tension_shown(), main.sim.tension,
+		"the rod is drawn from a different tension than the one that breaks the line")
+
+	# 3. TWO LEVELS OF BUZZ, AND THE HEAVY ONE REPEATS WITHOUT BEING CONTINUOUS.
+	main.sim.tension = Tuning.DANGER - 0.2
+	main.advance(1.0 / 60.0)
+	var quiet: int = main.buzzes
+	main.advance(0.5)
+	_t.eq(main.buzzes, quiet, "the rod buzzes while it is nowhere near over-bent")
+
+	main.sim.tension = Tuning.TENSION_MAX
+	main.advance(1.0 / 60.0)
+	_t.gt(main.buzzes, quiet, "the rod does not buzz at all when it is over-bent")
+	_t.gt(main.last_buzz_amp, main.BUZZ_PULL_AMP,
+		"the over-bent buzz is no stronger than the little one the fish makes, so the two cannot be told apart")
+
+	# Repeating, and PACED - not one buzz a frame, which is a hum in everything
+	# but name and is what Android's guidance is written against.
+	var at_start: int = main.buzzes
+	var seconds := 1.0
+	for i in int(round(seconds * 60.0)):
+		main.sim.tension = Tuning.TENSION_MAX
+		main.advance(1.0 / 60.0)
+	var fired: int = main.buzzes - at_start
+	_t.gt(float(fired), 1.0, "the heavy buzz fires once and never repeats, so it is an event rather than a state")
+	_t.lt(float(fired), seconds / main.BUZZ_OVER_EVERY + 2.0,
+		"the heavy buzz fired %d times in a second - that is a continuous hum, not a pulse" % fired)
+
 
 
 ## The controls must be ANCHORED to the viewport, never placed at a literal
@@ -395,8 +571,27 @@ func _drive_until(main, want: String, limit: float) -> bool:
 	return main.sim.state == want
 
 
+## The floor below which this suite is assumed to have silently lost coverage.
+##
+## Renaming `_tension_bar` to `_distance_bar` dropped fifteen assertions and the
+## run still said "all passing". The test reads it off `main`, which is UNTYPED -
+## so a missing property is a runtime error rather than a parse error, the check
+## function bails at that line, and every assertion after it simply never runs.
+## Nothing is red, the count is just quietly smaller, and nobody reads the count.
+##
+## Raise this when the suite grows. It is a canary, not a target: it cannot say
+## which assertions went missing, only that some did.
+const MIN_ASSERTIONS := 390
+
+
 func _finish() -> void:
 	print("")
+	if _t.checks < MIN_ASSERTIONS:
+		print("  smoke: %d assertions, but at least %d were expected - a check bailed" % [
+			_t.checks, MIN_ASSERTIONS])
+		print("  something above errored part-way through. Read the log for 'Invalid get index'.")
+		quit(1)
+		return
 	if _t.failures.is_empty():
 		print("  smoke: %d assertions, all passing" % _t.checks)
 		quit(0)
@@ -819,6 +1014,12 @@ func _check_every_action_answers_within_two_frames(main) -> void:
 	# a hold now, so a single frame of advance is what has to show it.
 	main.freeze(1)
 	if _drive_until(main, Sim.FIGHTING, 180.0):
+		# FROM A RELEASED ROD, because a fight that has been reeling for a while is
+		# sitting AT its settle point, where one frame of holding changes the
+		# tension by less than a float can represent. The claim is about latency,
+		# so the measurement has to start somewhere the input has room to show.
+		main.sim.set_reeling(false)
+		main.advance(0.6)
 		var before: float = main.sim.tension
 		main.sim.set_reeling(true)
 		main.sim.advance(step)
@@ -836,7 +1037,7 @@ func _check_every_action_answers_within_two_frames(main) -> void:
 	# And the gauge the player is reading redraws with it, rather than a frame
 	# behind - a needle that lags its own input is the classic mushy control.
 	main._sync()
-	_t.ok(main._tension_bar.visible, "the tension gauge is not up during a fight")
+	_t.ok(main._distance_bar.visible, "the distance meter is not up during a fight")
 
 
 ## THE WORLD IS NEVER PERFECTLY STILL.

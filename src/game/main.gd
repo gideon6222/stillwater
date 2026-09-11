@@ -37,7 +37,7 @@ var _prompt: Label
 var _cast_area: Control
 var _rod: MeshInstance3D
 var _wake: MeshInstance3D
-var _tension_bar: Control
+var _distance_bar: Control
 var _needle := 0.0
 var _needle_v := 0.0
 var _menus: Menus
@@ -155,6 +155,52 @@ const FLOAT_DIP := 0.34
 
 ## How far the rod bends forward under load, in degrees.
 const ROD_BEND := 40.0
+
+## THE REELING ANIMATION.
+##
+## `REEL_SPIN_RATE` is radians per second of crank at a full, unopposed wind, and
+## it is deliberately slow enough to read: a handle whipping round at ten turns a
+## second is a blur, and a blur is not an animation. Four turns a second at full
+## speed, dropping to a crawl while the fish is taking line, so the handle is a
+## second readout of the same thing the distance meter shows.
+const REEL_SPIN_RATE := 25.0
+## How far the crank still turns while the fish is running. Not zero - the reel is
+## still being wound, it is just not winning - and that is the difference between
+## "stalled" and "losing", which are different feelings.
+const REEL_SPIN_STALL := 0.22
+## Degrees of tip lift in one pump. Small: this rides on top of the bend the
+## tension is already drawing, and anything larger swamped the reading it sits on.
+const REEL_PUMP := 2.6
+
+## THE LINE GOING RED.
+##
+## Gideon: "the pole should get more bent, start shaking, the line turns red, then
+## eventually snaps, if you dont stop reeling."
+##
+## It starts reddening BEFORE the danger line, not at it. A colour that only
+## appears once the damage has started is a verdict rather than a warning, and the
+## research was unanimous that the failure mode to avoid is a line that parts with
+## no legible warning. By the time the rod is actually accruing strain the line is
+## already fully red and has been changing for a fifth of a second.
+const LINE_WARN_FROM := 0.18      ## tension below DANGER where the colour starts
+const LINE_CALM := Color(0.94, 0.93, 0.88)
+const LINE_HOT := Color(0.96, 0.26, 0.18)
+
+## THE TWO HAPTICS, and the gap between them is the whole point.
+##
+## Gideon: "when the fish pulls, you should feel a small vibration, and when the
+## pole is getting too bent, you should get a good amount of vibration to match."
+##
+## Two levels, and both DISCRETE. Android's own haptics guidance is explicit that
+## a continuous buzz costs battery, desensitises the hand within seconds and is an
+## accessibility problem, so the heavy one is a repeating pulse rather than a hum -
+## which also reads better, because a pulse train has a rhythm that a hum does not
+## and the rhythm is what says "this is getting worse".
+const BUZZ_PULL_MS := 22          ## the fish goes. A tap on the palm
+const BUZZ_PULL_AMP := 0.35
+const BUZZ_OVER_MS := 55          ## the rod is over-bent. Unmistakable
+const BUZZ_OVER_AMP := 0.9
+const BUZZ_OVER_EVERY := 0.17     ## seconds between heavy pulses
 
 ## The cast, which is a ROTATION and not a bend.
 ##
@@ -820,6 +866,16 @@ const ROD_CURVE := [0.05, 0.12, 0.20, 0.28, 0.35]  ## share of the bend, butt to
 const ROD_SEG_LENGTH := 0.46
 
 var _rod_chain: Array[Node3D] = []
+## The reel handle's pivot, and how far it has turned. See `_sync_reel`.
+var _reel_crank: Node3D = null
+var _reel_spin := 0.0
+## How long the rod has been over-bent without a heavy buzz. See `_sync_haptics`.
+var _buzz_wait := 0.0
+var _was_over := false
+## Haptics, counted so they can be asserted on. See `_buzz`.
+var buzzes := 0
+var last_buzz_ms := 0
+var last_buzz_amp := 0.0
 
 
 ## The rod, as a chain of segments that BENDS rather than a stick that tilts.
@@ -863,11 +919,39 @@ func _build_rod() -> void:
 
 		if i == 0:
 			# IN THE HANDS, not planted in the boat ahead of you. The butt sits a
-			# little forward of the chest and off to the right, where a seated
-			# angler's hands are - about 36 cm from the eye at `Sequence.SEAT`.
-			# It was at z = 1.30, which was three metres in front of the old seat
-			# and read as a stick standing in the bottom of the boat.
-			seg.position = Vector3(0.28, 0.98, 1.06)
+			# little forward of the chest, where a seated angler's hands are. It
+			# was at z = 1.30, which was three metres in front of the old seat and
+			# read as a stick standing in the bottom of the boat.
+			#
+			# AND THE WHOLE ROD HAS TO BE ON SCREEN, which it was not.
+			#
+			# The fifth fight puts three of its four readouts on the rod - the
+			# bend, the shake and the line going red - plus the reeling animation
+			# Gideon asked for. Measured with `scripts/probe_rod.gd` at the phone's
+			# real 19.5:9, the previous mount put the reel at x = -1.20 of the
+			# viewport: more than a whole screen width off the LEFT edge. Only the
+			# tip was ever visible, so none of it said anything.
+			#
+			# It hid behind a screenshot taken at the wrong aspect. At roughly
+			# square the butt was just in shot and it looked fine; `shot.gd`'s own
+			# header says to pass `--resolution 460x996` and I had not.
+			#
+			# Screen position here is violently non-linear - the butt is half a
+			# metre from the eye, so a centimetre of mount moves it a third of a
+			# screen - and the boat's roll swings it further. Three sweeps, all
+			# measured rather than guessed:
+			#
+			#   (0.28, 0.98, 1.06)  reel at -1.20      a screen off the left edge
+			#   (-0.06, 1.12, 1.14) reel at 0.34-0.60  in frame, but dead centre
+			#                                          and close enough to block
+			#                                          the water entirely
+			#   (-0.08, 0.96, 1.38) reel at 0.47-0.61, y 0.78-0.82
+			#
+			# The last one is it: the rod runs from the bottom right up across to
+			# the middle distance, the reel sits just inside the Reel button where
+			# the thumb already is, and the water stays clear. `run_smoke.gd`
+			# guards the whole rod staying in frame.
+			seg.position = Vector3(-0.08, 0.96, 1.38)
 			seg.rotation_degrees = Vector3(ROD_REST, 0, 9)
 			_rod = seg
 			seg.name = "Rod"
@@ -920,17 +1004,42 @@ func _build_rod() -> void:
 			spool.material_override = metal
 			seg.add_child(spool)
 
-			var handle := MeshInstance3D.new()
+			# THE CRANK, AND IT IS A PIVOT RATHER THAN A SHAPE.
+			#
+			# Gideon: "when you hold your finger on the reel button, I want to see
+			# an actual reeling animation on the fishing pole." The handle used to
+			# be one static cylinder bolted to the butt, so there was nothing that
+			# COULD turn. It is a pivot at the spool's axis now, with the arm and
+			# the knob hanging off it, and `_sync_reel` spins it.
+			#
+			# The spool is a cylinder rotated 90 degrees about Z, so its axis runs
+			# along local X. The crank therefore turns about X, and the knob has to
+			# sit off that axis - in the YZ plane - or it would spin on the spot
+			# and read as nothing moving at all.
+			_reel_crank = Node3D.new()
+			_reel_crank.name = "ReelCrank"
+			_reel_crank.position = Vector3(0.050, -0.088, -0.030)
+			seg.add_child(_reel_crank)
+
+			var arm := MeshInstance3D.new()
+			var am := BoxMesh.new()
+			am.size = Vector3(0.010, 0.010, 0.046)
+			arm.mesh = am
+			arm.position = Vector3(0, 0, 0.023)
+			arm.material_override = metal
+			_reel_crank.add_child(arm)
+
+			var knob := MeshInstance3D.new()
 			var hm := CylinderMesh.new()
-			hm.height = 0.058
-			hm.top_radius = 0.007
-			hm.bottom_radius = 0.007
+			hm.height = 0.026
+			hm.top_radius = 0.008
+			hm.bottom_radius = 0.008
 			hm.radial_segments = 8
-			handle.mesh = hm
-			handle.rotation_degrees = Vector3(0, 0, 90)
-			handle.position = Vector3(0.050, -0.088, -0.030)
-			handle.material_override = cork
-			seg.add_child(handle)
+			knob.mesh = hm
+			knob.rotation_degrees = Vector3(0, 0, 90)
+			knob.position = Vector3(0.016, 0, 0.046)
+			knob.material_override = cork
+			_reel_crank.add_child(knob)
 		else:
 			seg.position = Vector3(0.0, 0.0, ROD_SEG_LENGTH)
 			seg.name = "RodSeg%d" % i
@@ -1366,18 +1475,18 @@ func _build_hud() -> void:
 	# what was asked for. Only the reel has a gauge, and it is anchored to the TOP
 	# centre and MOUSE_FILTER_IGNORE: it is a readout, not a control, and a readout
 	# that eats a touch is a readout the player cannot tap through.
-	_tension_bar = Control.new()
-	_tension_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_tension_bar.anchor_left = 0.5 - BAR_W * 0.5
-	_tension_bar.anchor_right = 0.5 + BAR_W * 0.5
-	_tension_bar.offset_left = 0.0
-	_tension_bar.offset_right = 0.0
-	_tension_bar.offset_top = GAUGE_TOP
-	_tension_bar.offset_bottom = GAUGE_TOP + GAUGE_H
-	_tension_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tension_bar.name = "TensionBar"
-	_tension_bar.draw.connect(_draw_tension_bar)
-	_ui.add_child(_tension_bar)
+	_distance_bar = Control.new()
+	_distance_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_distance_bar.anchor_left = 0.5 - BAR_W * 0.5
+	_distance_bar.anchor_right = 0.5 + BAR_W * 0.5
+	_distance_bar.offset_left = 0.0
+	_distance_bar.offset_right = 0.0
+	_distance_bar.offset_top = GAUGE_TOP
+	_distance_bar.offset_bottom = GAUGE_TOP + GAUGE_H
+	_distance_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_distance_bar.name = "TensionBar"
+	_distance_bar.draw.connect(_draw_distance_bar)
+	_ui.add_child(_distance_bar)
 
 	_readout = Label.new()
 	_readout.set_anchors_preset(Control.PRESET_TOP_LEFT)
@@ -1652,14 +1761,14 @@ func _build_hud() -> void:
 ## The general form, worth carrying: **a callback must not decide whether it is
 ## called.** Anything that gates its own invocation can only ever fail closed.
 func _sync_bars() -> void:
-	if _tension_bar == null:
+	if _distance_bar == null:
 		return
 	# The title counts as "not playing" for everything the HUD does. It was not,
 	# and the first screen of the game showed a purse, a depth sounder and a
 	# "Reel in" button behind the word STILLWATER.
 	var in_room := _hud_is_down()
-	_tension_bar.visible = sim.state == Sim.FIGHTING and not in_room
-	_tension_bar.queue_redraw()
+	_distance_bar.visible = sim.state == Sim.FIGHTING and not in_room
+	_distance_bar.queue_redraw()
 	if _dock != null:
 		_dock.visible = sim.state == Sim.IDLE and not in_room
 	if _world_line != null:
@@ -1827,30 +1936,34 @@ const STICK_RADIUS := 118.0
 const LOOK_RATE := 0.62
 const STICK_DEAD := 0.14   ## a thumb resting on the stick is not an instruction
 const STICK_CURVE := 1.7   ## response exponent. Fine at the bottom, fast at the top
-
-
-func _draw_tension_bar() -> void:
+## HOW FAR THE FISH IS FROM THE BOAT, and nothing else.
+##
+## Gideon: "I think we are not showing a different between reeling speed and
+## tension on the line. instead of having bar at the top that increases when you
+## hold the button, can you have have a distance meter at the top, showing how far
+## the fish is from the boat."
+##
+## He named the fault in the MODEL rather than in the picture, and he is right.
+## The needle that used to live here was three things at once - the throttle
+## (holding the button raised it), the score (progress happened inside a band) and
+## the danger (the fish pulling raised it too) - so none of the three could be
+## read. Splitting them is the whole of the fifth fight:
+##
+##   PROGRESS is distance, and it is here.
+##   DANGER is tension, and it is on the ROD - the bend, the shake, the line going
+##   red - which is where this game's own notes have said it belonged since the
+##   third fight, while still drawing a needle.
+##
+## The brass case stays. It is the one instrument read continuously, so it is
+## drawn to match the boat rather than a UI kit.
+func _draw_distance_bar() -> void:
 	if sim.state != Sim.FIGHTING:
 		return
-	var w := _tension_bar.size.x
-	var h := _tension_bar.size.y
-
-	# A BRASS SCALE, not a progress bar.
-	#
-	# It is the one instrument the player reads continuously, so it is drawn to
-	# match the boat rather than to match a UI kit: a lacquered ground, an
-	# engraved scale, a brass bezel and a needle on a pivot. Everything is sized
-	# off `h`, so the whole thing scales with one constant instead of nineteen
-	# hand-placed numbers going out of step.
+	var w := _distance_bar.size.x
+	var h := _distance_bar.size.y
 	var pad := h * 0.09
 	var face := Rect2(pad, pad, w - pad * 2.0, h - pad * 2.0)
-	var lo := face.position.x + Tuning.SAFE_LO / Tuning.TENSION_MAX * face.size.x
-	var hi := face.position.x + Tuning.SAFE_HI / Tuning.TENSION_MAX * face.size.x
-	var good := sim.in_band()
 
-	# The case. A style box rather than draw_rect, because a rounded corner and
-	# a drop shadow are the two cheapest things that stop a HUD element looking
-	# like it was pasted on.
 	var case := StyleBoxFlat.new()
 	case.bg_color = Color(0.055, 0.070, 0.078, 0.90)
 	case.border_color = Color(0.72, 0.58, 0.32, 0.75)
@@ -1859,70 +1972,54 @@ func _draw_tension_bar() -> void:
 	case.shadow_color = Color(0, 0, 0, 0.45)
 	case.shadow_size = 9
 	case.shadow_offset = Vector2(0, 4)
-	_tension_bar.draw_style_box(case, Rect2(Vector2.ZERO, _tension_bar.size))
+	_distance_bar.draw_style_box(case, Rect2(Vector2.ZERO, _distance_bar.size))
 
-	# The safe band. It BREATHES when you are in it, which is the whole feedback
-	# loop: the player should be able to tell without looking straight at it.
-	var pulse := 0.0
-	if good:
-		pulse = 0.13 + 0.09 * sin(sim.fight_time * 7.0)
-	var band := StyleBoxFlat.new()
-	band.bg_color = Color(0.42, 0.74, 0.40, (0.24 if good else 0.11) + pulse)
-	band.set_corner_radius_all(int(h * 0.09))
-	_tension_bar.draw_style_box(band,
-		Rect2(lo, face.position.y, hi - lo, face.size.y))
-	# Its edges, which are the two numbers that actually matter.
-	for x in [lo, hi]:
-		_tension_bar.draw_rect(
-			Rect2(x - 1.5, face.position.y, 3.0, face.size.y),
-			Color(0.66, 0.90, 0.60, 0.62))
+	# THE BOAT IS ON THE RIGHT, where the player's hands are, and the fish comes
+	# toward it. The full scale is the distance the cast was made at, so the bar
+	# is "how much of my cast have I taken back" rather than an abstract fraction -
+	# a thirty metre fish and a five metre fish both start at the left edge and
+	# the same amount of travel means a different amount of work.
+	var full := maxf(1.0, sim.cast_distance)
+	var t := clampf(1.0 - sim.fish_distance / full, 0.0, 1.0)
+	var x := face.position.x + face.size.x * t
 
-	# STRAIN, creeping in from the right as the line starts to go. Drawn before
-	# the ticks so the engraving stays on top of it.
-	if sim.strain > 0.01:
-		_tension_bar.draw_rect(
-			Rect2(hi, face.position.y, (face.end.x - hi) * sim.strain, face.size.y),
-			Color(0.82, 0.24, 0.18, 0.18 + 0.48 * sim.strain))
+	# The water it still has to be brought through.
+	_distance_bar.draw_rect(Rect2(face.position.x, face.position.y,
+		face.size.x, face.size.y), Color(0.16, 0.22, 0.24, 0.55))
+	# The ground taken, filling from the left as it comes in.
+	_distance_bar.draw_rect(Rect2(face.position.x, face.position.y,
+		face.size.x * t, face.size.y), Color(0.38, 0.56, 0.52, 0.42))
 
-	# The engraved scale. Long marks every fifth, hanging from the top edge, so
-	# the needle has something to move against and the band has a width.
+	# The net's reach: the last stretch, where the fish is close enough to land.
+	var netted := face.position.x + face.size.x * (1.0 - Tuning.LAND_DISTANCE / full)
+	_distance_bar.draw_rect(Rect2(netted, face.position.y,
+		face.end.x - netted, face.size.y), Color(0.42, 0.74, 0.40, 0.22))
+
+	# The engraved scale, every fifth mark long, so the travel has a size.
 	for i in 21:
 		var tx := face.position.x + face.size.x * float(i) / 20.0
 		var tall := face.size.y * (0.34 if i % 5 == 0 else 0.19)
-		_tension_bar.draw_rect(Rect2(tx - 1.0, face.position.y, 2.0, tall),
+		_distance_bar.draw_rect(Rect2(tx - 1.0, face.position.y, 2.0, tall),
 			Color(0.90, 0.84, 0.68, 0.30 if i % 5 == 0 else 0.16))
 
-	# WHAT IT IS AND HOW FAR OFF THE FISH IS, on the face of the dial. The
-	# distance used to float in the middle of the lake in 44 pt type, which put
-	# the two numbers the fight is about at opposite ends of the screen.
+	# THE FISH, as a mark on the scale. It SHAKES while the fish is pulling, which
+	# is the one place the danger touches this instrument - not as a number, but
+	# because a fish that is fighting is not coming any closer.
+	var shake := 0.0
+	if sim.running:
+		shake = sin(sim.fight_time * 44.0) * face.size.y * 0.10
+	var mark := Rect2(x - 3.0, face.position.y - 2.0 + shake, 6.0, face.size.y + 4.0)
+	_distance_bar.draw_rect(mark, Color(0.98, 0.92, 0.76, 0.92))
+
 	var font := ThemeDB.fallback_font
-	_tension_bar.draw_string(font,
+	_distance_bar.draw_string(font,
 		Vector2(face.position.x + 10, face.end.y - face.size.y * 0.16),
-		"LINE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(h * 0.20),
+		"OUT", HORIZONTAL_ALIGNMENT_LEFT, -1, int(h * 0.20),
 		Color(0.86, 0.78, 0.60, 0.42))
-	_tension_bar.draw_string(font,
+	_distance_bar.draw_string(font,
 		Vector2(face.position.x, face.end.y - face.size.y * 0.16),
 		"%.1f m" % sim.fish_distance, HORIZONTAL_ALIGNMENT_RIGHT,
 		int(face.size.x - 10), int(h * 0.24), Color(0.98, 0.92, 0.76, 0.72))
-
-	# THE NEEDLE, on a smoothed value with overshoot - see `_sync_needle`. Warm
-	# where it should be, hot where it should not, with a glow behind it and a
-	# pivot under it so it reads as a moving part rather than a marker.
-	var nx := face.position.x + clampf(_needle, 0.0, 1.0) * face.size.x
-	var col := Color(0.99, 0.90, 0.62) if good else Color(0.97, 0.50, 0.32)
-	_tension_bar.draw_rect(Rect2(nx - h * 0.10, face.position.y, h * 0.20, face.size.y),
-		Color(col.r, col.g, col.b, 0.14))
-	_tension_bar.draw_rect(Rect2(nx - 2.5, face.position.y - pad * 0.4, 5.0,
-		face.size.y + pad * 0.8), col)
-	_tension_bar.draw_circle(Vector2(nx, h * 0.5), h * 0.15,
-		Color(col.r, col.g, col.b, 0.92))
-	_tension_bar.draw_circle(Vector2(nx, h * 0.5), h * 0.07, Color(0.10, 0.09, 0.08))
-
-
-## The needle has WEIGHT. It chases the true tension with a spring rather than
-## snapping to it, so a tap kicks it and it settles back - which is the
-## difference between a readout that reports the number and an instrument that
-## answers the thumb. The rules never see this value; it is presentation only.
 func _sync_needle(dt: float) -> void:
 	var want := clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0)
 	# Stiff enough to keep up with a run, loose enough to overshoot a tap by a
@@ -2205,6 +2302,11 @@ func _tick(dt: float) -> void:
 	if _audio != null:
 		_audio.tick(dt, _menus != null and _menus.is_open())
 	sim.advance(dt)
+	# AFTER the sim and BEFORE the draw. The crank's angle is what the rod's pump
+	# is drawn from, so it has to be current by the time `_sync_rod` reads it, and
+	# the haptics answer this frame's tension rather than last frame's.
+	_sync_reel(dt)
+	_sync_haptics(dt)
 	_sync()
 
 
@@ -2284,6 +2386,7 @@ func _sync() -> void:
 	# the end of its own line every frame.
 	_sync_boat_pose()
 	_sync_rod()
+	_sync_line_colour()
 	var out := lure_world_position()
 
 	# Transform3D.looking_at rather than Node3D.look_at. The node method
@@ -2378,6 +2481,103 @@ func _sync_play_camera(out: Vector3) -> void:
 			* Basis(Vector3.FORWARD, sin(t2 * 1.1) * a * 0.7)
 	_cam.transform = Transform3D(basis, eye)
 
+## THE HANDLE TURNS WHILE THE REEL IS HELD.
+##
+## Called before `_sync_rod`, because the rod's pump reads `_reel_spin` and a
+## one-frame lag between the handle and the tip is exactly the kind of seam that
+## makes two parts of one action look like two animations.
+##
+## The rate is a readout, not decoration: full speed in calm water, a crawl while
+## the fish is taking line. A player who is winding hard and seeing the handle
+## barely move is being told the thing the distance meter is also telling them,
+## in the place they are already looking.
+func _sync_reel(dt: float) -> void:
+	if _reel_crank == null:
+		return
+	var turning := sim.state == Sim.FIGHTING and sim.reeling
+	if turning:
+		var rate := REEL_SPIN_RATE
+		if sim.running:
+			rate *= REEL_SPIN_STALL
+		_reel_spin += rate * dt
+	_reel_crank.rotation.x = _reel_spin
+
+
+## How far the reel handle has turned, in radians. The test reads this rather than
+## the node's rotation, because the rotation wraps and a wrapped angle cannot be
+## compared for "did it turn".
+func reel_turned() -> float:
+	return _reel_spin
+
+
+## THE TENSION THE ROD IS DRAWN FROM.
+##
+## One accessor, so the smoke test can assert that the thing the player sees and
+## the thing that parts the line are the same number. They were separate once, on
+## a sibling game, and the picture disagreed with the score for three days.
+func tension_shown() -> float:
+	return sim.tension
+
+
+## How red the line is, in [0, 1]. Pure, so the test can ask for the shape of the
+## warning without reading a material off a node.
+func line_heat() -> float:
+	if sim.state != Sim.FIGHTING:
+		return 0.0
+	var from := Tuning.DANGER - LINE_WARN_FROM
+	return clampf((sim.tension - from) / maxf(0.001, Tuning.TENSION_MAX - from), 0.0, 1.0)
+
+
+## THE LINE GOES RED BEFORE IT GOES.
+##
+## One shared material for all ten segments, so this is a single albedo write and
+## the whole line changes together - a line that reddened segment by segment would
+## read as a rendering fault rather than as a warning.
+func _sync_line_colour() -> void:
+	if _line == null:
+		return
+	var mat := _line.material_override as StandardMaterial3D
+	if mat == null:
+		return
+	var heat := line_heat()
+	mat.albedo_color = LINE_CALM.lerp(LINE_HOT, heat)
+	# And it lights up as well as reddening. At arm's length on a phone, in a boat
+	# at dusk, a hue change alone is not enough to catch the eye - the emission is
+	# what makes it arrive in peripheral vision while the player is watching the
+	# distance meter instead.
+	mat.emission_enabled = heat > 0.01
+	mat.emission = LINE_HOT
+	mat.emission_energy_multiplier = heat * 1.6
+
+
+## THE HEAVY BUZZ, AS A PULSE TRAIN RATHER THAN A HUM.
+##
+## Fires while the rod is over-bent, every `BUZZ_OVER_EVERY` seconds, and the
+## first pulse lands on the frame the danger line is crossed rather than a
+## fraction of a second later - the crossing is the event, and a haptic that
+## arrives late reads as unrelated to it.
+##
+## Discrete on purpose. Android's guidance is explicit that continuous vibration
+## costs battery, desensitises the hand within seconds and is an accessibility
+## problem; a pulse train also has a rhythm, and the rhythm is what carries "this
+## is getting worse" in a way a flat hum cannot.
+func _sync_haptics(dt: float) -> void:
+	var over := sim.state == Sim.FIGHTING and sim.tension > Tuning.DANGER
+	if not over:
+		_was_over = false
+		_buzz_wait = 0.0
+		return
+	if not _was_over:
+		_was_over = true
+		_buzz_wait = 0.0
+		_buzz(BUZZ_OVER_MS, BUZZ_OVER_AMP)
+		return
+	_buzz_wait += dt
+	if _buzz_wait >= BUZZ_OVER_EVERY:
+		_buzz_wait = 0.0
+		_buzz(BUZZ_OVER_MS, BUZZ_OVER_AMP)
+
+
 
 ## The rod IS the tension gauge.
 ##
@@ -2445,6 +2645,14 @@ func _sync_rod() -> void:
 			bend = sim.tug * ROD_BEND * 0.30
 		Sim.FIGHTING:
 			bend = clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0) * ROD_BEND
+			# PUMP AND WIND. A person does not reel a fish in by holding the rod
+			# still: the tip lifts, and the line is taken up on the way back down.
+			# The oscillation is keyed to the CRANK's own angle rather than to a
+			# clock of its own, so the tip and the handle cannot drift out of step
+			# - one turn of the handle is one pump, which is what makes the two
+			# read as the same action instead of two animations playing at once.
+			if sim.reeling:
+				bend += sin(_reel_spin) * REEL_PUMP
 		_:
 			pass
 
@@ -4076,9 +4284,18 @@ func _hint_for_state() -> String:
 			# build after the fight changed, exactly as the look hint did. A hint
 			# that names a control the game no longer has is worse than no hint,
 			# because the player trusts it and concludes the game is broken.
+			#
+			# AND IT TAUGHT THE WRONG STRATEGY FOR ONE MORE BUILD AFTER THAT.
+			# "let go when it runs" was the FOURTH fight's answer. Holding on now
+			# brakes a run, so letting go on sight of one is not the play - it is
+			# giving the fish the line for free. What the player is watching is the
+			# ROD, and the answer is always the same one: ease off when it bends
+			# too far, whatever the fish happens to be doing.
+			if sim.tension > Tuning.DANGER:
+				return "EASE OFF   -   the line is about to go"
 			if sim.running or sim.tell > 0.0:
-				return "LET GO   -   it is running"
-			return "hold to reel   -   let go when it runs"
+				return "it is running   -   hold on if the rod can take it"
+			return "hold to reel   -   ease off if the rod bends too far"
 	return ""
 
 
@@ -4206,6 +4423,14 @@ func _hit_stop(seconds: float) -> void:
 ## The phone buzzing. The third feedback channel, and on a touch device it is the
 ## only one that reaches the hand doing the work.
 func _buzz(ms: int, amplitude: float) -> void:
+	# COUNTED EVEN WHERE IT CANNOT BE FELT. `vibrate_handheld` is a no-op off a
+	# phone and returns nothing anywhere, so a haptic has no observable effect a
+	# test could assert on - which is how a game shipped with `permissions/vibrate`
+	# missing from the manifest and every buzz it ever fired silently discarded.
+	# The count is the seam: what can be asserted is the DECISION to buzz.
+	buzzes += 1
+	last_buzz_ms = ms
+	last_buzz_amp = amplitude
 	if OS.has_feature("mobile"):
 		Input.vibrate_handheld(ms, clampf(amplitude, 0.0, 1.0))
 
@@ -4612,9 +4837,12 @@ func _wire_sim_signals() -> void:
 		_kick(0.55 if perfect else 0.34)
 		_hit_stop(0.09 if perfect else 0.05)
 		_buzz(45, 0.85 if perfect else 0.55))
+	# THE SMALL ONE. A run is the fish announcing itself, not a penalty, so this is
+	# a tap on the palm and nothing more - the heavy buzz is reserved for the rod
+	# being over-bent, and if they were similar neither would mean anything.
 	sim.run_started.connect(func() -> void:
 		_kick(0.30)
-		_buzz(70, 0.60))
+		_buzz(BUZZ_PULL_MS, BUZZ_PULL_AMP))
 	sim.landed.connect(func(_id: String, w: float) -> void:
 		_impact_at(lure_world_position(), 1.0)
 		_kick(0.22)

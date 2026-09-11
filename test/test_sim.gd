@@ -280,28 +280,40 @@ func test_a_clean_set_starts_the_fight_further_along(t: TestHarness) -> void:
 	if early == null or late == null:
 		return
 	t.gt(early.tension, late.tension, "a clean set is worth nothing over a late one")
-	t.ok(Tuning.in_band(early.tension), "a clean set does not start inside the band")
+	t.lt(early.tension, Tuning.DANGER,
+		"a clean set starts the fight with the rod already in the red, which punishes the good strike")
 
 
 ## MINIGAME 2 ------------------------------------------------------------------
 
-func test_the_band_is_physically_crossable(t: TestHarness) -> void:
-	# The one property no bot and no screenshot would ever reveal: whether the
-	# fight is a rhythm or a dexterity test. Driven through the real sim rather
-	# than the closed form in Tuning, so the two cannot drift apart.
+func test_reeling_in_calm_water_never_breaks_anything(t: TestHarness) -> void:
+	# THE PROMISE THE FIFTH FIGHT MAKES, driven through the real sim rather than
+	# through the arithmetic in Tuning, so the two cannot drift apart.
+	#
+	# Gideon: "you can reel while the fish is calm and stop when it starts pulling
+	# too hard." The first half of that has to be literally true - a patient
+	# player holding the button in calm water must be able to do it all day.
 	var s := _sim_fighting()
 	t.ok(s != null, "a fish can be hooked")
 	if s == null:
 		return
-	s.tension = Tuning.SAFE_LO
 	var step := 1.0 / 60.0
-	var held := 0.0
+	var peak := 0.0
+	var reeled := 0.0
 	s.set_reeling(true)
-	while s.tension < Tuning.SAFE_HI and held < 8.0:
+	for i in int(round(30.0 / step)):
+		if s.state != Sim.FIGHTING:
+			break
+		# Hold the fish in calm water: this claim is about reeling, not about runs.
+		s.running = false
+		s.tell = 0.0
+		s.phase_time = 9.0
 		s.advance(step)
-		held += step
-	t.gt(held, 0.6, "the band is crossed in %.2f s with the thumb down - too fast to aim" % held)
-	t.lt(held, 3.0, "the band takes %.2f s to cross with the thumb down, which drags" % held)
+		peak = maxf(peak, s.tension)
+		reeled += step
+	t.lt(peak, Tuning.DANGER,
+		"reeling in calm water reached %.2f against a danger line of %.2f" % [peak, Tuning.DANGER])
+	t.ok(s.state != Sim.LOST, "reeling in calm water lost the fish")
 
 
 func test_holding_raises_the_needle_and_it_falls_when_let_go(t: TestHarness) -> void:
@@ -309,6 +321,10 @@ func test_holding_raises_the_needle_and_it_falls_when_let_go(t: TestHarness) -> 
 	t.ok(s != null, "a fish can be hooked")
 	if s == null:
 		return
+	# From SLACK, so the claim is about the rise rather than about where a fresh
+	# hook happens to start - a hooked fish begins at SAFE_LO, which is already
+	# most of the way to where reeling settles.
+	s.tension = 0.05
 	var before := s.tension
 	s.set_reeling(true)
 	_step(s, 0.5)
@@ -393,20 +409,29 @@ func test_holding_the_needle_in_the_band_brings_the_fish_in(t: TestHarness) -> v
 	t.lt(s.fish_distance, start, "keeping the needle in the band gained no line")
 
 
-## GREED IS THE RISK DIAL: the top of the band hauls harder than the bottom.
-##
-## The property that turns the fight from a maintenance task into a choice, and
-## the one thing a player can feel but no existing assertion covered. Measured on
-## the pure function so the two ends are compared with nothing else moving.
-func test_the_top_of_the_band_hauls_harder_than_the_bottom(t: TestHarness) -> void:
-	var low := Tuning.greed(Tuning.SAFE_LO)
-	var high := Tuning.greed(Tuning.SAFE_HI)
-	t.gt(high, low * 1.5,
-		"the top of the band hauls %.2f against the bottom's %.2f - there is nothing to weigh" % [high, low])
-	t.gt(low, 0.0, "the bottom of the band hauls nothing at all, so it is not a choice")
-	var mid := Tuning.greed((Tuning.SAFE_LO + Tuning.SAFE_HI) * 0.5)
-	t.gt(mid, low, "the dial does not rise through the band")
-	t.lt(mid, high, "the dial does not rise through the band")
+## THE RISK DIAL, MEASURED THROUGH THE SIM: fishing near the red wears a fish out
+## faster than fishing gently. That is what makes the greedy line genuinely better
+## and genuinely near the edge, rather than a maintenance task with a top speed.
+func test_fishing_near_the_red_wears_a_fish_out_faster(t: TestHarness) -> void:
+	var spent := {}
+	for ceiling in [0.50, 0.95]:
+		var s := _deep_fight()
+		if s == null:
+			t.ok(false, "a deep fish can be hooked")
+			return
+		var step := 1.0 / 60.0
+		for i in int(round(12.0 / step)):
+			if s.state != Sim.FIGHTING:
+				break
+			# Feather against this ceiling, and never reel into a run, so the only
+			# thing separating the two runs is how hard the rod is worked.
+			s.set_reeling(not s.running and s.tension < ceiling)
+			s.advance(step)
+		spent[ceiling] = 1.0 - s.fish_stamina
+
+	t.gt(float(spent[0.95]), float(spent[0.50]) * 1.25,
+		"working the rod near the red tires a fish by %.2f against %.2f played gently - there is nothing to weigh" % [
+			float(spent[0.95]), float(spent[0.50])])
 
 
 func test_a_slack_line_lets_the_fish_take_line_back(t: TestHarness) -> void:
@@ -428,19 +453,29 @@ func test_a_slack_line_lets_the_fish_take_line_back(t: TestHarness) -> void:
 	t.gt(s.fish_distance, start - 0.001, "a slack line costs no ground")
 
 
-func test_the_line_parts_if_the_needle_is_pinned_at_the_top(t: TestHarness) -> void:
-	var s := _sim_fighting()
-	t.ok(s != null, "a fish can be hooked")
+func test_holding_through_a_strong_fish_parts_the_line(t: TestHarness) -> void:
+	# "then eventually snaps, if you dont stop reeling."
+	#
+	# Measured on a DEEP fish, and that is the design rather than a convenience:
+	# `run_power` is what decides whether holding on is survivable, so a reeds
+	# bluegill must forgive it and a lake trout must not. Testing this on the
+	# opening fish would assert that the tutorial punishes a beginner.
+	var s := _deep_fight()
+	t.ok(s != null, "a deep fish can be reached")
 	if s == null:
 		return
 	var step := 1.0 / 60.0
+	s.set_reeling(true)
 	for i in int(round(20.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
-		s.tap()
-		s.tap()
+		# Hold it in a run: the claim is about refusing to let go, not about
+		# whether a run happened to be long enough.
+		s.running = true
+		s.tell = 0.0
+		s.phase_time = 9.0
 		s.advance(step)
-	t.eq(s.state, Sim.LOST, "the line never parts however hard it is tapped")
+	t.eq(s.state, Sim.LOST, "holding the reel through a strong fish's run costs nothing")
 
 
 ## A run climbs the needle with NO input, which is the whole instruction for
@@ -494,7 +529,10 @@ func test_a_run_is_announced_before_it_starts(t: TestHarness) -> void:
 	t.ok(tell_led_the_run, "a warning fired but no run followed it")
 
 
-func test_holding_through_a_run_is_what_breaks_the_line(t: TestHarness) -> void:
+## ...AND THE REEDS FORGIVE IT, which is the other half of the same design. A
+## beginner who has not yet learned to let go must not be punished in the tutorial
+## band; `run_power` is what decides that, and this asserts the gentle end of it.
+func test_a_reeds_fish_forgives_holding_through_one_run(t: TestHarness) -> void:
 	var s := _sim_running()
 	t.ok(s != null, "a run can be reached")
 	if s == null:
@@ -505,7 +543,8 @@ func test_holding_through_a_run_is_what_breaks_the_line(t: TestHarness) -> void:
 		if s.state != Sim.FIGHTING:
 			break
 		s.advance(step)
-	t.eq(s.state, Sim.LOST, "holding REEL through a run costs nothing")
+	t.ok(s.state != Sim.LOST,
+		"one run from an opening reeds fish parted the line - the tutorial is punishing a beginner")
 
 
 func test_playing_it_properly_lands_the_fish(t: TestHarness) -> void:
@@ -523,13 +562,6 @@ func test_playing_it_properly_lands_the_fish(t: TestHarness) -> void:
 	t.gt(s.total_weight, 0.0, "a fish was counted but weighs nothing")
 
 
-func test_in_band_agrees_with_the_tuning_the_gauge_draws(t: TestHarness) -> void:
-	# The gauge draws Tuning.SAFE_LO/SAFE_HI and the rules use in_band(). If they
-	# can disagree the player is aiming at one thing and being scored on another.
-	var s := Sim.new(1)
-	for i in 40:
-		s.tension = float(i) / 40.0
-		t.eq(s.in_band(), Tuning.in_band(s.tension), "in_band disagrees with the drawn band")
 func test_a_landed_fish_returns_the_player_to_the_boat(t: TestHarness) -> void:
 	# The way OUT of the state. This is the assertion that would have caught
 	# the frozen level on a sibling game.
@@ -543,13 +575,7 @@ func test_a_landed_fish_returns_the_player_to_the_boat(t: TestHarness) -> void:
 func test_a_lost_fish_also_returns_the_player_to_the_boat(t: TestHarness) -> void:
 	var s := Sim.new(1)
 	t.ok(_drive_to(s, Sim.FIGHTING), "a fish can be hooked")
-	var step := 1.0 / 60.0
-	for i in int(round(20.0 / step)):
-		if s.state != Sim.FIGHTING:
-			break
-		s.tap()
-		s.tap()
-		s.advance(step)
+	_break_the_line(s)
 	t.eq(s.state, Sim.LOST, "the line broke")
 	_step(s, Tuning.HOLD_TIME)
 	t.eq(s.state, Sim.IDLE, "and the player can cast again")
@@ -564,13 +590,7 @@ func test_casting_straight_out_of_a_loss_clears_the_last_fish(t: TestHarness) ->
 	t.ok(s != null, "a fish can be hooked")
 	if s == null:
 		return
-	var step := 1.0 / 60.0
-	for i in int(round(30.0 / step)):
-		if s.state != Sim.FIGHTING:
-			break
-		s.tap()
-		s.tap()
-		s.advance(step)
+	_break_the_line(s)
 	t.eq(s.state, Sim.LOST, "the line never broke")
 
 	s.hold_cast()
@@ -776,3 +796,29 @@ func _deep_fight() -> Sim:
 	s.state = Sim.FIGHTING
 	s.state_time = 0.0
 	return s
+
+
+## Break the line the way the fifth fight breaks it: keep reeling into a run.
+##
+## There is no longer any way to part a line in calm water, which is the whole
+## point of the new model - so every test that needs a broken line has to go
+## through the one decision that can break it.
+func _break_the_line(s: Sim) -> void:
+	var step := 1.0 / 60.0
+	# NOT REELING. Pinning the tension is enough to accrue strain, and reeling as
+	# well LANDED the fish before the line ever parted - a weak fish still gains
+	# ground through a run, which is the tutorial being forgiving working exactly
+	# as designed and quietly making this helper assert the opposite of its name.
+	for i in int(round(24.0 / step)):
+		if s.state != Sim.FIGHTING:
+			break
+		# Pinned at the top and held there, which is what refusing to let go of a
+		# strong fish arrives at. Driven through the real strain path rather than
+		# by writing LOST, so these tests still break if the snap ever stops
+		# working - they are about what happens AFTER a loss, and the loss itself
+		# has to be genuine or they are asserting against a state nobody reaches.
+		s.running = true
+		s.tell = 0.0
+		s.phase_time = 9.0
+		s.tension = Tuning.TENSION_MAX
+		s.advance(step)

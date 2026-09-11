@@ -89,65 +89,216 @@ const HOOK_PERFECT_BONUS := 0.22  ## tension the fight starts with, on a clean s
 ## judgement into a dexterity test. Halving the decay with it keeps the rate at
 ## roughly 2.4/s and makes each tap a finer adjustment, which is what was asked
 ## for. `test_the_band_is_tappable_at_a_human_rate` is the guard on that.
-## THE FOURTH FIGHT: THE ROD IS REELED BY HOLDING A BUTTON.
+## THE FIFTH FIGHT: REELING AND TENSION ARE DIFFERENT THINGS.
 ##
-## Gideon: "there is no dedicated button to fill the bar. I want a button instead
-## of just tapping the screen."
+## Gideon: "I think we are not showing a different between reeling speed and
+## tension on the line... there should be a give and take, where you can keep
+## reeling but risk losing the fish, but if you get in a good rythem and wear the
+## fish out, you can reel while the fish is calm and stop when it starts pulling
+## too hard."
 ##
-## `HOLD_RISE` replaces the tap's instant kick. The arithmetic is the same shape -
-## something pushes tension up, decay pulls it down - but the input is now one
-## control with one resting state instead of a rate the player has to guess at.
+## He named the fault in the MODEL, and he was right. One `tension` value was the
+## throttle (holding raised it), the score (progress happened inside a band) and
+## the danger (a run raised it) at once, so none of the three could be read. The
+## fourth fight made that value a hold instead of a tap, which was an improvement
+## to the control and left the conflation exactly where it was.
 ##
-## THE EQUILIBRIUM MUST SIT ABOVE THE BAND, and getting that wrong the first time
-## is worth recording because it silently undid the whole fight.
+## Three quantities now, and each one answers a different question:
 ##
-## A held button rises at `HOLD_RISE` and decays at `TAP_DECAY * tension`, so
-## holding forever settles at `HOLD_RISE / TAP_DECAY`. The first attempt derived
-## HOLD_RISE from the old tap rate (0.058 x 2.4/s = 0.139), which put that settle
-## point at **0.60 - inside the safe band**. Holding the button down therefore
-## parked the needle in the green and reeled the fish in with no further input:
-## exactly the "one correct sustained input" that killed the FIRST fight, arrived
-## at from the opposite direction. Measured, it showed as `blind` and `angler`
-## posting identical scores, which is the invariant that every policy must fail
-## for a different reason doing its job.
+##   fish_distance  PROGRESS.  On the meter at the top. The fight is about this.
+##   tension        DANGER.    On the ROD - bend, shake, the line going red.
+##   fish_stamina   THE RESOURCE that turns danger into progress.
 ##
-## So the settle point is now 1.10 - above `TENSION_MAX`, so a held button always
-## ends in a snapped line - and both numbers were raised together to keep the
-## CYCLE quick: about 1.4 s to cross the band with the thumb down and 1.1 s to
-## fall back with it up, against 3.7 s and 2.7 s at the old decay. `RUN_PULL`
-## moved with `TAP_DECAY` because a run left alone settles at their ratio, which
-## NOTES.md says must stay just under the band.
+## And the loop he described falls straight out of them: reeling in calm water is
+## safe and gains ground; reeling while the fish runs gains almost nothing and
+## takes the tension up fast; letting go gives the tension back. The fish tires
+## itself by RUNNING, not by being reeled - so waiting it out is a real strategy
+## that costs the only thing that is actually scarce, which is daylight.
 ##
-## The property that must survive is the one that killed the FIRST fight: no
-## sustained input may win. Held forever the line parts; released forever the fish
-## takes line and goes. There is no setting to find, only a duty cycle to
-## modulate - and `test_there_is_no_setting_that_wins_on_its_own` still says so.
-const HOLD_RISE := 0.418          ## tension per second while REEL is held
-const TAP_KICK := 0.058           ## how far one tap moves the needle
-const TAP_DECAY := 0.38           ## how fast it falls back, per second
-const SAFE_LO := 0.42             ## bottom of the green band
-const SAFE_HI := 0.78             ## top of it
+## Researched against the games that separate these cleanly. Sea of Thieves keeps
+## danger entirely diegetic - rod shake, and reel only when the line goes slack -
+## and Fishing Planet keeps a colour-coded tension reading apart from fatigue and
+## distance. The failure to avoid is Monster Hunter Wilds, where danger is inferred
+## from the rod alone and players report the line parting with no legible warning:
+## the rod carries it here, but the LINE going red carries it too, because a
+## bending rod is a hard read on a phone at arm's length.
+
+## Tension while the reel is held rises toward `HOLD_RISE * resist / TAP_DECAY`,
+## and RESIST is the whole risk dial. See `resist()` below.
+##
+## BOTH OF THESE MOVED TOGETHER, x2.5, AND THAT IS THE POINT. The settle point is
+## their ratio, so scaling the pair leaves every number in the ladder below
+## exactly where it was designed and changes only HOW FAST tension gets there.
+##
+## It had to change because at 0.276/0.50 the time constant was two seconds, and
+## a quantity that takes two seconds to move cannot carry a decision: measured, a
+## bot with a 0.30 s reaction lag reached 0.747 against a fish whose settle was
+## 0.96 and never crossed the danger line at all. Feathering was free, so the risk
+## dial was a dial nobody had to turn. At 0.69/1.25 the constant is 0.8 s: holding
+## against a fresh Old Town fish reaches the red in about nine tenths of a second,
+## the same lag now costs about 0.09 of overshoot, and letting go drops the rod
+## visibly rather than sagging.
+const HOLD_RISE := 0.69            ## tension per second while REEL is held
+const TAP_DECAY := 1.25            ## how fast tension falls back, per second
+
+## HOW HARD THE FISH ITSELF PULLS BACK AGAINST THE REEL, and this is the number
+## that makes the fight a fight.
+##
+## Built after measuring, with `scripts/probe_loss.gd`, what the first cut of the
+## fifth fight actually did: **nothing was ever lost.** Not one parted line, not
+## one escape, across all twenty-six species and both bots. Every failure was the
+## probe's two-minute clock running out. And a bot playing perfectly - releasing
+## on the exact frame of every tell - landed 92% against a human-reaction bot's
+## 93%, so the give and take was worth one point of skill.
+##
+## The cause was that holding the reel in calm water settled at 0.55 against a
+## danger line of 0.78 FOR EVERY FISH IN THE LAKE. The correct play was therefore
+## "hold the button, let go on the tell", which is one bit of information and no
+## judgement at all. The risk Gideon asked for existed only during runs, which are
+## telegraphed and rare, so most of the fight had no decision in it.
+##
+## Now a fresh fish fights the reel and a spent one does not:
+##
+##   resist = 1 + RESIST_GAIN * run_power^2 * stamina_left
+##
+## Squared, because a linear term could not separate the tutorial from the deep
+## without making the tutorial tense. What it buys, as the settle tension a held
+## reel reaches against a FRESH fish of each band's mean power:
+##
+##   The Reeds        0.63   hold it down, nothing happens. This is where the
+##                           button is taught, and it has to be safe to learn on
+##   The Channel      0.75   visibly bent, still safe. The warning without the bill
+##   The Drowned Road 0.78   exactly the danger line: hold it and strain creeps
+##   Old Town         0.96   real feathering. A held button parts the line
+##   The Quarry       1.01   feather hard
+##   The Spring       1.36   the Old Fish cannot be held at all while it is fresh
+##
+## That ladder is free: `run_power` already has to climb with depth by rule
+## (`test_runs_get_stronger_with_depth`), so one species stat now pays for the
+## runs AND for the resistance, and the two cannot drift apart.
+##
+## And because `stamina_left` multiplies it, wearing the fish out is felt in the
+## CONTROL rather than read off a number: the same button that parted the line at
+## the start of the fight can be held flat at the end of it. That is the sentence
+## Gideon wrote - "if you get in a good rythem and wear the fish out" - expressed
+## as a thing the thumb learns instead of a thing the HUD says.
+const RESIST_GAIN := 0.45
+
+## AND A CEILING ON IT, because past a point "hold it less" stops being a
+## judgement and becomes a reflex test.
+##
+## Uncapped, the Old Fish's run_power of 1.806 gave a settle of 1.36 - the tension
+## pins at the top the instant the reel is touched, so the only play is taps
+## shorter than a person's reaction time. Measured: ANGLER, which is perfect and
+## instant, landed 44% of them; HUMAN, which is the same player with three tenths
+## of a second of lag, landed NONE and parted the line on three quarters of them.
+## A gap that size between the same decision made perfectly and made by a person
+## is the definition of a dexterity wall, and this game is meant to be about
+## watching rather than reflexes.
+##
+## 1.9 caps the settle at about 1.05 - still unholdable, still the hardest thing
+## in the lake, but a short press survives it. Everything up to and including the
+## Quarry sits under the cap already, so this touches exactly one fish.
+const RESIST_MAX := 1.9
+
+## PRESSURE IS WHAT TIRES IT, alongside the running.
+##
+## Without this the player has no lever on the length of a fight: the fish tired
+## itself by running and nothing else, so every fight took as long as the fish
+## decided it would, and the difficulty "ladder" between bands was really just a
+## ladder of fight lengths. Deep fish were not hard, they were slow.
+##
+## Draining stamina in proportion to TENSION is what turns the risk dial into a
+## reward. Fishing at 0.95 tires a fish roughly twice as fast as fishing at 0.50,
+## so the greedy line is genuinely faster and genuinely near the edge - which is
+## the rule CRAFT.md has carried for a while and this game had not honoured since
+## the band's greed dial went away with the band.
+const TIRE_PRESSURE := 0.10
+
+
+## The fish's resistance to the reel: a multiplier on `HOLD_RISE`.
+##
+## Pure and shared, so the settle tension the tests assert, the number the rod's
+## bend is drawn from and the value the fight runs on are all one thing.
+static func resist(power: float, stamina_left: float) -> float:
+	return minf(RESIST_MAX, 1.0 + RESIST_GAIN * power * power * clampf(stamina_left, 0.0, 1.0))
+
+
+## Where a held reel settles against a given fish. `HOLD_RISE * resist` is pushed
+## against a decay proportional to the tension itself, so this is the fixed point.
+static func hold_settle(power: float, stamina_left: float) -> float:
+	return HOLD_RISE * resist(power, stamina_left) / TAP_DECAY
+
+## What a running fish adds while you keep reeling into it. This is the give and
+## take, and the number is measured rather than chosen: at 1.25 it crossed DANGER
+## in 0.20 s, which is faster than anyone can react to and therefore reads as the
+## game cheating. Scaled with HOLD_RISE and TAP_DECAY, x2.5, because it is a rise
+## pushed against the same decay: leaving it behind would have quietly made runs
+## weaker than they were the moment the pair moved.
+##
+## Reeling into a run from a power-1.0 fish pins the tension at the top, so the
+## line parts SNAP_SECONDS later unless the thumb comes off. That is exactly the
+## promise - "you can keep reeling but risk losing the fish" - and it is a second
+## and a bit of warning, not an instant.
+##
+## SCALED BY run_power SQUARED, the same shape `resist` uses, and for the same
+## reason: linear, it made the TUTORIAL part a line. A reeds fish held right
+## through one of its runs pinned the tension and broke off in 1.2 s, which is the
+## first water teaching a beginner that the reel button is a trap. Squared, a
+## reeds run settles at 0.87 - the rod reddens and shakes and holds - while a
+## Channel fish still pins in about a second. The first water forgives and nothing
+## after it does, which is the shape a tutorial is supposed to have.
+const PULL_RISE := 1.05            ## tension per second, scaled by run_power squared
+
+## Where the rod reads as over-bent: the line reddens, the heavy haptic fires, and
+## strain starts accruing. Named rather than derived, because it is the one number
+## the whole feel of the fight hangs on.
+const DANGER := 0.78
+
+## From "dangerously bent" to a parted line, at full overshoot. 1.2 seconds, which
+## the research puts at the forgiving end on purpose - a snap has to be a decision
+## the player made, never a surprise.
+const SNAP_SECONDS := 1.2
+
+## Where a hooked fish starts, and where a "slack" line sits. The band the fourth
+## fight was built around is gone with its needle - there is nothing to hold the
+## needle inside of any more - but this is still the tension a fresh hook begins
+## at, so it keeps its name and its value.
+const SAFE_LO := 0.42
+
+## Kept as an alias for DANGER. Several assertions and the greed dial were written
+## against SAFE_HI, and pointing it at the one real number means there is still
+## only one place to move the danger line.
+const SAFE_HI := DANGER
+
 const TENSION_MAX := 1.0
 
-## GREED IS THE RISK DIAL, and this is what makes the fight risk/reward rather
-## than a maintenance task.
+const REEL_RATE := 1.55           ## m/s gained while reeling in calm water
+
+## HOLDING ON SLOWS THE RUN ITSELF. This is the gamble, and it had to stop being
+## an additive reel term to become one.
 ##
-## The band used to be pass or fail: anywhere inside it hauled at one rate, so the
-## correct play was the middle and there was nothing to weigh. Now the haul scales
-## from `BAND_GREED_LO` at the bottom of the band to `BAND_GREED_HI` at the top -
-## so the fastest water to fish in is the inch below the strain zone.
+## It was `REEL_INTO_RUN := 0.25`, a quarter of the normal haul applied while the
+## fish ran - about 0.24 m/s against a strong fish taking 5.2. Measured on a
+## Longnose Gar, holding on through a full run bought back a third of a metre out
+## of twelve. So "keep reeling and risk it" was never a real option: the correct
+## play was always to let go, and the fight had one strategy and no dial.
 ##
-## A cautious player lands everything, slowly. A greedy one lands more per minute
-## and snaps some lines. In deep water, where the clock is the resource that is
-## actually scarce, that is a real choice with a real cost. CRAFT.md has had "give
-## the player a risk dial they hold themselves, and the greedy option is genuinely
-## better and genuinely near the edge" for a while; this game had not honoured it.
-const BAND_GREED_LO := 0.62       ## haul multiplier at the bottom of the band
-const BAND_GREED_HI := 1.62       ## ...and at the top, one step from the strain
-const REEL_RATE := 1.55           ## m/s gained while the needle is in the band
-const SLIP_RATE := 0.62           ## m/s the fish takes back while below the band
-const STRAIN_RATE := 5.0         ## toward a snapped line, while above the band
-const STRAIN_RECOVER := 0.40      ## strain bleeding off once you stop
+## As a brake on the run instead, holding on cuts the ground the fish takes by
+## more than half. Now the sentence works in both directions: let go and the fish
+## takes line but the rod is safe; hold on and you keep it close while the tension
+## pins at the top and the line has SNAP_SECONDS left. That is the give and take.
+const RUN_HOLD := 0.40            ## fraction of a run's gain cancelled by holding on
+## STRAIN BLEEDS OFF SLOWLY, and that is what makes "eventually" true.
+##
+## At 0.40 a second, three seconds of calm wiped every bit of damage a run had
+## done, so a player who over-bent the rod on every single run paid nothing across
+## a whole fight - measured, a blind 80% duty cycle landed a lake trout about as
+## fast as attentive play. At 0.12 the damage accumulates, so repeatedly holding
+## on through runs parts the line eventually even if no single run does it. That
+## is the sentence he actually wrote: "then eventually snaps, if you dont stop
+## reeling."
+const STRAIN_RECOVER := 0.025
 
 ## Runs. The needle climbs ON ITS OWN, so the correct answer is to STOP TAPPING -
 ## which is legible on a gauge in a way that no amount of instruction would be.
@@ -161,9 +312,35 @@ const STRAIN_RECOVER := 0.40      ## strain bleeding off once you stop
 ## point of a run left alone is RUN_PULL / TAP_DECAY, so halving the decay put it
 ## at 0.78 - the top of the band - and made a run unsurvivable however it was
 ## played. The tests caught it immediately, which is what they are for.
-const RUN_JOLT := 0.33            ## tension added the moment a run begins
-const RUN_PULL := 0.149           ## tension per second it adds while it lasts
-const RUN_GAIN := 1.05            ## m/s it takes back during one
+## THE KICK YOU FEEL WHEN IT GOES, and deliberately not enough to hurt on its own.
+##
+## At 0.33 the jolt alone carried tension past DANGER for any decent fish, so a
+## player who let go the instant the rod moved still took damage - which
+## contradicts the promise the whole fifth fight is built on. It is the thing the
+## small haptic is matched to now: you feel the fish go, and what happens next is
+## entirely your decision. 0.12 keeps even the strongest fish's kick just under
+## the danger line from a normal reeling tension.
+const RUN_JOLT := 0.22
+
+## THE LADDER LIVES HERE, because this is the term `run_power` multiplies.
+##
+## Ground lost during a run is `RUN_GAIN * run_power * seconds`, and run_power is
+## the one species stat that climbs with depth by rule, so raising this number
+## makes deep water harder faster than it makes shallow water harder. That is the
+## only honest way to steepen the band ladder: the alternative, scaling run_power
+## per band to chase a catch rate, breaks the thing run_power is FOR and was
+## caught by `test_runs_get_stronger_with_depth` within a minute of trying it.
+##
+## Measured across the six bands, mean landed with the `human` bot:
+##
+##   3.4    100  99  88  65  31  4     the Channel is not a step up from the Reeds
+##   3.9    100  93  76  56  26  4     every rung a real step
+##   4.4    100  81  61  42  23  4     the Channel starts losing fish to beginners
+##
+## 3.9 is the first value where every band is meaningfully harder than the one
+## above it. At 3.9 a strong deep fish takes back about nine metres in one run,
+## which is a shock on the distance meter and is meant to be.
+const RUN_GAIN := 3.9             ## m/s it takes back during one
 ## How much of a species' `run_power` reaches the opening jolt. The sustained
 ## pull takes all of it; the spike takes a little over half, which is what turns
 ## run_power from a pass/fail switch into a dial. See the note in `sim.gd`.
@@ -188,9 +365,18 @@ const CALM_MAX := 4.6
 ## Losing. The fish reaching this far past where it was hooked means it has
 ## found cover or taken all the line - a legible, thematic way to lose that is
 ## not "a bar filled up".
-const ESCAPE_MARGIN := 6.0
+##
+## SIX METRES WAS ONE RUN. A traced Longnose Gar fight ended at 4.2 seconds: the
+## fish's first run moved it from 22 m to 28 m and it was gone, with the player's
+## only decision - hold on or let go - worth a third of a metre. That is a coin
+## flip wearing a mechanic's clothes, and it was the single biggest reason deep
+## water scored badly.
+##
+## At fourteen, one maximum-length run from a strong fish very nearly escapes if
+## you let it go and does not if you hold on. The margin is the fight.
+const ESCAPE_MARGIN := 18.0
 
-const TIRE_RATE := 0.30           ## stamina per second while being reeled
+const TIRE_RATE := 0.20           ## stamina per second while being reeled
 const TIRED_RELIEF := 0.60        ## how much of the fish's fight tiredness removes
 
 # --- landing --------------------------------------------------------------
@@ -211,56 +397,5 @@ static func cast_flight_seconds(charge: float) -> float:
 	return cast_distance(charge) / CAST_FLIGHT_SPEED
 
 
-## True if the tension is where it should be. One function, used by the rules
-## AND by the gauge that draws the band, so what the player sees and what the
-## game scores cannot drift apart.
-static func in_band(tension: float) -> bool:
-	return tension >= SAFE_LO and tension <= SAFE_HI
-
-
-## How many taps per second it takes to hold the needle at a given level.
-##
-## Not used by the game - it exists so the tests can assert the mechanic is
-## PHYSICALLY TAPPABLE. A band that needs eleven taps a second is unplayable on
-## a phone however good it looks in a diagram, and that is not something a
-## screenshot or a bot would ever reveal.
-static func taps_per_second_for(tension: float) -> float:
-	return (TAP_DECAY * tension) / TAP_KICK
-
-
-## How fast the lure sinks, scaled so a deep drop does not become a wait.
-##
-## At 140 m a constant 1.15 m/s is two minutes of watching a line go down, which
-## is not atmosphere, it is a loading screen. The rate rises with the target so
-## the descent is always a handful of seconds - and it stays SLOWEST in the reeds,
-## where the player is learning and the sink is the only beat between casting and
-## fishing.
 static func sink_speed(target_depth: float) -> float:
 	return 1.0 + maxf(0.0, target_depth - 4.0) * 0.42
-
-
-## How hard the haul pulls, given where in the band the needle is sitting.
-##
-## Linear between the two ends, and clamped, so a needle outside the band is not
-## asked about - the caller has already decided that case. Pure, so the test can
-## assert the shape of the dial without running a fight.
-static func greed(t: float) -> float:
-	var k := clampf((t - SAFE_LO) / maxf(0.001, SAFE_HI - SAFE_LO), 0.0, 1.0)
-	return lerpf(BAND_GREED_LO, BAND_GREED_HI, k)
-
-
-## How long the thumb spends DOWN to cross the band, and UP to fall back across
-## it. Together they are one cycle of the fight, and the pair is what decides
-## whether it reads as a rhythm or as a chore.
-##
-## Closed form rather than simulated: tension approaches `HOLD_RISE / TAP_DECAY`
-## from below while held and decays exponentially while released, so both legs
-## are logarithms. Pure, so a test can assert the FEEL of the fight without
-## running one.
-static func hold_seconds_across_band() -> float:
-	var eq := HOLD_RISE / TAP_DECAY
-	return -log((SAFE_HI - eq) / (SAFE_LO - eq)) / TAP_DECAY
-
-
-static func release_seconds_across_band() -> float:
-	return log(SAFE_HI / SAFE_LO) / TAP_DECAY

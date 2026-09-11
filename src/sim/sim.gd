@@ -354,10 +354,6 @@ func can_hook() -> bool:
 	return in_tug and taking
 
 
-## True while the tension needle is inside the safe band.
-func in_band() -> bool:
-	return Tuning.in_band(tension)
-
 
 ## How close the line is to going, [0, 1]. Drives the gauge's colour, the sound
 ## and the shake off one reading.
@@ -608,31 +604,38 @@ func _fight(dt: float) -> void:
 	# The fish's own pull during a run. The needle climbs with no input at all,
 	# which is the entire instruction for what to do about it: the player sees
 	# it rising while their thumb is still and works out to leave it alone.
-	if running:
-		# **How hard a run pulls is the species, not a constant.** It used to be
-		# global, which meant every run in the game was equally dangerous and the
-		# only way to make a fish harder was to make it run MORE OFTEN. That is
-		# how the tutorial ended up with fish that never ran at all: the reeds
-		# were tuned easy, easy meant rare, and a player could finish the first
-		# hour without ever meeting the mechanic the whole fight is built on.
-		#
-		# Split in two, the two ends do different jobs. A bluegill bolts every
-		# few seconds and barely moves the needle, which TEACHES. A sturgeon
-		# bolts once and the needle goes most of the way to the top on its own.
-		var power: float = s["run_power"]
-		tension = clampf(tension + Tuning.RUN_PULL * power * dt, 0.0, Tuning.TENSION_MAX)
-		fish_distance += Tuning.RUN_GAIN * power * dt
+	var power: float = s["run_power"]
+	var haul: float = s["haul"]
+	var stam: float = s["stamina"]
 
-	# THE PLAYER'S OWN PULL, while the REEL button is down. Continuous rather
-	# than a tap's instant kick, so the thumb has one job and one resting state.
+	# TENSION IS THE DANGER, AND ONLY THE DANGER.
+	#
+	# Three inputs, and each one is a thing the player did or the fish did:
+	#   reeling at all           the fish pulls back, harder the fresher it is
+	#   reeling INTO a run       the give and take, and it climbs fast
+	#   letting go               it falls back
+	#
+	# `resist` is what makes the first of those a decision rather than a switch.
+	# A fresh deep fish settles a held reel ABOVE the danger line, so the thumb has
+	# to feather; a fish worn down to nothing settles well below it, so the same
+	# button can be held flat. Nothing tells the player this happened - the rod
+	# stops bending as far, and they feel it.
 	if reeling:
-		tension = clampf(tension + Tuning.HOLD_RISE * dt, 0.0, Tuning.TENSION_MAX)
-
+		var resist := Tuning.resist(power, fish_stamina)
+		tension = clampf(tension + Tuning.HOLD_RISE * resist * dt, 0.0, Tuning.TENSION_MAX)
+		if running:
+			# Squared, like `resist`, so the tutorial's fish can be held through a
+			# run and nothing deeper can. One relationship rather than two.
+			tension = clampf(tension + Tuning.PULL_RISE * power * power * dt,
+				0.0, Tuning.TENSION_MAX)
 	tension = maxf(0.0, tension - Tuning.TAP_DECAY * tension * dt)
 
-	if tension > Tuning.SAFE_HI:
-		var over := (tension - Tuning.SAFE_HI) / maxf(0.001, Tuning.TENSION_MAX - Tuning.SAFE_HI)
-		strain = clampf(strain + Tuning.STRAIN_RATE * over * dt, 0.0, 1.0)
+	# THE ROD IS OVER-BENT. Strain accrues, and at full overshoot the line has
+	# SNAP_SECONDS before it parts - long enough that the red line and the heavy
+	# buzz are a decision point rather than a surprise.
+	if tension > Tuning.DANGER:
+		var over := (tension - Tuning.DANGER) / maxf(0.001, Tuning.TENSION_MAX - Tuning.DANGER)
+		strain = clampf(strain + (over / Tuning.SNAP_SECONDS) * dt, 0.0, 1.0)
 		if strain >= 1.0:
 			lost_count += 1
 			_enter(LOST)
@@ -641,21 +644,33 @@ func _fight(dt: float) -> void:
 	else:
 		strain = maxf(0.0, strain - Tuning.STRAIN_RECOVER * dt)
 
-	if Tuning.in_band(tension):
-		# HOW HIGH IN THE BAND IS THE RISK DIAL. The top hauls two and a half
-		# times as fast as the bottom and sits one step from the strain zone, so
-		# the player chooses their own pace against their own nerve rather than
-		# holding a needle in the middle of a green stripe.
-		var greed := Tuning.greed(tension)
-		var haul: float = s["haul"]
-		fish_distance = maxf(0.0, fish_distance - Tuning.REEL_RATE * haul * greed * dt)
-		var stam: float = s["stamina"]
-		fish_stamina = maxf(0.0, fish_stamina - (Tuning.TIRE_RATE / stam) * greed * dt)
-	elif tension < Tuning.SAFE_LO:
-		# Slack. The fish takes line back rather than throwing the hook, so not
-		# tapping enough is a slow bleed and not a sudden death - one clear
-		# failure per mistake, and this one is legible on the distance readout.
-		fish_distance += Tuning.SLIP_RATE * dt
+	# DISTANCE IS THE PROGRESS, and what it does depends on the two of you.
+	if running:
+		# The fish is taking line. Reeling into it slows that but does not stop
+		# it for anything strong - which is what makes holding on a gamble rather
+		# than simply slower.
+		# Holding on BRAKES the run rather than out-hauling it. A reel term could
+		# never beat a strong fish's own pull, which is what made the gamble a
+		# non-choice; a brake on the run's own gain is a decision worth making and
+		# worth paying tension for.
+		var brake := (1.0 - Tuning.RUN_HOLD) if reeling else 1.0
+		fish_distance += Tuning.RUN_GAIN * power * brake * dt
+		# AND A RUNNING FISH TIRES ITSELF. Not the reeling - the running. So
+		# waiting a run out is a real strategy and its cost is the clock, which is
+		# the one resource this game says is scarce.
+		fish_stamina = maxf(0.0, fish_stamina - (Tuning.TIRE_RATE / stam) * dt)
+	elif reeling:
+		# Calm water, and the thumb down. This is where the ground is made.
+		fish_distance = maxf(0.0, fish_distance - Tuning.REEL_RATE * haul * dt)
+
+	# AND PRESSURE TIRES IT TOO, which is the reward half of the risk.
+	#
+	# Held near the red a fish gives up roughly twice as fast as one played
+	# gently, so the greedy line really is the quick way home and really is the
+	# one that parts lines. Without this the player had no lever on the length of
+	# a fight at all and a deep fish was slow rather than hard.
+	if reeling:
+		fish_stamina = maxf(0.0, fish_stamina - (Tuning.TIRE_PRESSURE * tension / stam) * dt)
 
 	if fish_distance >= cast_distance + Tuning.ESCAPE_MARGIN:
 		lost_count += 1

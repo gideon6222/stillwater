@@ -33,89 +33,181 @@ func test_flight_time_is_a_playable_length(t: TestHarness) -> void:
 	t.gt(long_cast, short_cast, "a longer cast takes longer to land")
 	t.gt(short_cast, 0.1, "even a tap has visible flight time")
 	t.lt(long_cast, 2.0, "the longest cast must not feel like waiting")
-
-
-
-## The band has to be reachable by a thumb.
+## THE THREE NUMBERS THE FIFTH FIGHT HANGS ON, and each one is a promise to the
+## player rather than a tuning preference.
 ##
-## The one property no bot and no screenshot would ever reveal, and the whole
-## point of this version of the fight: it should feel like a fun minigame, not a
-## dexterity test. A band that needs eleven taps a second is unplayable on a
-## phone however good the numbers look on paper.
-func test_the_band_is_crossed_at_a_human_pace(t: TestHarness) -> void:
-	# The claim survived the change from tapping to holding, and only its units
-	# moved: the fight must be a rhythm, not a dexterity test. A band crossed in
-	# a third of a second is a reflex check; one that takes six is a chore.
-	var down := Tuning.hold_seconds_across_band()
-	var up := Tuning.release_seconds_across_band()
-	t.gt(down, 0.6, "the band is crossed in %.2f s with the thumb down - too fast to aim" % down)
-	t.lt(down, 3.0, "the band takes %.2f s to cross with the thumb down, which drags" % down)
-	t.gt(up, 0.5, "the needle falls back across the band in %.2f s - the thumb can never rest" % up)
-	t.lt(up, 3.0, "the needle takes %.2f s to fall back across the band" % up)
-
-	# AND A HELD BUTTON MUST NOT SETTLE INSIDE THE BAND. This is the one that
-	# matters: the settle point is HOLD_RISE / TAP_DECAY, and the first attempt
-	# put it at 0.60 - in the green - so holding the button down reeled the fish
-	# in with no further input. That is the "one correct sustained input" that
-	# killed the first fight, arriving from the other direction.
+## Gideon: "there should be a give and take, where you can keep reeling but risk
+## losing the fish, but if you get in a good rythem and wear the fish out, you can
+## reel while the fish is calm and stop when it starts pulling too hard."
+##
+## That sentence is three claims, and all three are arithmetic:
+func test_reeling_in_calm_water_is_safe_forever(t: TestHarness) -> void:
+	# 1. A patient player can hold the button all day in calm water and nothing
+	# breaks. Tension settles at HOLD_RISE / TAP_DECAY, and that has to land
+	# clearly BELOW the danger line - this is the whole difference from the fourth
+	# fight, where a held button always ended in a snapped line.
 	var settle := Tuning.HOLD_RISE / Tuning.TAP_DECAY
-	t.gt(settle, Tuning.SAFE_HI,
-		"holding the button settles at %.2f, inside the band - a held thumb wins on its own" % settle)
+	t.lt(settle, Tuning.DANGER * 0.85,
+		"reeling in calm water settles at %.2f against a danger line of %.2f - too close to hold" % [
+			settle, Tuning.DANGER])
+	t.gt(settle, Tuning.DANGER * 0.35,
+		"reeling settles at %.2f, so far below danger that the rod never bends at all" % settle)
 
 
-func test_the_safe_band_is_a_real_target(t: TestHarness) -> void:
-	t.gt(Tuning.SAFE_HI, Tuning.SAFE_LO, "the band has no width")
-	t.gt(Tuning.SAFE_HI - Tuning.SAFE_LO, 0.18, "the band is too narrow to hold by tapping")
-	t.lt(Tuning.SAFE_HI - Tuning.SAFE_LO, 0.60, "the band covers so much that missing it takes effort")
-	t.gt(Tuning.SAFE_LO, 0.0, "the band starts at slack, so doing nothing is safe")
-	t.lt(Tuning.SAFE_HI, Tuning.TENSION_MAX, "there is no headroom above the band to break the line in")
+func test_reeling_into_a_run_reaches_danger_in_a_readable_time(t: TestHarness) -> void:
+	# 2. Holding on through a run has to bite, and bite soon enough to be a
+	# decision. Measured for an average fish by stepping the arithmetic rather
+	# than by trusting a closed form.
+	var tension := Tuning.HOLD_RISE / Tuning.TAP_DECAY
+	var dt := 1.0 / 60.0
+	var took := 0.0
+	while tension < Tuning.DANGER and took < 8.0:
+		tension += (Tuning.HOLD_RISE + Tuning.PULL_RISE * 1.0) * dt
+		tension -= Tuning.TAP_DECAY * tension * dt
+		took += dt
+	t.lt(took, 1.6,
+		"reeling into a run takes %.2f s to reach danger - the player will not connect the two" % took)
+	t.gt(took, 0.25,
+		"reeling into a run reaches danger in %.2f s, which is faster than anyone can react" % took)
 
 
-## A single tap must be a visible fraction of the band and never cross it whole -
-## otherwise the gauge either does not respond or cannot be controlled.
-func test_one_tap_is_a_readable_step(t: TestHarness) -> void:
-	var band := Tuning.SAFE_HI - Tuning.SAFE_LO
-	t.gt(Tuning.TAP_KICK, band * 0.15, "a tap barely moves the needle")
-	t.lt(Tuning.TAP_KICK, band, "one tap crosses the whole band, so it cannot be held inside it")
+func test_a_snapped_line_is_a_decision_and_not_a_surprise(t: TestHarness) -> void:
+	# 3. From "the rod reads as over-bent" to a parted line must be long enough
+	# that the red line and the heavy buzz land first. The research puts this at
+	# the forgiving end deliberately: a snap the player did not choose is the
+	# thing every source warns about.
+	t.gt(Tuning.SNAP_SECONDS, 0.8,
+		"the line parts %.1f s after the warning, which is a surprise rather than a choice" % Tuning.SNAP_SECONDS)
+	t.lt(Tuning.SNAP_SECONDS, 3.0,
+		"the line takes %.1f s to part, so over-bending it costs nothing in practice" % Tuning.SNAP_SECONDS)
+	t.lt(Tuning.DANGER, Tuning.TENSION_MAX,
+		"there is no headroom above the danger line to break the line in")
 
 
-## Slack has to bleed ground away slowly rather than ending the fight, so the two
-## failures stay distinguishable: too little tapping loses the fish gradually and
-## visibly on the distance readout, too much parts the line.
+## THE TWO WAYS TO LOSE A FISH MUST LOOK DIFFERENT AND TAKE DIFFERENT TIMES.
+##
+## A parted line is sudden and is your fault: you held the reel against a fish
+## that was pulling. An escape is slow and is also your fault, in the opposite
+## direction: you would not hold it at all, and the fish took the line a run at a
+## time. If those two ever took similar amounts of time the player could not tell
+## which mistake they had made, and the fight would read as random.
 func test_the_two_failures_are_different_speeds(t: TestHarness) -> void:
-	t.gt(Tuning.REEL_RATE, Tuning.SLIP_RATE,
-		"the fish takes line back faster than it can be reeled in, so nothing can be landed")
-	t.gt(Tuning.SLIP_RATE, 0.0, "a slack line costs nothing")
-	t.gt(Tuning.ESCAPE_MARGIN, 0.0, "there is no way to lose a fish by under-tapping")
-	var seconds_to_escape := Tuning.ESCAPE_MARGIN / Tuning.SLIP_RATE
-	t.gt(seconds_to_escape, 4.0, "under-tapping loses the fish in %.1fs, which reads as random" % seconds_to_escape)
-	t.lt(seconds_to_escape, 30.0, "under-tapping is barely a mistake at all")
+	t.gt(Tuning.SNAP_SECONDS, 0.8,
+		"the line parts faster than a person can let go of a button")
+	t.lt(Tuning.SNAP_SECONDS, 2.5,
+		"the line takes so long to part that holding on has no cost")
+
+	# How long the strongest fish needs to take the whole margin, unbraked.
+	# Several runs, not one - a single run ending the fight is exactly the thing
+	# ESCAPE_MARGIN was raised to stop, and a trace caught it doing so.
+	var worst := 0.0
+	for row in Species.TABLE:
+		worst = maxf(worst, float(row["run_power"]))
+	var one_run := Tuning.RUN_GAIN * worst * Tuning.RUN_MAX
+	t.lt(one_run, Tuning.ESCAPE_MARGIN,
+		"the strongest fish's longest run (%.1f m) clears the whole escape margin (%.1f m) by itself, so the fight can end before a decision is offered" % [
+			one_run, Tuning.ESCAPE_MARGIN])
+
+	var seconds_to_escape := Tuning.ESCAPE_MARGIN / (Tuning.RUN_GAIN * worst)
+	t.gt(seconds_to_escape, Tuning.SNAP_SECONDS * 1.5,
+		"being run off (%.1fs) takes about as long as parting the line (%.1fs), so the two mistakes are not tellable apart" % [
+			seconds_to_escape, Tuning.SNAP_SECONDS])
 
 
-## A run must be survivable by doing nothing, and unsurvivable by tapping. That
-## is the whole lesson the gauge teaches without a word of text.
-func test_a_run_is_survived_by_stopping(t: TestHarness) -> void:
-	# Left alone, the needle settles where the fish's pull balances the decay.
-	# That has to land BELOW the band: a run you stop for is survivable and makes
-	# no progress, which is the cost of it. Above the band and stopping would be
-	# fatal; inside the band and stopping would still reel the fish in, so a run
-	# would not be a setback at all.
-	var settle := Tuning.RUN_PULL / Tuning.TAP_DECAY
-	t.lt(settle, Tuning.SAFE_LO, "doing nothing through a run still reels the fish in")
-	t.gt(settle, 0.0, "a run does not move the needle at all")
+## HOLDING ON HAS TO BE A REAL OPTION, or a run has one answer and no decision.
+func test_holding_on_through_a_run_is_worth_considering(t: TestHarness) -> void:
+	t.gt(Tuning.RUN_HOLD, 0.25,
+		"holding on barely slows the run, so letting go is always correct")
+	t.lt(Tuning.RUN_HOLD, 0.75,
+		"holding on stops the run outright, so there is nothing to weigh")
 
-	# And the JOLT is what punishes still being mid-tap when it starts. Landing
-	# on the band from the aim point has to clear the top, or the warning is
-	# worth nothing and every run handles itself.
-	var aim := (Tuning.SAFE_LO + Tuning.SAFE_HI) * 0.5
-	t.gt(aim + Tuning.RUN_JOLT, Tuning.SAFE_HI,
-		"a run that starts while you are tapping does not even reach the red")
-	# But a player who HAS stopped must be safe. Half a second of decay from the
-	# aim point, plus the jolt, has to stay under the top.
-	var eased := aim * exp(-Tuning.TAP_DECAY * Tuning.TELL_TIME)
-	t.lt(eased + Tuning.RUN_JOLT, Tuning.SAFE_HI + 0.02,
-		"stopping when warned is still not enough to survive a run")
-	t.gt(Tuning.RUN_GAIN, 0.0, "a run costs no ground")
+	# And it has to COST, or it would not be a gamble. Reeling straight through an
+	# ordinary fish's run has to settle past the danger line.
+	var settle_in_run := (Tuning.HOLD_RISE * Tuning.resist(1.0, 1.0) + Tuning.PULL_RISE) / Tuning.TAP_DECAY
+	t.gt(settle_in_run, Tuning.DANGER,
+		"reeling right through an average fish's run settles at %.2f, below the danger line, so there is no risk in it at all" % settle_in_run)
+
+	# And against the strongest fish in the lake, holding on must still LOSE
+	# ground. A brake that turned a run into progress would make the gamble the
+	# only play and delete the decision from the other side.
+	var worst := 0.0
+	for row in Species.TABLE:
+		worst = maxf(worst, float(row["run_power"]))
+	var braked := Tuning.RUN_GAIN * worst * (1.0 - Tuning.RUN_HOLD)
+	t.gt(braked, 0.0,
+		"holding on through the hardest run in the game stops the fish dead, so a run is not a setback")
+
+
+## LETTING GO IS ALWAYS SAFE. That is the promise the whole fifth fight rests on,
+## and it is the one thing a player must be able to rely on without being told.
+func test_letting_go_is_always_safe(t: TestHarness) -> void:
+	# Nothing raises tension unless the reel is held: a run adds its jolt once and
+	# its sustained pull only while reeling. A released thumb means the needle can
+	# only ever fall.
+	t.gt(Tuning.TAP_DECAY, 0.0, "tension does not fall when the reel is released")
+
+	# And no jolt may part a line ON ITS OWN. Being caught mid-reel when the fish
+	# goes is allowed to pin the rod at the top - that is what the tell is there to
+	# let you avoid - but pinned is not parted: `SNAP_SECONDS` of warning has to
+	# remain, every time, for every fish in the lake.
+	#
+	# This assertion used to be stronger, and wrongly so. It demanded that the jolt
+	# never pin the rod at all, which is a promise the game does not make and
+	# should not: a run that cannot bend the rod past the red is a run with no
+	# stakes. What must hold is that the player always gets the same second and a
+	# bit to decide.
+	t.gt(Tuning.SNAP_SECONDS, 1.0,
+		"a pinned line parts in %.1f s, which is inside a person's reaction time" % Tuning.SNAP_SECONDS)
+	for row in Species.TABLE:
+		var power := float(row["run_power"])
+		var jolt := Tuning.RUN_JOLT * Tuning.jolt_scale(power)
+		t.lt(jolt, Tuning.TENSION_MAX - Tuning.DANGER + 0.5,
+			"%s's opening kick is most of the whole scale, so a run is a verdict rather than an event" % row["name"])
+
+
+## NO FISH MAY BE SO STRONG THAT THE REEL BECOMES A REFLEX TEST.
+##
+## Arithmetic, not taste. A held reel settles at `hold_settle`, and once that is
+## far enough above the danger line the tension pins at the top before a person
+## can react - so the only playable input is a tap shorter than a reaction time.
+## That is a dexterity wall, and this game is about watching.
+##
+## It shipped once. The Old Fish settled at 1.36 and the measurement was stark:
+## ANGLER, perfect and instant, landed 44% of them; HUMAN, the same policy with
+## three tenths of a second of lag, landed none and parted the line on three
+## quarters. `RESIST_MAX` is the cap that fixed it.
+func test_no_fish_is_a_reflex_test(t: TestHarness) -> void:
+	for row in Species.TABLE:
+		var power := float(row["run_power"])
+		var settle := Tuning.hold_settle(power, 1.0)
+		# Half a second of holding, from the tension a fresh hook starts at, must
+		# not reach the top of the scale. That is the margin a person needs.
+		var after_half := settle + (Tuning.SAFE_LO - settle) * exp(-Tuning.TAP_DECAY * 0.5)
+		t.lt(after_half, Tuning.TENSION_MAX,
+			"%s (settle %.2f) pins the line inside half a second, which is a reflex test rather than a judgement" % [
+				row["name"], settle])
+
+
+## A WORN-OUT FISH STOPS FIGHTING THE REEL, which is the reward the whole rhythm
+## is for - and it is felt in the thumb rather than read off a number.
+func test_wearing_a_fish_out_is_felt_in_the_reel(t: TestHarness) -> void:
+	for row in Species.TABLE:
+		var power := float(row["run_power"])
+		var fresh := Tuning.hold_settle(power, 1.0)
+		var spent := Tuning.hold_settle(power, 0.0)
+		t.lt(spent, fresh + 0.0001,
+			"%s fights the reel just as hard when it is spent" % row["name"])
+		t.lt(spent, Tuning.DANGER,
+			"%s still cannot be held flat once it is worn out, so the rhythm never pays off" % row["name"])
+
+	# And the difference has to be big enough to feel. A tutorial fish barely
+	# resists to begin with, so it is the deep ones that carry this.
+	var deepest := 0.0
+	for row in Species.TABLE:
+		deepest = maxf(deepest, float(row["run_power"]))
+	var gap := Tuning.hold_settle(deepest, 1.0) - Tuning.hold_settle(deepest, 0.0)
+	t.gt(gap, 0.20,
+		"wearing out the hardest fish in the lake changes the reel by only %.2f, which nobody would notice" % gap)
 
 
 ## The warning has to be longer than a person's reaction, because this is a game
@@ -315,24 +407,31 @@ func test_some_fish_only_bite_at_certain_hours(t: TestHarness) -> void:
 		"the same fish are available at midnight as at noon")
 
 
-## No fish may make a run that playing well cannot survive.
+## THE RESISTANCE LADDER IS THE DEPTH LADDER, and it comes free.
 ##
-## This is arithmetic, not taste. Tension left alone settles at
-## `RUN_PULL * run_power / TAP_DECAY`. Once that settle point reaches SAFE_HI the
-## needle parks above the safe band on its own, and the fish is lost no matter
-## what the player does - the run stops being a thing you handle and becomes a
-## coin the game flips. The ceiling is where the settle point still leaves usable
-## room below SAFE_HI.
-func test_no_run_is_unsurvivable(t: TestHarness) -> void:
-	var ceiling := Tuning.SAFE_HI * Tuning.TAP_DECAY / Tuning.RUN_PULL
-	for row in Species.TABLE:
-		var power: float = row["run_power"]
-		t.lt(power, ceiling,
-			"%s runs at %.2f, and anything at or past %.2f parks the needle above the safe band by itself" % [
-				row["name"], power, ceiling])
-		var settle := Tuning.RUN_PULL * power / Tuning.TAP_DECAY
-		t.lt(settle, Tuning.SAFE_HI - 0.06,
-			"%s settles at %.2f, which leaves no room under the break point" % [row["name"], settle])
+## `run_power` already has to climb with depth (`test_runs_get_stronger_with_depth`)
+## and `resist` is built on it, so the reel gets harder to hold the deeper you fish
+## without one extra number to keep in step. This asserts the thing that makes the
+## water feel different: the first water can be held flat and the deep cannot.
+func test_the_reel_gets_harder_to_hold_with_depth(t: TestHarness) -> void:
+	var settles := {}
+	for band in World.BANDS:
+		var total := 0.0
+		var n := 0
+		for row in Species.TABLE:
+			if row["band"] != band["id"]:
+				continue
+			total += Tuning.hold_settle(float(row["run_power"]), 1.0)
+			n += 1
+		if n > 0:
+			settles[band["id"]] = total / float(n)
+
+	t.lt(float(settles["reeds"]), Tuning.DANGER - 0.10,
+		"the first water cannot be learned on: holding the reel there is already near the red")
+	t.gt(float(settles["town"]), Tuning.DANGER,
+		"Old Town can be fished by holding the button down, so nothing is asked of the player")
+	t.gt(float(settles["quarry"]), float(settles["road"]),
+		"the Quarry does not fight the reel harder than the Drowned Road")
 
 
 ## THE TUTORIAL HAS TO TEACH THE RUN.
