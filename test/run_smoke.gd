@@ -930,8 +930,19 @@ func _check_the_tackle_box_is_the_equipment_menu(main) -> void:
 	for i in 120:
 		main.advance(1.0 / 60.0)
 	_t.ok(main._tacklebox.is_open(), "the tackle box never finished opening")
-	_t.gt(float(main._box_list.get_child_count()), 4.0,
-		"the tackle box opened as a blank panel")
+
+	# IT IS ITS CONTENTS, not a list printed inside the lid. Six real things in
+	# the trays, and every one of them actually in the scene.
+	_t.gt(float(main._box_items.size()), 5.0,
+		"the tackle box has %d things in it - it is still a menu" % main._box_items.size())
+	# Parentage rather than `is_inside_tree`: a scene added to root during
+	# `_initialize` has no children in the tree until a frame has processed, so
+	# that check fails in the harness and passes in the game, which is the worst
+	# way round. The claim that matters is that each thing hangs off the box and
+	# therefore rides it.
+	for n in main._box_items:
+		_t.ok(n.get_parent() == main._tacklebox,
+			"a thing in the tackle box is not parented to the box")
 
 	# THE LID ACTUALLY MOVES, asserted as a DIFFERENCE between open and shut
 	# rather than against an absolute angle.
@@ -969,21 +980,62 @@ func _check_the_tackle_box_is_the_equipment_menu(main) -> void:
 		"the tackle box is in the hull side: |x| %.2f + half its width is past the beam %.2f at that station" % [
 			absf(bx), main._hull_half_width(bz)])
 
-	# TAPPING A ROW EQUIPS IT, through the same econ the fight reads.
-	main.sim.econ.bait_left["corn"] = 5
+	# UP AND DOWN MOVE BETWEEN THE THINGS, and the selected one lifts out of the
+	# tray. The lift is what "highlighted" means here, so it is asserted rather
+	# than assumed - a selection that changes a number and moves nothing is the
+	# failure this whole rebuild exists to fix.
+	main._box_sel = 0
 	main._refresh_tacklebox()
-	var target := ""
-	for entry in main._box_rows:
-		if str(entry["id"]) == "corn":
-			target = "corn"
-	_t.eq(target, "corn", "an owned bait that is not on the hook is not tappable")
-	if target != "":
-		main._set_bait("corn")
-		_t.eq(str(main.sim.econ.bait), "corn", "tapping a bait did not put it on the hook")
-		main._refresh_tacklebox()
-		for entry in main._box_rows:
-			_t.ok(str(entry["id"]) != "corn",
-				"the bait already on the hook is still offered as a choice")
+	var first_name: String = main._box_name.text
+	main._room_step(1)
+	_t.eq(main._box_sel, 1, "the down arrow did not move to the next thing")
+	_t.ok(main._box_name.text != first_name,
+		"moving to the next thing did not change what the box says it is")
+	for i in 40:
+		main.advance(1.0 / 60.0)
+	var lifted: Node3D = main._box_items[1]
+	var resting: Node3D = main._box_items[0]
+	_t.gt(lifted.position.y, resting.position.y + 0.02,
+		"the selected thing does not lift out of the tray (%.3f against %.3f)" % [
+			lifted.position.y, resting.position.y])
+	main._room_step(-1)
+	_t.eq(main._box_sel, 0, "the up arrow did not move back")
+
+	# THE ARROWS ARE HIS MECHANISM: yellow when there is another version, grey
+	# when this is all you own. Asserted on the ladder data that drives them, and
+	# on both sides of the case - one bait means grey, two means yellow.
+	main.sim.econ.bait_left = {"worm": 10}
+	var bait_slot := -1
+	for i in 6:
+		if str(main._box_slot(i)["name"]) == "Bait":
+			bait_slot = i
+	_t.gt(float(bait_slot), -1.0, "there is no bait in the tackle box")
+	_t.eq(int(main._box_slot(bait_slot)["variants"]), 1,
+		"with one bait owned the box still offers a choice")
+
+	main.sim.econ.bait_left["corn"] = 5
+	_t.eq(int(main._box_slot(bait_slot)["variants"]), 2,
+		"owning a second bait did not make it a choice")
+
+	# ...and stepping the variant actually changes what is on the hook.
+	main._box_sel = bait_slot
+	main._refresh_tacklebox()
+	var before_bait: String = str(main.sim.econ.bait)
+	main._box_variant(1)
+	_t.ok(str(main.sim.econ.bait) != before_bait,
+		"stepping to the next bait did not put it on the hook")
+
+	# THE PIPS SHOW THE LADDER, including the rungs not yet reached. A ladder
+	# drawn only as far as the player has climbed cannot show them what is left.
+	var line_slot := -1
+	for i in 6:
+		if str(main._box_slot(i)["name"]) == "Line":
+			line_slot = i
+	var line_info: Dictionary = main._box_slot(line_slot)
+	_t.eq(int(line_info["rungs"]), Gear.LINE.size(),
+		"the line pips do not show the whole ladder")
+	_t.eq(int(line_info["owned"]), main.sim.econ.line + 1,
+		"the filled pips do not match the line actually owned")
 
 	# And there is a way out, from the box and from the back button.
 	_t.ok(main._go_back(), "back was ignored with the tackle box open")

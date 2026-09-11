@@ -42,6 +42,12 @@ var openness := 0.0          ## 0 shut, 1 open
 ## were in it.
 var page := 0
 
+## Whether this object PRINTS anything. False for the tackle box, whose contents
+## are real objects in its trays rather than a list on a quad - and a leftover
+## surface there is not harmless: an empty SubViewport renders as a black slab
+## across the whole inside of the box, hiding the things it is supposed to show.
+var show_surface := true
+
 var _model: Node3D
 
 ## Some models ship BOTH states - the Poly Haven notebook has an open mesh and a
@@ -228,7 +234,7 @@ func advance(dt: float) -> void:
 		var about_pivot := Transform3D(b, _hinge_pivot - b * _hinge_pivot)
 		_hinge.transform = about_pivot * _hinge_rest
 	if _surface != null:
-		_surface.visible = openness > 0.55
+		_surface.visible = show_surface and openness > 0.55
 		var m := _surface.material_override as StandardMaterial3D
 		if m != null:
 			m.albedo_color = Color(1, 1, 1, 1) * clampf((openness - 0.55) / 0.45, 0.0, 1.0)

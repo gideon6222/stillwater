@@ -1639,6 +1639,7 @@ func _build_hud() -> void:
 
 	_menus.changed.connect(_sync)
 	_build_room_bar()
+	_build_box_hud()
 	_menus.closed.connect(_sync)
 
 	# On screen rather than behind a menu: the first thing to verify on a phone
@@ -2362,6 +2363,7 @@ func _sync() -> void:
 	_sync_bars()
 	_sync_primary_button()
 	_sync_room_bar()
+	_sync_box_hud()
 
 
 ## The camera during play: riding the boat, riding the water.
@@ -2825,6 +2827,9 @@ func _sync_mood(dt: float) -> void:
 		_sync_book_hold(dt)
 	if _tacklebox != null:
 		_tacklebox.advance(dt)
+		_sync_box_items()
+		if _box_lamp != null:
+			_box_lamp.light_energy = 2.4 * _tacklebox.openness if _at_box else 0.0
 	_sync_grade(k)
 
 	if _water_mat != null:
@@ -4302,6 +4307,14 @@ var _page_turn := 0.0
 var _tacklebox: Room3D
 var _box_list: VBoxContainer
 var _box_rows: Array = []
+## The real things lying in the box. See `_build_box_items`.
+var _box_items: Array[Node3D] = []
+var _box_lamp: OmniLight3D
+var _box_name: Label
+var _box_note: Label
+var _box_pips: Control
+var _box_left: Button
+var _box_right: Button
 var _at_box := false
 ## id -> the measured centre of its geometry, in boat space. See `_build_aim_points`.
 var _aim_points: Dictionary = {}
@@ -4452,6 +4465,11 @@ const PROPS := {
 	"lifebuoy": "res://assets/props/lifebuoy/lifebuoy_1k.gltf",
 	"book": "res://assets/props/binder_notebook/binder_notebook_1k.gltf",
 	"toolbox": "res://assets/props/metal_toolbox/metal_toolbox_1k.gltf",
+	# In the tackle box. The only two things on the tray list that exist as free
+	# photoreal models anywhere - and both come from the same Poly Haven
+	# collection the toolbox itself does, so they need no reconciling.
+	"knife": "res://assets/props/fish_knife/fish_knife/fish_knife_1k.gltf",
+	"pliers": "res://assets/props/pliers/pliers/pliers_1k.gltf",
 }
 
 
@@ -5463,6 +5481,16 @@ func _build_tacklebox() -> void:
 	# The lid turns about its BACK EDGE. The mesh spans z from -0.106 to +0.111
 	# about its own origin, so the hinge line is at z = -0.106; turning it about
 	# the origin instead swings the lid down through the box.
+	# NO PRINTED SURFACE. The things in the trays are the contents.
+	_tacklebox.show_surface = false
+	_build_box_items()
+	_box_lamp = OmniLight3D.new()
+	_box_lamp.name = "BoxLamp"
+	_box_lamp.light_color = Color(1.0, 0.93, 0.80)
+	_box_lamp.light_energy = 2.4
+	_box_lamp.omni_range = 0.42
+	_box_lamp.shadow_enabled = false
+	_tacklebox.add_child(_box_lamp)
 	var lid := _tacklebox.find_part("lid")
 	if lid != null:
 		_tacklebox.set_hinge(lid, Vector3(0.0, 0.0, -0.106), Vector3.RIGHT, BOX_LID_DEGREES)
@@ -5489,32 +5517,33 @@ func _box_root() -> Control:
 
 ## What is in the box, right now. Rebuilt on every open and every change, from
 ## `sim` - so it cannot describe gear the player does not have.
+## WHAT THE BOX SAYS ABOUT THE THING YOU HAVE SELECTED.
+##
+## The printed list that used to live on a quad inside the lid is gone - it was a
+## panel wearing an object's clothes, and Gideon said so. The objects are the rows
+## now, and the only words left are the name, the one line of description, and the
+## pips. Those live on the HUD rather than on the surface, for a reason he gave
+## directly: "since the text is small". Text printed on a quad at an angle 70 cm
+## away is the smallest text in the game; the same words on the HUD are the
+## largest, and the research puts the description on the screen after the
+## selection settles anyway.
 func _refresh_tacklebox() -> void:
-	if _box_list == null:
+	if _box_name == null:
 		return
-	for c in _box_list.get_children():
-		c.queue_free()
-	_box_rows.clear()
-
-	_box_heading("on the rod")
-	_box_row("Line", Gear.line_name(sim.econ.line), "", false)
-	_box_row("Rod", str(Gear.ROD[sim.econ.rod]["name"]), "", false)
-	_box_row("Reel", str(Gear.REEL[sim.econ.reel]["name"]), "", false)
-
-	# THE BAITS ARE THE PART YOU CAN ACTUALLY CHANGE, so they are the part that
-	# is tappable. Everything above is bought in the shed and only shown here.
-	_box_heading("in the tray")
-	for b in Gear.BAIT:
-		var id := str(b["id"])
-		var owned: bool = sim.econ.has_bait(id)
-		var chosen: bool = str(sim.econ.bait) == id
-		var left: int = int(sim.econ.bait_left.get(id, 0))
-		var state := "on the hook"
-		if not chosen:
-			# THREE READINGS OF ONE STATE, so it survives a colour-blind player and
-			# a dim phone in daylight: the ink, the words, and the count.
-			state = ("%d left" % left) if owned and not bool(b.get("reusable", false)) else 				("spare" if owned else "none left")
-		_box_row(str(b["name"]), state, id, owned and not chosen)
+	var slot := _box_slot(_box_sel)
+	_box_name.text = "%s   -   %s" % [str(slot["name"]), str(slot["what"])]
+	_box_note.text = str(slot["note"])
+	_box_pips.queue_redraw()
+	if _box_left != null:
+		# HIS MECHANISM, kept exactly: yellow when there is another version to move
+		# to, grey when this is all you own. It says "you have one rod" without a
+		# sentence, and it is the only way the empty rungs of a ladder are visible
+		# from inside the boat.
+		var many: bool = int(slot["variants"]) > 1
+		var live := Color(0.99, 0.84, 0.42)
+		var dead := Color(0.42, 0.41, 0.39)
+		_box_left.add_theme_color_override("font_color", live if many else dead)
+		_box_right.add_theme_color_override("font_color", live if many else dead)
 
 
 func _box_heading(text: String) -> void:
@@ -5714,10 +5743,7 @@ func _room_step(by: int) -> void:
 	if _reading:
 		_turn_page(by)
 	elif _at_box:
-		if _box_rows.is_empty():
-			return
-		_box_sel = wrapi(_box_sel + by, 0, _box_rows.size())
-		_refresh_tacklebox()
+		_box_move(by)
 
 
 func _room_confirm() -> void:
@@ -5726,11 +5752,10 @@ func _room_confirm() -> void:
 		# which is what a reader pressing the big button in the middle means.
 		_turn_page(1)
 	elif _at_box:
-		if _box_sel >= 0 and _box_sel < _box_rows.size():
-			_set_bait(str(_box_rows[_box_sel]["id"]))
-			_refresh_tacklebox()
-			if _audio != null:
-				_audio.play("clunk", -10.0)
+		# The middle button steps to the next VERSION of the selected thing, which
+		# for bait is the choice and for everything else is a no-op the greyed
+		# arrows have already said is unavailable.
+		_box_variant(1)
 
 
 func _room_close_pressed() -> void:
@@ -5764,12 +5789,14 @@ func _sync_room_bar() -> void:
 			b.add_theme_color_override("font_color",
 				Color(0.44, 0.42, 0.39) if b.disabled else Color(0.93, 0.90, 0.82))
 	else:
-		_room_ok.text = "Use"
+		_room_ok.text = "Swap"
 		_room_prev.text = "^"
 		_room_next.text = "v"
-		var nothing := _box_rows.is_empty()
-		_room_prev.disabled = nothing
-		_room_next.disabled = nothing
+		var nothing := int(_box_slot(_box_sel)["variants"]) <= 1
+		# Up and down always work - there is always another thing in the box.
+		# Only the middle button, which swaps the VERSION, can be dead.
+		_room_prev.disabled = false
+		_room_next.disabled = false
 		_room_ok.disabled = nothing
 		for b in [_room_prev, _room_next, _room_ok]:
 			b.add_theme_color_override("font_color",
@@ -5929,3 +5956,439 @@ func _sync_primary_button() -> void:
 		if _boundary_held >= BOUNDARY_FRAMES:
 			_over_water_shown = over_water
 			_boundary_held = 0
+
+
+# --- the tackle box is its contents ----------------------------------------
+
+## REAL THINGS IN THE TRAYS, not a menu printed on the inside of a lid.
+##
+## Gideon: "It also just has a menu in it. instead can you make 3d objects for each
+## option and make it look like they are physically in the box. For the rod, just
+## show a mini version of the rod. for the line, show a small spool of line."
+##
+## He is right and the miss was mine: PLAN 9.4 said "an object IS what it contains"
+## and I printed a list on a surface, which is a panel wearing an object's clothes.
+##
+## The layout follows the researched pattern rather than a grid. Everything really
+## is lying in the box - they ARE physically in it, which is what he asked for -
+## but the SELECTED one lifts toward the reader and lights while the rest dim.
+## That is Resident Evil's case plus Half-Life: Alyx's highlight-before-commit: a
+## grid of six small objects on a phone is a thing to scan, and one lit object is
+## a thing to read.
+##
+## Two of the six are imported (`knife`, `pliers` - the only photoreal free tackle
+## that exists anywhere). The rest are modelled here, and the spool is the reason
+## that is a gain rather than a compromise: it takes its colour from the line
+## strength, so the picture of the ladder cannot disagree with the economy.
+const BOX_LIFT := 0.075        ## how far the selected item rises out of the tray
+## How far the unselected things recede. 0.78 rather than the 0.34 it started at:
+## transparency makes a thing SEE-THROUGH rather than quiet, and at 0.34 the whole
+## tray went murky and the box read as badly lit instead of as focused. The lift,
+## the scale and the lamp below carry the highlight; this only pushes the rest back.
+const BOX_DIM := 0.78
+
+
+func _build_box_items() -> void:
+	_box_items.clear()
+	var tray := Vector3(0.0, 0.175, 0.0)
+	# Two rows of three across the box's 40 x 22 cm, laid out so nothing overlaps
+	# and the whole tray reads at the angle the camera comes down at.
+	var spots := [
+		Vector3(-0.125, 0.0, -0.045), Vector3(0.0, 0.0, -0.050), Vector3(0.125, 0.0, -0.045),
+		Vector3(-0.125, 0.0, 0.050), Vector3(0.0, 0.0, 0.052), Vector3(0.125, 0.0, 0.050),
+	]
+	var made: Array[Node3D] = [
+		_box_rod(), _box_reel(), _box_spool(),
+		_box_tin(), _box_import("knife", 1.0, Vector3(0, 0, 90)), _box_import("pliers", 1.0, Vector3(90, 0, 0)),
+	]
+	for i in made.size():
+		var n := made[i]
+		if n == null:
+			continue
+		n.position = tray + spots[i]
+		n.name = "BoxItem%d" % i
+		_tacklebox.add_child(n)
+		_box_items.append(n)
+
+
+## The rod, broken down, lying across the tray. The SAME generator the live rod
+## uses, at a shorter length - so its shading matches for free and there is no
+## second model to keep in step. The scout's recommendation, and the one item where
+## code was the better answer on its own merits rather than a fallback.
+func _box_rod() -> Node3D:
+	var root := Node3D.new()
+	var blank := _mat(Color(0.115, 0.105, 0.100), 0.34)
+	blank.metallic = 0.22
+	var cork := _mat(Color(0.68, 0.55, 0.36), 0.92)
+	for i in 2:
+		var seg := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		# 8.5 cm a section: two of them plus the grip is 20 cm, which fits inside a
+		# 40 cm box with room either side. At 11.5 cm the rod stuck out through the
+		# end of the tray, which reads as a modelling mistake rather than as a rod.
+		cm.height = 0.085
+		cm.top_radius = lerpf(0.0055, 0.0022, float(i))
+		cm.bottom_radius = lerpf(0.0080, 0.0055, float(i))
+		cm.radial_segments = 8
+		cm.rings = 1
+		seg.mesh = cm
+		seg.material_override = blank
+		seg.rotation_degrees = Vector3(0, 0, 90)
+		seg.position = Vector3(-0.044 + 0.088 * float(i), 0.0, 0.012 * float(i))
+		root.add_child(seg)
+	var grip := MeshInstance3D.new()
+	var gm := CylinderMesh.new()
+	gm.height = 0.048
+	gm.top_radius = 0.0105
+	gm.bottom_radius = 0.0115
+	gm.radial_segments = 10
+	grip.mesh = gm
+	grip.material_override = cork
+	grip.rotation_degrees = Vector3(0, 0, 90)
+	grip.position = Vector3(-0.072, 0.0, 0.0)
+	root.add_child(grip)
+	return root
+
+
+## A closed-face reel: a drum, a cover and a handle.
+func _box_reel() -> Node3D:
+	var root := Node3D.new()
+	var metal := _mat(Color(0.60, 0.61, 0.63), 0.28)
+	metal.metallic = 0.85
+	var dark := _mat(Color(0.16, 0.16, 0.17), 0.42)
+	dark.metallic = 0.5
+	var drum := MeshInstance3D.new()
+	var dm := CylinderMesh.new()
+	dm.height = 0.042
+	dm.top_radius = 0.031
+	dm.bottom_radius = 0.034
+	dm.radial_segments = 14
+	drum.mesh = dm
+	drum.material_override = metal
+	drum.rotation_degrees = Vector3(90, 0, 0)
+	root.add_child(drum)
+	var foot := MeshInstance3D.new()
+	var fm := BoxMesh.new()
+	fm.size = Vector3(0.016, 0.030, 0.010)
+	foot.mesh = fm
+	foot.material_override = dark
+	foot.position = Vector3(0.0, 0.030, 0.0)
+	root.add_child(foot)
+	var crank := MeshInstance3D.new()
+	var km := BoxMesh.new()
+	km.size = Vector3(0.044, 0.006, 0.006)
+	crank.mesh = km
+	crank.material_override = dark
+	crank.position = Vector3(0.016, 0.0, 0.024)
+	crank.rotation_degrees = Vector3(0, 0, 22)
+	root.add_child(crank)
+	return root
+
+
+## A SPOOL OF LINE, and its colour is the line you actually have on.
+##
+## The whole argument for modelling these rather than importing them: the spool
+## reads its shade from the rung of the ladder, so "what is on the reel" and "what
+## the box shows" are one fact. A set of fixed meshes would be two.
+func _box_spool() -> Node3D:
+	var root := Node3D.new()
+	var plastic := _mat(Color(0.22, 0.20, 0.18), 0.55)
+	var line_col := _line_colour(sim.econ.line)
+	var wound := _mat(line_col, 0.30)
+	wound.metallic = 0.10
+	for i in 2:
+		var disc := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.height = 0.004
+		cm.top_radius = 0.030
+		cm.bottom_radius = 0.030
+		cm.radial_segments = 16
+		disc.mesh = cm
+		disc.material_override = plastic
+		disc.rotation_degrees = Vector3(90, 0, 0)
+		disc.position = Vector3(0.0, 0.0, -0.013 + 0.026 * float(i))
+		root.add_child(disc)
+	var core := MeshInstance3D.new()
+	var km := CylinderMesh.new()
+	km.height = 0.024
+	km.top_radius = 0.024
+	km.bottom_radius = 0.024
+	km.radial_segments = 16
+	core.mesh = km
+	core.material_override = wound
+	core.rotation_degrees = Vector3(90, 0, 0)
+	root.add_child(core)
+	return root
+
+
+## Mono is pale and almost clear, braid is dark and flat, wire is grey. One place,
+## so the spool in the box and the line on the reel cannot drift apart.
+func _line_colour(level: int) -> Color:
+	match clampi(level, 0, 5):
+		0: return Color(0.86, 0.86, 0.82)
+		1: return Color(0.80, 0.80, 0.74)
+		2: return Color(0.26, 0.30, 0.26)
+		3: return Color(0.18, 0.20, 0.20)
+		4: return Color(0.52, 0.53, 0.55)
+		_: return Color(0.38, 0.34, 0.30)
+
+
+## The bait tin: a shallow box with the lid ajar.
+func _box_tin() -> Node3D:
+	var root := Node3D.new()
+	var tin := _mat(Color(0.46, 0.44, 0.38), 0.46)
+	tin.metallic = 0.62
+	var body := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.070, 0.026, 0.050)
+	body.mesh = bm
+	body.material_override = tin
+	root.add_child(body)
+	var lid := MeshInstance3D.new()
+	var lm := BoxMesh.new()
+	lm.size = Vector3(0.070, 0.004, 0.050)
+	lid.mesh = lm
+	lid.material_override = tin
+	lid.position = Vector3(0.0, 0.020, -0.022)
+	lid.rotation_degrees = Vector3(-38, 0, 0)
+	root.add_child(lid)
+	return root
+
+
+## One of the two imported items, scaled and laid down in the tray.
+func _box_import(id: String, scale: float, rot: Vector3) -> Node3D:
+	var n := _prop(id)
+	if n == null:
+		return null
+	n.scale = Vector3.ONE * scale
+	n.rotation_degrees = rot
+	return n
+
+
+## THE SLOTS, and what each one is. Order matches `_build_box_items`.
+##
+## `rungs` is how long that ladder is and `owned` is how far up it you are, which
+## is what the PIP ROW draws: six pips for the line, two filled, and the next one
+## visibly waiting. The research is clear that arrows alone are not enough - they
+## say "you can move" and never "how far" or "where you are" - so the arrows are
+## the input and the pips are the state.
+##
+## `variants` is how many versions of THIS thing the player can actually choose
+## between right now. One for the rod, the reel and the line, because you own a
+## rung rather than a collection; several for bait. That is exactly the mechanism
+## Gideon described: "show yellow arrows to the left and right of the object if
+## there are other versions I can select. if I dont have other versions yet, make
+## the arrows grey, so it is obvious that this is my only option currently."
+func _box_slot(i: int) -> Dictionary:
+	match i:
+		0:
+			return {
+				"name": "Rod",
+				"what": str(Gear.ROD[sim.econ.rod]["name"]),
+				"note": "Broken down in the tray. A wider band on the gauge than the last one.",
+				"rungs": Gear.ROD.size(), "owned": sim.econ.rod + 1, "variants": 1, "pick": 0,
+			}
+		1:
+			return {
+				"name": "Reel",
+				"what": str(Gear.REEL[sim.econ.reel]["name"]),
+				"note": "Takes line back faster. It does not make the fish smaller.",
+				"rungs": Gear.REEL.size(), "owned": sim.econ.reel + 1, "variants": 1, "pick": 0,
+			}
+		2:
+			return {
+				"name": "Line",
+				"what": Gear.line_name(sim.econ.line),
+				"note": "How deep you can reach. The only thing that decides it.",
+				"rungs": Gear.LINE.size(), "owned": sim.econ.line + 1, "variants": 1, "pick": 0,
+			}
+		3:
+			var owned := _owned_baits()
+			return {
+				"name": "Bait",
+				"what": str(Gear.bait_by_id(sim.econ.bait)["name"]),
+				"note": "On the hook. Different water wants different things.",
+				"rungs": Gear.BAIT.size(), "owned": owned.size(),
+				"variants": owned.size(), "pick": maxi(0, owned.find(str(sim.econ.bait))),
+			}
+		4:
+			return {
+				"name": "Knife", "what": "Bone handled",
+				"note": "The keeper's. Older than the boat, by the look of it.",
+				"rungs": 1, "owned": 1, "variants": 1, "pick": 0,
+			}
+		_:
+			return {
+				"name": "Pliers", "what": "For the hook",
+				"note": "For getting a hook back out of something that swallowed it.",
+				"rungs": 1, "owned": 1, "variants": 1, "pick": 0,
+			}
+
+
+func _owned_baits() -> Array[String]:
+	var out: Array[String] = []
+	for b in Gear.BAIT:
+		if sim.econ.has_bait(str(b["id"])):
+			out.append(str(b["id"]))
+	return out
+
+
+## Move between the things in the box. Up and down, as he asked.
+func _box_move(by: int) -> void:
+	if _box_items.is_empty():
+		return
+	_box_sel = wrapi(_box_sel + by, 0, _box_items.size())
+	_refresh_tacklebox()
+	if _audio != null:
+		_audio.play("clunk", -14.0)
+
+
+## Move between the VERSIONS of the selected thing. Left and right.
+##
+## Stops at the ends rather than wrapping: the research names silent wraparound as
+## the way a player loses their sense of where they are in a set.
+func _box_variant(by: int) -> void:
+	var slot := _box_slot(_box_sel)
+	if int(slot["variants"]) <= 1:
+		return
+	if str(slot["name"]) != "Bait":
+		return
+	var owned := _owned_baits()
+	var i := clampi(int(slot["pick"]) + by, 0, owned.size() - 1)
+	if owned[i] == str(sim.econ.bait):
+		return
+	_set_bait(owned[i])
+	_refresh_tacklebox()
+	if _audio != null:
+		_audio.play("clunk", -10.0)
+
+
+## Lift and light the selected thing; sit the rest back down and fade them.
+func _sync_box_items() -> void:
+	for i in _box_items.size():
+		var n := _box_items[i]
+		var chosen := i == _box_sel and _at_box
+		var want := Vector3(n.position.x, 0.175 + (BOX_LIFT if chosen else 0.0), n.position.z)
+		n.position = n.position.lerp(want, 0.25)
+		n.scale = n.scale.lerp(Vector3.ONE * (1.10 if chosen else 1.0), 0.25)
+		_tint_tree(n, 1.0 if chosen else BOX_DIM)
+		if chosen and _box_lamp != null:
+			# ONE OBJECT, LIT. The researched pattern is a single foregrounded and
+			# lit item rather than a grid to scan, and inside a box in a boat at
+			# dawn there is no light to do it with - so the box brings its own.
+			_box_lamp.position = want + Vector3(0.0, 0.115, 0.0)
+
+
+## Fade a whole subtree without touching the shared materials the rest of the boat
+## uses - `instance_shader_parameters` would be cleaner, but a per-instance modulate
+## on the MeshInstance is the one thing that works on an imported glTF hierarchy
+## whose materials are shared between props.
+func _tint_tree(n: Node, k: float) -> void:
+	var mi := n as MeshInstance3D
+	if mi != null:
+		mi.transparency = clampf(1.0 - k, 0.0, 0.66)
+	for c in n.get_children():
+		_tint_tree(c, k)
+
+
+## The words and the pips, on the HUD above the room bar.
+func _build_box_hud() -> void:
+	_box_name = Label.new()
+	_box_name.name = "BoxName"
+	_box_name.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_box_name.offset_left = 46
+	_box_name.offset_right = -46
+	_box_name.offset_top = -ROOMBAR_H - 240 - SAFE_BOTTOM
+	_box_name.offset_bottom = -ROOMBAR_H - 186 - SAFE_BOTTOM
+	_box_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_box_name.add_theme_font_size_override("font_size", 40)
+	_box_name.add_theme_color_override("font_color", Color(0.95, 0.92, 0.84))
+	_box_name.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	_box_name.add_theme_constant_override("outline_size", 8)
+	_ui.add_child(_box_name)
+
+	_box_note = Label.new()
+	_box_note.name = "BoxNote"
+	_box_note.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_box_note.offset_left = 60
+	_box_note.offset_right = -60
+	_box_note.offset_top = -ROOMBAR_H - 182 - SAFE_BOTTOM
+	_box_note.offset_bottom = -ROOMBAR_H - 118 - SAFE_BOTTOM
+	_box_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_box_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_box_note.add_theme_font_size_override("font_size", 28)
+	_box_note.add_theme_color_override("font_color", Color(0.80, 0.78, 0.72))
+	_box_note.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	_box_note.add_theme_constant_override("outline_size", 7)
+	_ui.add_child(_box_note)
+
+	# THE PIP ROW. Arrows are the input; pips are the state. One per rung of that
+	# ladder, filled for what is owned and outline for what is not, so the line
+	# ladder - the only progression in the game - is a picture of itself with the
+	# next rung visibly waiting.
+	_box_pips = Control.new()
+	_box_pips.name = "BoxPips"
+	_box_pips.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_box_pips.offset_left = 46
+	_box_pips.offset_right = -46
+	_box_pips.offset_top = -ROOMBAR_H - 112 - SAFE_BOTTOM
+	_box_pips.offset_bottom = -ROOMBAR_H - 68 - SAFE_BOTTOM
+	_box_pips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_box_pips.draw.connect(_draw_box_pips)
+	_ui.add_child(_box_pips)
+
+	# The two arrows, either side of the object, as he described them.
+	_box_left = _arrow_button("<", func() -> void: _box_variant(-1))
+	_box_right = _arrow_button(">", func() -> void: _box_variant(1))
+	_box_left.offset_left = 40
+	_box_left.offset_right = 140
+	_box_right.offset_left = -140
+	_box_right.offset_right = -40
+	_box_left.set_anchors_preset(Control.PRESET_CENTER_LEFT, true)
+	_box_right.set_anchors_preset(Control.PRESET_CENTER_RIGHT, true)
+	_ui.add_child(_box_left)
+	_ui.add_child(_box_right)
+
+
+## The arrows are PRESSED, not just shown. He described them as an indicator -
+## "show yellow arrows to the left and right of the object if there are other
+## versions I can select" - and the thing a player does next with an arrow beside
+## an object is tap it, so it had better be a button.
+func _arrow_button(text: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.flat = true
+	b.add_theme_font_size_override("font_size", 76)
+	b.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	b.add_theme_constant_override("outline_size", 9)
+	b.pressed.connect(on_press)
+	return b
+
+
+func _draw_box_pips() -> void:
+	var slot := _box_slot(_box_sel)
+	var rungs: int = maxi(1, int(slot["rungs"]))
+	var owned: int = clampi(int(slot["owned"]), 0, rungs)
+	if rungs <= 1:
+		return
+	var w := _box_pips.size.x
+	var y := _box_pips.size.y * 0.5
+	var gap := minf(46.0, w / float(rungs + 1))
+	var start := (w - gap * float(rungs - 1)) * 0.5
+	for i in rungs:
+		var at := Vector2(start + gap * float(i), y)
+		if i < owned:
+			_box_pips.draw_circle(at, 9.0, Color(0.95, 0.86, 0.58))
+		else:
+			# Outline only: the rung exists and you have not reached it. An absent
+			# pip would say the ladder is shorter than it is.
+			_box_pips.draw_arc(at, 9.0, 0.0, TAU, 18, Color(0.62, 0.60, 0.56, 0.85), 2.5)
+
+
+func _sync_box_hud() -> void:
+	if _box_name == null:
+		return
+	var on := _at_box and not _in_sequence
+	for c in [_box_name, _box_note, _box_pips, _box_left, _box_right]:
+		c.visible = on
