@@ -4485,8 +4485,22 @@ func _write_readout() -> void:
 	# dates on what comes up off the bottom - see world.gd.
 	if _world_line != null:
 		var spot := World.spot_by_id(sim.spot)
-		_world_line.text = "%s\nday %d, %s, %s\n%s under you" % [
-			spot["name"], sim.day, sim.hour, sim.weather,
+		# G4: THE LIGHT GOING, IN WORDS RATHER THAN A BAR.
+		#
+		# A depleting meter would make the hour a countdown to stare at, and this
+		# game has spent four milestones taking meters off the screen. What a
+		# person actually knows about the light is roughly how much is left, so
+		# that is what it says - and it says nothing at all until there is
+		# something to say, because "plenty of light" every hour of every day is
+		# noise that teaches the player to stop reading the line.
+		var light := ""
+		var share := sim.hour_left / Tuning.HOUR_SECONDS
+		if share < 0.18:
+			light = ", the light is going"
+		elif share < 0.42:
+			light = ", losing the light"
+		_world_line.text = "%s\nday %d, %s, %s%s\n%s under you" % [
+			spot["name"], sim.day, sim.hour, sim.weather, light,
 			SimUtil.fmt_m(sim.deepest_here())]
 	_stamp.text = BuildStamp.line()
 

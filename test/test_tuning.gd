@@ -589,6 +589,63 @@ func test_the_chart_only_knows_what_you_have_caught(t: TestHarness) -> void:
 
 
 
+## G4: DAYLIGHT IS A RESOURCE, and until it was one the fight had nothing to
+## trade against.
+##
+## `Tuning.TIRE_RATE`'s own note says waiting a fish out "costs the clock, which
+## is the one resource this game says is scarce". That sentence was false: the
+## hour only ever changed when the player asked it to, so patience was free and
+## the fifth fight's central decision was a decision against nothing.
+func test_the_light_goes_while_you_fish(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	var started := s.hour
+	t.gt(s.hour_left, 0.0, "a new day begins with no light in it")
+
+	# IT RUNS DOWN IN EVERY STATE, including a fight. That is the whole point:
+	# a fish that takes two minutes to land costs two minutes of light.
+	s.state = Sim.FIGHTING
+	s.advance(30.0)
+	t.lt(s.hour_left, Tuning.HOUR_SECONDS,
+		"half a minute of fighting cost no daylight at all")
+
+	# AND IT TURNS THE HOUR ON ITS OWN, without being asked.
+	s.advance(Tuning.HOUR_SECONDS)
+	t.ok(s.hour != started, "the light ran out and the hour did not turn")
+	t.gt(s.hour_left, 0.0, "the new hour started with no light in it")
+
+	# An hour has to hold several real attempts at a fish, or every cast is
+	# rushed; and it has to be short enough that a session has a shape.
+	t.gt(Tuning.HOUR_SECONDS, 180.0,
+		"an hour is %.0f s, which is barely two fish" % Tuning.HOUR_SECONDS)
+	t.lt(Tuning.HOUR_SECONDS, 900.0,
+		"an hour is %.0f s, which is long enough that the light never matters" % Tuning.HOUR_SECONDS)
+
+
+## AND THE LAMP BUYS THE DARK.
+##
+## It cost 400 and changed nothing - "fishing after dark is currently identical to
+## fishing at noon" had been on the open-issues list since the day it went in.
+func test_the_lamp_is_worth_buying(t: TestHarness) -> void:
+	t.gt(Tuning.LAMP_NIGHT_BITE, Tuning.DARK_NIGHT_BITE * 2.0,
+		"a lamp barely beats no lamp, so there is no reason to own one")
+	t.lt(Tuning.LAMP_NIGHT_BITE, 1.0,
+		"a lamp makes the night as good as the day, so nothing is lost by fishing it")
+	t.gt(Tuning.DARK_NIGHT_BITE, 0.0,
+		"the night without a lamp is dead water rather than hard water")
+
+	# Driven through the real draw, so this fails if `_arm_bite` stops asking.
+	var lit := Sim.new(3)
+	lit.hour = "night"
+	lit.econ.has_lamp = true
+	lit._arm_bite()
+	var dark := Sim.new(3)
+	dark.hour = "night"
+	dark.econ.has_lamp = false
+	dark._arm_bite()
+	t.lt(lit.bite_in, dark.bite_in,
+		"the same night with a lamp is no quicker than without one")
+
+
 
 ## THE LOGBOOK IS A RECORD BOOK, AND A SMALL FISH STILL GETS A PAGE.
 ##

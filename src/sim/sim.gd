@@ -33,6 +33,8 @@ signal run_started()
 signal landed(species_id: String, weight: float)
 signal object_found(object_id: String)
 signal lost(reason: String)
+## The light went. Fired whether the player slept or simply fished through it.
+signal hour_turned(hour: String)
 
 ## The states a line can be in. Named rather than numbered because they appear in
 ## the golden, where an integer would make a reordering silently pass.
@@ -66,6 +68,11 @@ var spot: String = "reed_bay"
 var hour: String = "dawn"
 var weather: String = "clear"
 var day: int = 1
+## How much of this hour is left, in seconds. See `Tuning.HOUR_SECONDS`.
+##
+## G4. The light going is the only clock in this game, and it is the thing that
+## makes waiting a fish out a DECISION rather than simply the slow way to win.
+var hour_left: float = Tuning.HOUR_SECONDS
 
 var econ := Econ.new()
 
@@ -297,6 +304,18 @@ func advance(dt: float) -> void:
 	if spook_timer > 0.0:
 		spook_timer -= dt
 
+	# THE LIGHT GOES WHILE YOU FISH. G4.
+	#
+	# It runs in every state, including a fight - that is the entire point. The
+	# note on TIRE_RATE says waiting a fish out "costs the clock, which is the one
+	# resource this game says is scarce", and until this line existed the clock
+	# was not a resource: an hour only changed when the player asked it to, so
+	# patience was free and the fifth fight's central trade was a trade against
+	# nothing.
+	hour_left -= dt
+	if hour_left <= 0.0:
+		_turn_hour()
+
 	match state:
 		CHARGING:
 			charge = clampf(charge + dt / Tuning.CAST_CHARGE_TIME, 0.0, 1.0)
@@ -471,6 +490,18 @@ func _wait(dt: float) -> void:
 func _arm_bite() -> void:
 	var rate := Tuning.BITE_CHANCE_PER_SEC * World.weather_bite(weather)
 	rate *= float(Gear.bait_by_id(econ.bait)["bite"])
+	# G4: AND THE DARK. The deck lamp existed, cost 400, and changed nothing -
+	# "fishing after dark is currently identical to fishing at noon" has been on
+	# the open-issues list since it was bought. It buys the night now: three
+	# quarters of daylight fishing with one lit, and not much better than watching
+	# the water without.
+	#
+	# It does not hold the sun up. What it buys is the hours that are already
+	# dark, which is why it is the last thing on the shed's shelf and not the
+	# first - and why dusk and night are worth reaching rather than worth avoiding
+	# once you own it.
+	if World.is_night(hour):
+		rate *= Tuning.LAMP_NIGHT_BITE if econ.has_lamp else Tuning.DARK_NIGHT_BITE
 	rate = maxf(0.02, rate)
 	var u := clampf(_rng.next(), 0.0001, 0.9999)
 	bite_in = -log(u) / rate
@@ -839,10 +870,21 @@ func year_here() -> int:
 func sleep() -> void:
 	if state != IDLE:
 		return
+	_turn_hour()
+
+
+## The hour turns, whether you asked for it or not.
+##
+## One place, so sleeping and simply running out of light do exactly the same
+## thing - the alternative is two paths that drift, and the one nobody exercises
+## is the one that forgets to roll the day over.
+func _turn_hour() -> void:
 	hour = World.next_hour(hour)
+	hour_left = Tuning.HOUR_SECONDS
 	if hour == "dawn":
 		day += 1
 	weather = World.pick_weather(_rng.next())
+	hour_turned.emit(hour)
 
 
 ## THE HOUR THIS WATER HAS GIVEN UP THE MOST FISH AT, or "" if it has given up

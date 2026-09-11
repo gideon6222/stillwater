@@ -379,6 +379,27 @@ const ESCAPE_MARGIN := 18.0
 const TIRE_RATE := 0.20           ## stamina per second while being reeled
 const TIRED_RELIEF := 0.60        ## how much of the fish's fight tiredness removes
 
+# --- the light -------------------------------------------------------------
+##
+## G4: DAYLIGHT IS A SQUEEZE, and until now it was not a resource at all. The hour
+## only ever changed when the player asked it to, so "the clock" - which this
+## file's own note on TIRE_RATE calls "the one resource this game says is scarce"
+## - cost nothing and could not be spent. Waiting a fish out was free.
+##
+## Now an hour runs down while you fish. Six minutes is the number, and it is
+## chosen against the FIGHT rather than against a clock: a deep fish takes one to
+## two minutes to land, so an hour holds three or four serious attempts. Long
+## enough that no single cast feels rushed, short enough that a session has a
+## shape - you notice the light going, and you decide whether to take the next
+## cast or row somewhere while you still can.
+const HOUR_SECONDS := 360.0
+
+## What the lamp buys. Not more hours - it does not hold the sun up - but the
+## ability to fish the ones that are already dark, which is why it is the last
+## thing on the shed's list and not the first.
+const LAMP_NIGHT_BITE := 0.75      ## of normal, with a lamp lit
+const DARK_NIGHT_BITE := 0.18      ## ...and without one
+
 # --- landing --------------------------------------------------------------
 const LAND_DISTANCE := 0.35       ## metres from the boat, near enough to net
 const HOLD_TIME := 2.4            ## seconds the fish is held up and looked at

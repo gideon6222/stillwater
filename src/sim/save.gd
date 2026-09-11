@@ -37,6 +37,10 @@ static func to_dict(sim: Sim) -> Dictionary:
 		"version": VERSION,
 		"day": sim.day,
 		"hour": sim.hour,
+		# How much light is left. Without this a player who closed the game with
+		# ten seconds of dusk in hand would come back to a full one, which is a
+		# free hour for anyone who noticed.
+		"hour_left": sim.hour_left,
 		"weather": sim.weather,
 		"spot": sim.spot,
 		"bait": econ.bait,
@@ -115,6 +119,8 @@ static func apply(sim: Sim, data: Dictionary) -> bool:
 		# - including a save written by a build whose livewell was bigger.
 		econ.keep(id, float(row.get("weight", 0.0)), bool(row.get("wrong", false)))
 
+	sim.hour_left = clampf(float(data.get("hour_left", Tuning.HOUR_SECONDS)),
+		0.0, Tuning.HOUR_SECONDS)
 	sim.caught_at = {}
 	var caught_at = data.get("caught_at", {})
 	if caught_at is Dictionary:
