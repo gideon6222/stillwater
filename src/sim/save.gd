@@ -43,6 +43,10 @@ static func to_dict(sim: Sim) -> Dictionary:
 		"bait_left": econ.bait_left.duplicate(),
 		"lures": Array(econ.owned_lures),
 		"logged": sim.logged.duplicate(),
+		# Nested one deep, so `duplicate(true)` rather than a shallow copy - a
+		# shallow one hands the save the SAME inner dictionaries the sim is still
+		# writing to, and the file then changes under the writer.
+		"caught_at": sim.caught_at.duplicate(true),
 		"found": sim.found.keys(),
 		"caught": sim.caught,
 		"lost": sim.lost_count,
@@ -110,6 +114,18 @@ static func apply(sim: Sim, data: Dictionary) -> bool:
 		# Through `keep`, so a save cannot put more in the box than the box holds
 		# - including a save written by a build whose livewell was bigger.
 		econ.keep(id, float(row.get("weight", 0.0)), bool(row.get("wrong", false)))
+
+	sim.caught_at = {}
+	var caught_at = data.get("caught_at", {})
+	if caught_at is Dictionary:
+		for spot_id in caught_at:
+			var hours = caught_at[spot_id]
+			if not (hours is Dictionary):
+				continue
+			var clean := {}
+			for h in hours:
+				clean[str(h)] = int(hours[h])
+			sim.caught_at[str(spot_id)] = clean
 
 	sim.logged = {}
 	var logged: Dictionary = data.get("logged", {})

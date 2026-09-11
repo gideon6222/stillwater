@@ -91,6 +91,17 @@ var deepest_ever: float = 0.0
 ## the way money does: every amount of money you earn makes the last amount
 ## irrelevant, and a filled page never stops being filled.
 var logged: Dictionary = {}
+## WHICH HOURS HAVE PRODUCED FISH, per spot: `spot -> { hour: count }`.
+##
+## P6: "The same spot at a different hour is a reason to go, not just something
+## that happens to you." Several species only bite at dusk or at night and always
+## have, and the player had no way to find that out except by accident and memory.
+##
+## This is the game's own answer rather than a hint system: the keeper writes down
+## what they caught and when, and the chart reads their book back to them. Nothing
+## is revealed that was not earned - a spot you have never fished at night says
+## nothing about the night.
+var caught_at: Dictionary = {}
 var found: Dictionary = {}
 var last_object: String = ""      ## what came up on the last cast, "" for a fish
 
@@ -737,6 +748,9 @@ func _land_fish() -> void:
 	var row := Species.by_id(fish_id)
 	var wrong: bool = row.get("wrong", false)
 	logged[fish_id] = maxf(float(logged.get(fish_id, 0.0)), fish_weight)
+	var book: Dictionary = caught_at.get(spot, {})
+	book[hour] = int(book.get(hour, 0)) + 1
+	caught_at[spot] = book
 	econ.keep(fish_id, fish_weight, wrong)
 	econ.spend_bait()
 	_enter(HOLDING)
@@ -829,6 +843,38 @@ func sleep() -> void:
 	if hour == "dawn":
 		day += 1
 	weather = World.pick_weather(_rng.next())
+
+
+## THE HOUR THIS WATER HAS GIVEN UP THE MOST FISH AT, or "" if it has given up
+## none worth calling a pattern.
+##
+## P6, and the RESTRAINT is the feature. It would be trivial and wrong to read
+## `Species.TABLE` and tell the player which fish bite at dusk: the whole game is
+## built on working the lake out, and that would be the strategy guide printed
+## inside the box. This only ever reads back what the keeper has already written.
+##
+## Lives here rather than in the chart that draws it, because it is a fact about
+## the save and not about rendering - and because a copy of it in the renderer and
+## a copy in a test is two rules that can disagree about what the book says.
+func best_hour_at(spot_id: String) -> String:
+	var book = caught_at.get(spot_id, {})
+	if not (book is Dictionary) or (book as Dictionary).is_empty():
+		return ""
+	var best := ""
+	var best_n := 0
+	var tied := false
+	for h in book:
+		var n := int(book[h])
+		if n > best_n:
+			best_n = n
+			best = str(h)
+			tied = false
+		elif n == best_n:
+			tied = true
+	# ONE FISH IS NOT A PATTERN, and a dead heat is not a finding.
+	if tied or best_n < 2:
+		return ""
+	return best
 
 
 ## Sell the livewell. Returns what it paid so the shed can say it out loud.

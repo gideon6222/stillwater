@@ -3541,6 +3541,16 @@ func _chart_rows() -> Array:
 			note = "the top %s of %s" % [SimUtil.fmt_m(window[1]), SimUtil.fmt_m(float(spot["bed"]))]
 		if needs_motor:
 			note = "needs a motor"
+		else:
+			# P6: YOUR OWN BOOK, READ BACK. If this water has given you fish at an
+			# hour, the chart says so - and if it has never given you any, it says
+			# nothing at all rather than inventing an opinion. What it never does
+			# is tell you about an hour you have not fished: the whole game is
+			# built on working the lake out, and a chart that listed the dusk
+			# species would be the strategy guide printed inside the box.
+			var best_hour := sim.best_hour_at(id)
+			if best_hour != "":
+				note = "%s   -   good at %s" % [note, best_hour]
 		rows.append({
 			"id": id, "name": str(spot["name"]), "note": note,
 			"here": sim.spot == id,
@@ -3560,7 +3570,6 @@ func _chart_rows() -> Array:
 		"note": "until %s" % World.next_hour(sim.hour),
 		"here": false, "can": true})
 	return rows
-
 
 func _refresh_chart() -> void:
 	if _chart_list == null:

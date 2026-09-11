@@ -541,6 +541,54 @@ func test_no_spot_ever_offers_a_fish_from_the_wrong_water(t: TestHarness) -> voi
 						spot["name"], Gear.line_name(level), d, float(spot["bed"])])
 
 
+## P6: THE CHART READS YOUR OWN BOOK BACK, and never more than that.
+##
+## "The same spot at a different hour is a reason to go, not just something that
+## happens to you." Several species only bite at dusk or at night and always have,
+## and there was no way to find that out except by accident and memory.
+##
+## The claim worth guarding is the RESTRAINT. It would be trivial - and wrong - to
+## read `Species.TABLE` and print "walleye here at dusk"; this whole game is built
+## on the player working the lake out, and that would be the strategy guide in the
+## box. So: nothing is said about an hour that has not been fished, and one fish
+## is not a pattern.
+func test_the_chart_only_knows_what_you_have_caught(t: TestHarness) -> void:
+	var s := Sim.new(1)
+	t.eq(s.caught_at.size(), 0, "a new keeper's book already has opinions in it")
+
+	# One fish at an hour says nothing. A single catch is an anecdote and the
+	# chart is not allowed to draw a line through one point.
+	s.caught_at = {"reed_bay": {"dusk": 1}}
+	t.eq(s.best_hour_at("reed_bay"), "", "one fish at dusk was enough to call it good at dusk")
+
+	# Two at the same hour is the least that can be a finding.
+	s.caught_at = {"reed_bay": {"dusk": 2}}
+	t.eq(s.best_hour_at("reed_bay"), "dusk", "two fish at dusk is not enough to say so")
+
+	# A tie is not a finding either.
+	s.caught_at = {"reed_bay": {"dusk": 3, "dawn": 3}}
+	t.eq(s.best_hour_at("reed_bay"), "", "the chart picked a favourite out of a dead heat")
+
+	# And it never speaks about water you have not fished.
+	t.eq(s.best_hour_at("quarry"), "", "the chart has an opinion about water you have never been to")
+
+	# IT IS WRITTEN BY LANDING FISH, not by being told. Driven through the real
+	# rules, so this fails if `_land_fish` ever stops keeping the record.
+	var played := Sim.new(4)
+	played.spot = "reed_bay"
+	played.hour = "dusk"
+	played.fish_id = "bluegill"
+	played.fish_weight = 0.2
+	played._land_fish()
+	played.state = Sim.IDLE
+	played.fish_id = "bluegill"
+	played.fish_weight = 0.3
+	played._land_fish()
+	t.eq(played.best_hour_at("reed_bay"), "dusk",
+		"two fish landed at dusk did not get written down")
+
+
+
 
 ## THE LOGBOOK IS A RECORD BOOK, AND A SMALL FISH STILL GETS A PAGE.
 ##
