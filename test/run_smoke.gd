@@ -57,6 +57,7 @@ func _initialize() -> void:
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
 	_check_the_shed_is_a_room(main)
+	_check_the_shed_stock_is_physical(main)
 	_check_the_lure_is_where_the_line_ends(main)
 	_check_every_room_opens_and_closes(main)
 	_check_the_shed_actually_spends_money(main)
@@ -693,6 +694,104 @@ func _check_the_shed_is_a_room(main) -> void:
 	var back: Vector3 = main._cam.transform.origin
 	_t.lt(back.distance_to(Sequence.SEAT), 1.2,
 		"leaving the shed did not put the player back on the seat")
+
+## THE STOCK IS OBJECTS ON A COUNTER, not words on a board.
+##
+## Gideon, about the tackle box first and then the shed: "can you make all items
+## in the shed physical 3d objects as well", and before that "I want the items in
+## it to be shrunk down and placed more in a grid so they down overlap."
+##
+## Both halves are asserted, because the second one is the half that rots: a grid
+## is only a grid while the things in it are smaller than its pitch, and every
+## time a prop is added or a scale is nudged that stops being true silently.
+func _check_the_shed_stock_is_physical(main) -> void:
+	_t.begin("smoke > the shed sells objects rather than words")
+	if not main._in_shed:
+		# The shed check before this one rows home again, so come back.
+		main._enter_shed()
+		var waited := 0.0
+		while waited < 12.0 and not main._in_shed:
+			main.advance(1.0 / 60.0)
+			waited += 1.0 / 60.0
+	_t.ok(main._in_shed, "could not get into the shed to look at the stock")
+	if not main._in_shed:
+		return
+
+	var rows: Array = main._shed_rows()
+	_t.eq(main._shed_items.size(), rows.size(),
+		"the board lists %d things and the counter has %d of them on it" % [
+			rows.size(), main._shed_items.size()])
+	if main._shed_items.is_empty():
+		return
+
+	# ON THE COUNTER. Measured against the counter's own top, the same way the
+	# livewell's fish are measured against the bucket - an item hovering above the
+	# surface or sunk into it is the failure this catches.
+	var top: float = main.SHED_COUNTER_AT.y + main.SHED_COUNTER_TOP
+	for n in main._shed_items:
+		_t.gt(n.position.y, top - 0.01, "a thing for sale has sunk into the counter")
+		_t.lt(n.position.y, top + main.SHED_LIFT + 0.02,
+			"a thing for sale is floating above the counter")
+
+	# A GRID, AND NOTHING OVERLAPS. Every pair at least one item apart.
+	var size: float = main.SHED_ITEM_SIZE
+	for i in main._shed_items.size():
+		for j in range(i + 1, main._shed_items.size()):
+			var a: Vector3 = main._shed_items[i].position
+			var b: Vector3 = main._shed_items[j].position
+			var gap := Vector2(a.x - b.x, a.z - b.z).length()
+			_t.gt(gap, size * 0.99,
+				"two things on the counter are %.3f m apart and %.3f m across - they overlap" % [
+					gap, size])
+
+	# AND THEY ARE ALL THE SAME SIZE, which is what stops a crate dwarfing a reel.
+	for n in main._shed_items:
+		var box: AABB = main._local_bounds(n)
+		var big: float = maxf(box.size.x, maxf(box.size.y, box.size.z)) * n.scale.x
+		_t.gt(big, size * 0.5, "a thing for sale is far smaller than the rest of the counter")
+		_t.lt(big, size * 1.6, "a thing for sale is far bigger than the rest of the counter")
+
+	# THE CHOSEN ONE IS LIFTED AND LIT, which is the whole of the selection.
+	main._shed_pick = 0
+	for i in 30:
+		main.advance(1.0 / 60.0)
+	var low: float = main._shed_items[0].position.y
+	main._shed_pick = 1
+	for i in 30:
+		main.advance(1.0 / 60.0)
+	_t.gt(main._shed_items[1].position.y, main._shed_items[0].position.y + 0.01,
+		"the chosen thing does not rise off the counter")
+	_t.lt(main._shed_items[0].position.y, low + 0.005,
+		"the thing that stopped being chosen did not settle back down")
+	_t.ok(main._shed_lamp != null, "nothing lights the chosen item")
+	if main._shed_lamp != null:
+		_t.gt(main._shed_lamp.light_energy, 0.1, "the light on the chosen item is off")
+
+	# BUYING CHANGES THE COUNTER, not just the board. A bought rung becomes the
+	# next rung, so the object standing there has to be rebuilt.
+	main.sim.econ.money = 4000
+	var before: int = main._shed_items.size()
+	for i in rows.size():
+		if str(rows[i]["kind"]) == "motor":
+			main._shed_pick = i
+			break
+	main._cast_pressed()
+	main.advance(0.1)
+	_t.ok(main.sim.econ.has_motor, "the motor on the counter could not be bought")
+	_t.eq(main._shed_items.size(), before - 1,
+		"the motor was bought and is still standing on the counter")
+
+	# ROW HOME. The suite shares one live scene, and a check that leaves the
+	# player standing in a shed hands the next one a boat it cannot see: the cast
+	# button, the distance meter and every aim point in the hull failed at once
+	# the first time this was written without it.
+	main._room_close_pressed()
+	var home := 0.0
+	while home < 12.0 and (main._in_sequence or main._in_shed):
+		main.advance(1.0 / 60.0)
+		home += 1.0 / 60.0
+	_t.ok(not main._in_shed, "the stock check never left the shed")
+
 
 
 

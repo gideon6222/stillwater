@@ -95,10 +95,14 @@ const SHED_DOOR := SHED_AT + Vector3(0.0, 1.62, -3.9)
 ## distance d is about d * tan(37.5 deg) * 0.462 * 2. At 0.9 m that is 1.0 m and
 ## the left half of every line ran off the screen; at 2.0 m it is 1.42 m and the
 ## whole board sits inside the frame with the counter in front of it.
-const SHED_STAND := SHED_AT + Vector3(0.0, 1.58, -2.05)
+const SHED_STAND := SHED_AT + Vector3(0.0, 1.50, -2.05)
 ## Level with the middle of the chalkboard rather than tipped at the floor: you
 ## came here to read the prices, so that is what the view is built around.
-const SHED_LOOK := SHED_AT + Vector3(0.0, 1.66, 0.47)
+## BETWEEN THE GOODS AND THE PRICES, because both have to be in one frame now.
+## From the eye the counter sits about 27 degrees down and the top of the board
+## about 14 up - a 41 degree span inside a portrait lens of about 75, so aiming
+## at the middle of it holds both without a wide shot of an empty room.
+const SHED_LOOK := SHED_AT + Vector3(0.0, 1.16, 0.50)
 
 
 ## ROWED TO THE SHED. Four seconds, and a tap cuts it like every other sequence.

@@ -112,9 +112,14 @@ func _initialize() -> void:
 		while st < 12.0 and not _main._in_shed:
 			_main.advance(1.0 / 60.0, 1.0 / 60.0)
 			st += 1.0 / 60.0
-		for i in 30:
+		# The first argument doubles as WHICH ROW is picked, so the lit-and-lifted
+		# item can be photographed rather than taken on trust.
+		_main._shed_pick = int(_seconds)
+		_main._refresh_shed_board()
+		for i in 60:
 			_main.advance(1.0 / 60.0, 1.0 / 60.0)
-		print("in shed: %s  after %.1fs" % [_main._in_shed, st])
+		print("in shed: %s  after %.1fs  picked %d of %d" % [
+			_main._in_shed, st, _main._shed_pick, _main._shed_items.size()])
 	elif _until == "turn":
 		# MID-TURN. A page turn lasts a third of a second, so the only way to
 		# photograph the leaf is to stop the clock inside it - and the leaf is the

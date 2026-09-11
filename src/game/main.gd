@@ -34,6 +34,10 @@ var _fish: Node3D
 var _shed: Node3D = null
 var _shed_list: VBoxContainer = null
 var _shed_pick := 0
+## The stock, as objects on the counter. See `_build_shed_stock`.
+var _shed_items: Array[Node3D] = []
+var _shed_kinds: Array[String] = []
+var _shed_lamp: OmniLight3D = null
 var _shed_board: Room3D = null
 var _in_shed := false
 var _livewell_prop: Node3D = null
@@ -3119,6 +3123,280 @@ func _breathe(f: Node3D, phase: float) -> void:
 			# swings reads as a broken model rather than as breathing.
 			(part as Node3D).rotation_degrees.y = side * (5.0 + cycle * 5.0)
 
+## THE STOCK IS ON THE COUNTER, not written on a board.
+##
+## Gideon: "can you make all items in the shed physical 3d objects as well". The
+## same note he made about the tackle box, which is R8, and the same answer: a
+## shop whose goods are a list of words is a menu wearing a room.
+##
+## Every generator here is the one the TACKLE BOX already uses - the rod, the
+## reel, the spool, the bait tin. That is not laziness, it is the rule from
+## PLAN.md 8.2: the spool a player buys in the shed and the spool they look at in
+## their own box have to be the same object, or the shed is selling something the
+## box never receives. One generator, so they cannot drift.
+##
+## Rebuilt whenever the stock changes, because the stock IS the list: buy the
+## 12 lb mono and the line rung on the counter becomes the 20 lb braid.
+## SIZED TO THE FRAME, not to the counter.
+##
+## At 1.25 the goods were correct shop objects - a 26 cm crate, a palm-sized reel -
+## and they were also a metre from the lens on a portrait phone, so four of them
+## filled the screen and the other nine were off the edges. The visible width at
+## the counter is about 0.85 m; seven across on a 0.13 m pitch is 0.78, and each
+## one has to be under a pitch wide or they overlap. Scale and pitch are ONE
+## decision, the same as the tackle box's tray.
+## EVERY ITEM IS SCALED TO THE SAME LARGEST DIMENSION, measured from its own
+## bounds rather than guessed per prop. A hand-picked scale for each was wrong
+## three times over in one screenshot - the crate came out three times the size of
+## the reel beside it - and it would have been wrong again for every prop added
+## later. One number, and the counter is a row of things the same size.
+const SHED_ITEM_SIZE := 0.070
+const SHED_LIFT := 0.055         ## how far the chosen one rises off the counter
+const SHED_DIM := 0.62           ## how far the rest fall back
+
+
+func _build_shed_stock() -> void:
+	for n in _shed_items:
+		n.queue_free()
+	_shed_items.clear()
+	_shed_kinds.clear()
+	if _shed == null:
+		return
+
+	var rows := _shed_rows()
+	# TWO ROWS ACROSS THE COUNTER, in reading order, so up and down walk the
+	# counter the same way they walk the board behind it. The counter is 1.53 m
+	# wide and the goods are palm-sized, so seven to a row on a 0.20 m pitch.
+	# FIVE ACROSS, NOT SEVEN. Seven on a 0.13 m pitch is 0.78 m of counter, and at
+	# the metre and a quarter the player stands from it that subtends 37 degrees
+	# against a portrait lens that shows 39 - so the row filled the screen edge to
+	# edge and the ends fell off it. Five on 0.115 is 0.58 m and 27 degrees, which
+	# leaves the counter reading as a counter.
+	var across := 5
+	var pitch := Vector3(0.115, 0.0, 0.105)
+	var top := SHED_COUNTER_AT + Vector3(0.0, SHED_COUNTER_TOP, 0.0)
+	for i in rows.size():
+		var kind := str(rows[i]["kind"])
+		var n := _shed_thing(kind)
+		if n == null:
+			continue
+		var col := i % across
+		var row := i / across
+		_shed.add_child(n)
+		n.scale = Vector3.ONE * _fit_scale(n, SHED_ITEM_SIZE)
+		# Rows run AWAY from the player, nearest first, so the reading order on
+		# the counter matches the reading order on the board behind it.
+		n.position = top + Vector3(
+			(float(col) - float(across - 1) * 0.5) * pitch.x,
+			0.0,
+			float(row) * pitch.z - pitch.z)
+		n.name = "ShedItem%d" % i
+		_shed_items.append(n)
+		_shed_kinds.append(kind)
+
+	if _shed_lamp == null:
+		# The chosen thing brings its own light, exactly as the one in the tackle
+		# box does. A shed at dusk has nothing to pick one item out with.
+		_shed_lamp = OmniLight3D.new()
+		_shed_lamp.name = "ShedPick"
+		_shed_lamp.light_color = Color(1.0, 0.92, 0.76)
+		_shed_lamp.light_energy = 2.2
+		_shed_lamp.omni_range = 0.9
+		_shed.add_child(_shed_lamp)
+
+## What to scale a thing by so its largest dimension is `want` metres.
+##
+## Measured off the meshes it actually draws, so an imported prop whose origin is
+## wherever the exporter left it still comes out the right size. Returns 1.0 for
+## anything with no bounds, which is the safe direction: visible and wrong beats
+## invisible and correct.
+func _fit_scale(n: Node3D, want: float) -> float:
+	var was := n.scale
+	n.scale = Vector3.ONE
+	var box := _local_bounds(n)
+	n.scale = was
+	var big: float = maxf(box.size.x, maxf(box.size.y, box.size.z))
+	if big <= 0.0001:
+		return 1.0
+	return want / big
+
+
+
+## ONE OBJECT PER THING FOR SALE.
+##
+## The four that the tackle box already models come straight from it. The rest are
+## either a prop the game already imports - the lantern IS the deck lamp, the
+## bucket IS the livewell - or a few boxes and cylinders, which is the right
+## answer for a motor and a sounder: PLAN.md 8.2 searched and there is no CC0
+## photoreal outboard or fish-finder anywhere, and a flat-shaded low-poly one
+## would sit on the same counter as the imports and show.
+func _shed_thing(kind: String) -> Node3D:
+	if kind.begins_with("bait:"):
+		return _shed_bait(kind.substr(5))
+	match kind:
+		"sell":
+			# YOUR OWN CATCH, in the bucket you carried it in. Nothing else on the
+			# counter is yours, and that is the point of it sitting there.
+			return _box_import("livewell", 0.32, Vector3.ZERO)
+		"line":
+			return _box_spool()
+		"rod":
+			return _box_rod()
+		"reel":
+			return _box_reel()
+		"livewell":
+			return _box_import("baitbox", 0.34, Vector3(0, 18, 0))
+		"lamp":
+			return _box_import("lamp", 0.30, Vector3.ZERO)
+		"motor":
+			return _shed_motor()
+		"sounder":
+			return _shed_sounder()
+	return null
+
+
+## An outboard: a cowling, a leg and a propeller. Small, and read from above at a
+## metre, so the silhouette is the whole job.
+func _shed_motor() -> Node3D:
+	var root := Node3D.new()
+	var shell := _mat(Color(0.18, 0.30, 0.26), 0.38)
+	shell.metallic = 0.45
+	var metal := _mat(Color(0.58, 0.59, 0.60), 0.30)
+	metal.metallic = 0.8
+
+	var cowl := MeshInstance3D.new()
+	var cm := BoxMesh.new()
+	cm.size = Vector3(0.052, 0.058, 0.044)
+	cowl.mesh = cm
+	cowl.position = Vector3(0, 0.070, 0)
+	cowl.material_override = shell
+	root.add_child(cowl)
+
+	var leg := MeshInstance3D.new()
+	var lm := BoxMesh.new()
+	lm.size = Vector3(0.020, 0.085, 0.026)
+	leg.mesh = lm
+	leg.position = Vector3(0, 0.020, 0)
+	leg.material_override = shell
+	root.add_child(leg)
+
+	for blade in 3:
+		var b := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.006, 0.030, 0.010)
+		b.mesh = bm
+		b.position = Vector3(0, -0.012, 0)
+		b.rotation_degrees = Vector3(0, 0, float(blade) * 120.0)
+		b.material_override = metal
+		root.add_child(b)
+	return root
+
+
+## A sounder: a cased screen on a bracket, the screen pale so it reads as glass.
+func _shed_sounder() -> Node3D:
+	var root := Node3D.new()
+	var case_mat := _mat(Color(0.14, 0.14, 0.15), 0.44)
+	var screen := _mat(Color(0.52, 0.66, 0.60), 0.16)
+	screen.metallic = 0.30
+
+	var body := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.070, 0.056, 0.024)
+	body.mesh = bm
+	body.position = Vector3(0, 0.032, 0)
+	body.rotation_degrees = Vector3(-16, 0, 0)
+	body.material_override = case_mat
+	root.add_child(body)
+
+	var glass := MeshInstance3D.new()
+	var gm := BoxMesh.new()
+	gm.size = Vector3(0.052, 0.038, 0.004)
+	glass.mesh = gm
+	glass.position = Vector3(0, 0.034, 0.014)
+	glass.rotation_degrees = Vector3(-16, 0, 0)
+	glass.material_override = screen
+	root.add_child(glass)
+	return root
+
+
+## Bait. The tin the tackle box already models, coloured by what is in it, and a
+## lure for the two that are not bait at all - a spoon is a bent bit of metal and
+## the player should be able to tell it from a tub of worms at a glance.
+func _shed_bait(id: String) -> Node3D:
+	if id in ["spoon", "spoon_lure", "jig", "glow_jig"]:
+		var root := Node3D.new()
+		var shiny := _mat(Color(0.86, 0.84, 0.66) if id.begins_with("spoon") else Color(0.62, 0.82, 0.58), 0.18)
+		shiny.metallic = 0.9
+		var blade := MeshInstance3D.new()
+		var m := SphereMesh.new()
+		m.radius = 0.019
+		m.height = 0.010
+		m.radial_segments = 10
+		m.rings = 4
+		blade.mesh = m
+		blade.position = Vector3(0, 0.010, 0)
+		blade.rotation_degrees = Vector3(0, 0, 22)
+		blade.material_override = shiny
+		root.add_child(blade)
+		var hook := MeshInstance3D.new()
+		var hm := CylinderMesh.new()
+		hm.height = 0.026
+		hm.top_radius = 0.0016
+		hm.bottom_radius = 0.0016
+		hm.radial_segments = 6
+		hook.mesh = hm
+		hook.position = Vector3(0.019, 0.008, 0)
+		hook.rotation_degrees = Vector3(0, 0, 64)
+		hook.material_override = shiny
+		root.add_child(hook)
+		return root
+	var tin := _box_tin()
+	if tin == null:
+		return null
+	# The lid takes the colour of what is in the tub, which is the only thing
+	# telling six identical tins apart on a counter.
+	var col := Color(0.52, 0.38, 0.26)
+	match id:
+		"corn", "sweetcorn": col = Color(0.86, 0.72, 0.24)
+		"minnow", "minnows": col = Color(0.62, 0.68, 0.72)
+		"cutbait", "cut_bait": col = Color(0.58, 0.30, 0.28)
+	_tint_first_mesh(tin, col)
+	return tin
+
+
+## Recolour the top mesh of a generated item without touching the shared material
+## the others use. A tin is a body and a lid; the lid is the second child.
+func _tint_first_mesh(n: Node3D, col: Color) -> void:
+	var seen := 0
+	for c in n.get_children():
+		var mi := c as MeshInstance3D
+		if mi == null:
+			continue
+		seen += 1
+		if seen == 2:
+			mi.material_override = _mat(col, 0.52)
+			return
+
+
+## Lift and light whichever one is chosen, and dim the rest. The same three
+## channels the tackle box uses, so the two shelves behave identically.
+func _sync_shed_items() -> void:
+	if _shed_items.is_empty():
+		return
+	var top := SHED_COUNTER_AT.y + SHED_COUNTER_TOP
+	for i in _shed_items.size():
+		var n := _shed_items[i]
+		var chosen := i == _shed_pick and _in_shed
+		var want := Vector3(n.position.x, top + (SHED_LIFT if chosen else 0.0), n.position.z)
+		n.position = n.position.lerp(want, 0.25)
+		_tint_tree(n, 1.0 if chosen else SHED_DIM)
+		if chosen and _shed_lamp != null:
+			_shed_lamp.position = want + Vector3(0.0, 0.13, 0.0)
+			_shed_lamp.light_energy = 2.2 if _in_shed else 0.0
+	if _shed_lamp != null and not _in_shed:
+		_shed_lamp.light_energy = 0.0
+
+
 
 # --- the shed ---------------------------------------------------------------
 
@@ -3145,10 +3423,22 @@ const SHED_AT := Vector3(-13.0, 0.0, -14.2)
 const SHED_W := 5.0            ## metres across
 const SHED_D := 6.2            ## metres deep
 const SHED_H := 2.9            ## to the eaves
+## WHERE THE COUNTER IS, and how high its top sits. Measured with
+## `probe_board.gd` rather than typed: the imported table is 1.53 m wide and its
+## surface lands at 0.955 once it is scaled, and the stock has to sit ON that
+## rather than a centimetre inside it or floating over it.
+##
+## It moved forward a metre when the goods went onto it. At z 0.15 the counter
+## was two and a quarter metres from where the player stands and its top was at
+## the very bottom of a portrait frame - a shop counter you cannot see the goods
+## on. At -1.05 it is a metre away and you are looking down at it, which is what
+## standing at a counter is.
+const SHED_COUNTER_AT := Vector3(0.0, 0.0, -0.88)
+const SHED_COUNTER_TOP := 0.955
 ## Where the player stands, in the shed's own space: in front of the counter,
 ## facing the chalkboard behind it.
 const SHED_STAND := Vector3(0.0, 1.62, -1.35)
-const SHED_LOOK := Vector3(0.0, 1.30, 1.60)
+
 
 ## WHAT IS FOR SALE, as rows, in the order a keeper would read them.
 ##
@@ -3228,6 +3518,11 @@ func _favours_short(b: Dictionary) -> String:
 
 ## DRAW THE BOARD. Chalk on slate: no panels, no borders, one column.
 func _refresh_shed_board() -> void:
+	# THE COUNTER IS PART OF THE BOARD. The two show the same list, so anything
+	# that changes it - a rung bought, a fish weighed in - has to rebuild both or
+	# the words and the goods disagree about what is for sale.
+	if _shed_items.size() != _shed_rows().size():
+		_build_shed_stock()
 	if _shed_list == null:
 		return
 	for c in _shed_list.get_children():
@@ -3302,6 +3597,10 @@ func _shed_take() -> void:
 		if _audio != null:
 			_audio.play("land", -6.0)
 		_save_due = 0.6
+		# The stock CHANGED, not just the prices: a bought rung becomes the next
+		# rung and a weighed-in catch empties the bucket, so the objects on the
+		# counter are rebuilt rather than re-lit.
+		_build_shed_stock()
 	_refresh_shed_board()
 	_sync_bars()
 
@@ -3359,8 +3658,8 @@ func _build_shed() -> void:
 	# THE THINGS IN IT. Placed against the walls rather than scattered: a shop is
 	# a counter you stand at with everything behind it, and a room with its
 	# furniture in the middle reads as a storeroom.
-	_shed_prop("counter", Vector3(0.0, 0.0, 0.15), 1.15, 0.0)
-	_shed_prop("till", Vector3(0.78, 0.78, 0.12), 0.85, -18.0)
+	_shed_prop("counter", SHED_COUNTER_AT, 1.15, 0.0)
+	_shed_prop("till", SHED_COUNTER_AT + Vector3(0.80, SHED_COUNTER_TOP, 0.02), 0.85, -18.0)
 	_shed_prop("shelf", Vector3(-1.72, 0.0, 2.55), 1.0, 0.0)
 	_shed_prop("rack", Vector3(1.85, 0.0, 2.35), 1.0, -90.0)
 	_shed_prop("stove", Vector3(-1.90, 0.0, -1.30), 1.0, 32.0)
@@ -3389,6 +3688,7 @@ func _build_shed() -> void:
 	_shed.add_child(door_light)
 
 	_build_shed_board()
+	_build_shed_stock()
 	_shed.visible = false
 
 ## GO TO THE SHED, and come back from it.
@@ -3631,6 +3931,7 @@ func _sync_mood(dt: float) -> void:
 	if _book != null:
 		_book.advance(dt)
 		_sync_book_hold(dt)
+	_sync_shed_items()
 	if _shed_board != null:
 		# The board is a Room3D like the book and the box, and a Room3D that is
 		# never advanced never shows its surface: `openness` stays at 0 and the
