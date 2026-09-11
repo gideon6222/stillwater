@@ -1700,8 +1700,22 @@ func _sync_bars() -> void:
 		# the wake are three readings of one state: no single channel has to be
 		# the one the player happens to be watching.
 		var letting_go := sim.state == Sim.FIGHTING and (sim.running or sim.tell > 0.0)
-		_action.add_theme_color_override("font_color",
-			Color(0.99, 0.80, 0.44) if letting_go else Color(0.93, 0.90, 0.82))
+		# DIM, NEVER HIDE. A Select with nothing under the crosshair greys out and
+		# stays exactly where it is: removing it would reflow the layout under a
+		# thumb already moving toward it, which reads as the game breaking.
+		var idle_state := sim.state == Sim.IDLE or sim.state == Sim.HOLDING or sim.state == Sim.LOST
+		var dead_select := idle_state and not _over_water_shown and _looking_at == ""
+		var tint := Color(0.93, 0.90, 0.82)
+		if letting_go:
+			tint = Color(0.99, 0.80, 0.44)
+		elif dead_select:
+			tint = Color(0.55, 0.53, 0.49)
+		elif idle_state and not _over_water_shown:
+			# Something IS under it. Warm, so "there is a thing here" reads at a
+			# glance rather than being spelled out.
+			tint = Color(0.99, 0.84, 0.52)
+		_action.add_theme_color_override("font_color", tint)
+		_action.disabled = dead_select
 		_action.text = label
 	if _hint != null:
 		_hint.visible = not in_room
@@ -2020,6 +2034,12 @@ func _on_cast_input(event: InputEvent) -> void:
 func _cast_pressed() -> void:
 	match sim.state:
 		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+			# Whatever the button SAYS is what it does - one decision, made once,
+			# so the caption can never lie about the behaviour.
+			if not _over_water_shown:
+				if _looking_at != "":
+					_on_use()
+				return
 			sim.hold_cast()
 			_charging = true
 		Sim.NIBBLING:
@@ -2340,6 +2360,7 @@ func _sync() -> void:
 	_sync_fish()
 	_write_readout()
 	_sync_bars()
+	_sync_primary_button()
 	_sync_room_bar()
 
 
@@ -3964,6 +3985,11 @@ func water_height(x: float, z: float) -> float:
 func _action_for_state() -> String:
 	match sim.state:
 		Sim.IDLE, Sim.HOLDING, Sim.LOST:
+			# CAST ONLY OVER THE WATER. Looking into the boat, the same button
+			# becomes Select - which is what the moment wants there, and stops the
+			# game offering a cast into its own floorboards.
+			if not _over_water_shown:
+				return "Select"
 			return "Cast"
 		Sim.CHARGING:
 			return "Cast"
@@ -4279,6 +4305,10 @@ var _box_rows: Array = []
 var _at_box := false
 ## id -> the measured centre of its geometry, in boat space. See `_build_aim_points`.
 var _aim_points: Dictionary = {}
+## Which side of the gunwale the primary button is currently showing, and how
+## long the ray has been on the other one. See `_sync_primary_button`.
+var _over_water_shown := true
+var _boundary_held := 0
 var _box_sel := 0
 ## The bar of controls shown while a room is open. See `_build_room_bar`.
 var _room_bar: HBoxContainer
@@ -5174,10 +5204,16 @@ func _release_page(at: Vector2) -> void:
 ## One page, in either direction, with the sound and the shut at the end.
 func _turn_page(by: int) -> void:
 	var want := _book.page + by
-	if want < 0:
-		return
-	if want >= _book_pages:
-		_shut_book()
+	# THE BOOK NEVER PUTS ITSELF DOWN.
+	#
+	# Gideon: "you put it down instantly after running out of pages... when you run
+	# iut of pages keep the book out. only exit when I hit the X button."
+	#
+	# It used to shut at the back cover, which is the same accidental-exit family
+	# as the tap-outside that was removed last build - he has now asked three
+	# times for the X to be the only way out, and this was the last place that was
+	# not true. Running out of pages stops, and the arrow greys.
+	if want < 0 or want >= _book_pages:
 		return
 	_book.page = want
 	_refresh_book()
@@ -5718,10 +5754,26 @@ func _sync_room_bar() -> void:
 		_room_ok.text = "Turn"
 		_room_prev.text = "<"
 		_room_next.text = ">"
+		# DIM, NEVER HIDE, at both covers - so the end of the book reads as the
+		# end rather than as a control that stopped working.
+		var page: int = _book.page if _book != null else 0
+		_room_prev.disabled = page <= 0
+		_room_next.disabled = page >= _book_pages - 1
+		_room_ok.disabled = _room_next.disabled
+		for b in [_room_prev, _room_next, _room_ok]:
+			b.add_theme_color_override("font_color",
+				Color(0.44, 0.42, 0.39) if b.disabled else Color(0.93, 0.90, 0.82))
 	else:
 		_room_ok.text = "Use"
 		_room_prev.text = "^"
 		_room_next.text = "v"
+		var nothing := _box_rows.is_empty()
+		_room_prev.disabled = nothing
+		_room_next.disabled = nothing
+		_room_ok.disabled = nothing
+		for b in [_room_prev, _room_next, _room_ok]:
+			b.add_theme_color_override("font_color",
+				Color(0.44, 0.42, 0.39) if b.disabled else Color(0.93, 0.90, 0.82))
 
 
 # --- where a thing actually IS ---------------------------------------------
@@ -5824,3 +5876,56 @@ func _relative_to(node: Node3D, ancestor: Node3D) -> Transform3D:
 		t = (cur as Node3D).transform * t
 		cur = cur.get_parent()
 	return t
+
+
+# --- what the moment wants -------------------------------------------------
+
+## IS THE CROSSHAIR OVER THE WATER, OR OVER THE BOAT?
+##
+## Gideon: "I also want the cast button to only pop up when the cursor is above
+## the boat. if you are looking in the boat, change it to a select button."
+##
+## Cast is currently offered while the player is looking at the floorboards, which
+## is an instruction the game cannot honour - the cast would go into the bottom of
+## the boat. The button should say what the moment wants, which is the rule the
+## CAPTION already follows; this extends it to the button's whole identity.
+##
+## Answered by intersecting the look ray with the waterline and asking whether it
+## lands inside the hull's own footprint, so it follows the boat's real shape
+## rather than a guessed angle. A ray that never reaches the water at all - level
+## or climbing - is looking at the horizon, which is water.
+const BOUNDARY_FRAMES := 4   ## how long a side must hold before the button changes
+
+
+func _aim_is_over_water() -> bool:
+	if _cam == null:
+		return true
+	var origin := _cam.transform.origin
+	var dir := -_cam.transform.basis.z.normalized()
+	if dir.y >= -0.0001:
+		return true
+	var t := -origin.y / dir.y
+	if t <= 0.0:
+		return true
+	var hit := origin + dir * t
+	# Inside the hull's plan view is the boat; anything past bow or stern, or
+	# outside the beam at that station, is open water.
+	if hit.z < -0.85 or hit.z > 2.25:
+		return true
+	return absf(hit.x) > _hull_half_width(hit.z)
+
+
+## The primary button, debounced. Without the hysteresis a slow pan across the
+## gunwale flickers Cast/Select at the edge, which is the researched failure of
+## this pattern - and the thumb is usually already moving toward the button.
+func _sync_primary_button() -> void:
+	if _action == null:
+		return
+	var over_water := _aim_is_over_water()
+	if over_water == _over_water_shown:
+		_boundary_held = 0
+	else:
+		_boundary_held += 1
+		if _boundary_held >= BOUNDARY_FRAMES:
+			_over_water_shown = over_water
+			_boundary_held = 0

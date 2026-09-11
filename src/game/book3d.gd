@@ -39,10 +39,16 @@ static func fill(into: VBoxContainer, sim: Sim, page_index: int,
 	var entries := Keepers.unlocked(sim.deepest_ever)
 	# The species records are the FIFTH hand, so they are the last pages of the
 	# book rather than a separate list underneath it.
+	# EVERY SPECIES, not only the ones caught. An unlogged row is a BLANK line on
+	# a real page rather than a page that does not exist.
+	#
+	# Gideon: "I want it to be full of pages that I can flip through even if theh
+	# are blank." He is right, and it is more on-theme than what was here: this is
+	# a book the player is filling in, so the gaps are the content. A logbook that
+	# only has pages for what you already caught cannot show you what you have not.
 	var records := []
 	for row in Species.TABLE:
-		if sim.logged.has(row["id"]):
-			records.append(row)
+		records.append(row)
 
 	var sheets: Array = []
 	var i := 0
@@ -78,7 +84,15 @@ static func fill(into: VBoxContainer, sim: Sim, page_index: int,
 		"catch":
 			_head(into, "What you have had out", ink_dim, rule)
 			for row in here["items"]:
-				var best: float = sim.logged[row["id"]]
+				var id := str(row["id"])
+				if not sim.logged.has(id):
+					# A RULED LINE WITH NOTHING ON IT. Not the species name greyed
+					# out - that would tell the player what is down there, and the
+					# whole game is built on not telling them. An empty line says
+					# "there is something here you have not had" and no more.
+					_body(into, "   .  .  .", ink_dim.lerp(rule, 0.45))
+					continue
+				var best: float = sim.logged[id]
 				var line := "%s   -   %.2f kg" % [str(row["name"]), best]
 				var col := ink
 				if bool(row.get("wrong", false)):

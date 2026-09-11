@@ -74,6 +74,7 @@ func _initialize() -> void:
 	_check_a_swipe_does_not_turn_the_view(main)
 	_check_the_tackle_box_is_the_equipment_menu(main)
 	_check_looking_at_a_thing_selects_it(main)
+	_check_the_button_says_what_the_moment_wants(main)
 
 	# Free what we built. Without this the run ends with "8 resources still in
 	# use at exit" - the audio mixer's stream cache, held by a node the quitting
@@ -1075,6 +1076,71 @@ func _check_looking_at_a_thing_selects_it(main) -> void:
 		"two things in the boat are too close together to aim between: %s" % ", ".join(crowded))
 
 
+## THE PRIMARY BUTTON SAYS WHAT THE MOMENT WANTS.
+##
+## Gideon: "I also want the cast button to only pop up when the cursor is above the
+## boat. if you are looking in the boat, change it to a select button. make the
+## select button grey unless there is something clickable."
+##
+## Cast was offered while looking at the floorboards, which is an instruction the
+## game cannot honour. Asserted through the whole chain - aim the view, sync, read
+## the caption the player would see - rather than by calling the classifier, so a
+## boundary test that is right about geometry and wrong about wiring still fails.
+func _check_the_button_says_what_the_moment_wants(main) -> void:
+	_t.begin("smoke > the primary button says what the moment wants")
+	main.freeze(1)
+	main.sim.state = Sim.IDLE
+
+	# LOOKING OUT AT THE LAKE: Cast.
+	main._look_yaw = 0.0
+	main._look_pitch = 0.2
+	main._look_yaw_want = 0.0
+	main._look_pitch_want = 0.2
+	for i in 30:
+		main.advance(1.0 / 60.0)
+	_t.eq(main._action_for_state(), "Cast",
+		"looking out at the water does not offer a cast")
+
+	# LOOKING INTO THE BOAT AT A THING: Select, and live.
+	var book := {}
+	for t in main._things:
+		if str(t["id"]) == "logbook":
+			book = t
+	var best := -2.0
+	var best_yaw := 0.0
+	var best_pitch := 0.0
+	for yi in 25:
+		for pi in 25:
+			var yaw := lerpf(-main.LOOK_YAW_LIMIT, main.LOOK_YAW_LIMIT, float(yi) / 24.0)
+			var pitch := lerpf(-main.LOOK_PITCH_DOWN, main.LOOK_PITCH_UP, float(pi) / 24.0)
+			var d := _aim_dot(main, book, yaw, pitch)
+			if d > best:
+				best = d
+				best_yaw = yaw
+				best_pitch = pitch
+	main._look_yaw = best_yaw
+	main._look_pitch = best_pitch
+	main._look_yaw_want = best_yaw
+	main._look_pitch_want = best_pitch
+	for i in 30:
+		main.advance(1.0 / 60.0)
+	_t.eq(main._action_for_state(), "Select",
+		"looking into the boat still offers a cast")
+	_t.eq(main._looking_at, "logbook", "the logbook is not selected while being looked at")
+	_t.ok(not main._action.disabled, "the button is dead while a thing is under the crosshair")
+
+	# ...and pressing it USES the thing rather than casting into the floor.
+	var casts_before: int = main.sim.casts
+	main._cast_pressed()
+	main._cast_released()
+	_t.eq(main.sim.casts, casts_before,
+		"pressing Select threw a cast into the bottom of the boat")
+	if main._reading:
+		main._shut_book()
+		for i in 60:
+			main.advance(1.0 / 60.0)
+
+
 ## THE FLOAT FLOATS ON THE WATER, and this is the assertion that it reads the same
 ## surface the shader draws rather than a second copy of it.
 ##
@@ -1646,11 +1712,22 @@ func _check_the_logbook_is_a_real_object(main) -> void:
 	main._tap_page(Vector2(700, 500))
 	_t.ok(main._reading, "a tap away from the page still shuts the book")
 
-	# ...but turning past the last page still does, because that is a thing the
-	# player asked for rather than something a thumb does by accident.
+	# AND NEITHER DOES RUNNING OUT OF PAGES, which used to close it.
+	#
+	# Gideon: "you put it down instantly after running out of pages... when you run
+	# iut of pages keep the book out. only exit when I hit the X button." That is
+	# the third time he has asked for the X to be the only way out, and this was
+	# the last place it was not true - the same accidental-exit family as the tap
+	# outside, arriving from the other end of the book.
 	main._book.page = main._book_pages - 1
 	main._turn_page(1)
-	_t.ok(not main._reading, "turning past the last page does not shut the book")
+	_t.ok(main._reading, "running out of pages still shuts the book")
+	_t.eq(main._book.page, main._book_pages - 1, "turning past the end moved past the last page")
+
+	# The book also has BLANK leaves for what has not been caught, so there is
+	# something to flip through from the first morning.
+	_t.gt(float(main._book_pages), 4.0,
+		"the book has only %d pages - there is nothing to flip through" % main._book_pages)
 
 	# THE ROOM BAR IS THE WAY OUT, and it is on screen whenever a room is open.
 	main.freeze(1)
