@@ -34,6 +34,22 @@ signal shut
 ## Seconds to open, and to shut.
 const OPEN_TIME := 0.55
 
+## HOW LONG A PAGE TAKES TO TURN.
+##
+## Gideon: "the pages dont flip, they just change instantly". They did - the code
+## set a `_page_turn` flag that nothing ever read, so the texture was swapped
+## between one frame and the next and the book might as well have been a list.
+##
+## 0.34 s is the middle of the 0.3-0.4 s the plan asks for, and it is chosen
+## against the READ rather than against paper: shorter and the eye does not
+## register that a leaf moved at all, longer and turning three pages to find
+## something becomes a wait. Real paper is faster than either and looks wrong.
+const TURN_TIME := 0.34
+
+## The colour of the back of a leaf. Matched to the page's own paper so the two
+## read as the same sheet seen from two sides.
+const PAPER := Color(0.93, 0.91, 0.86)
+
 var state: State = State.SHUT
 var openness := 0.0          ## 0 shut, 1 open
 
@@ -58,6 +74,17 @@ var _mesh_shut: MeshInstance3D
 var _surface: MeshInstance3D
 var _viewport: SubViewport
 var _content: Control
+
+## THE TURNING LEAF. See `begin_turn`.
+var _leaf: Node3D = null           ## the pivot, sitting on the spine
+var _leaf_rest := Transform3D.IDENTITY   ## where the pivot sits with nothing turning
+var _leaf_front: MeshInstance3D    ## the page you were reading, turning away
+var _leaf_back: MeshInstance3D     ## the one underneath it, coming up
+var _leaf_size := Vector2.ZERO
+var _turn := 0.0                   ## 1 at the start of a turn, 0 when it is over
+var _turn_dir := 1.0
+var _turn_rang := false            ## has the paper flapped yet this turn
+signal page_flapped                ## fired as the leaf passes vertical
 
 
 ## Build the object: a model, and a flat surface to print the page onto.
@@ -131,8 +158,137 @@ func build(model: Node3D, surface_size: Vector2, surface_at: Transform3D,
 	_surface.material_override = m
 	_surface.transform = surface_at
 	_surface.visible = false
+	_surface.name = "Page"
 	add_child(_surface)
+
+	# THE LEAF, hinged on the spine.
+	#
+	# Two quads back to back on one pivot, because a turning page shows a
+	# different thing on each side and a single double-sided quad would show the
+	# outgoing page mirrored for the whole second half of the sweep - which reads
+	# as a rendering fault rather than as paper.
+	#
+	# The pivot sits on the LEFT edge of the surface, which is where a book's
+	# spine is, and turns about the page's own up axis. Both quads are offset half
+	# a width along the pivot so they hang off it like a real leaf rather than
+	# being impaled through the middle.
+	_leaf_size = surface_size
+	_leaf = Node3D.new()
+	_leaf.name = "Leaf"
+	# THE SIGN IS MEASURED, NOT REASONED. `surface_at` lays the page flat, and that
+	# basis flips local X - so the "obvious" -w/2 put the spine on the RIGHT edge
+	# and the sweep swung the leaf DOWN through the floor of the boat, where it
+	# was invisible while every number about it looked correct. `probe_leaf.gd`
+	# prints the pivot and the leaf against the page; the spine has to sit at a
+	# SMALLER book-space x than the page's centre, and the turning leaf has to
+	# rise to a LARGER y.
+	_leaf_rest = surface_at * Transform3D(Basis.IDENTITY,
+		Vector3(surface_size.x * 0.5, 0.0, 0.0))
+	_leaf.transform = _leaf_rest
+	_leaf.visible = false
+	add_child(_leaf)
+
+	# The front face carries no texture: it is the blank reverse of the leaf being
+	# lifted, and it is the side the reader watches for the first half of the
+	# sweep. PAPER rather than white, so it sits against the page beneath it
+	# rather than glowing off it.
+	_leaf_front = _leaf_quad(surface_size, 0.0)
+	(_leaf_front.material_override as StandardMaterial3D).albedo_color = PAPER
+	_leaf.add_child(_leaf_front)
+	_leaf_back = _leaf_quad(surface_size, 180.0)
+	# The back of the leaf carries the LIVE page - the one being turned to - so
+	# as the leaf passes vertical the new page swings up into view on it. The
+	# front carries a still of the page being left behind; see `begin_turn`.
+	var bm := _leaf_back.material_override as StandardMaterial3D
+	bm.albedo_texture = _viewport.get_texture()
+	_leaf.add_child(_leaf_back)
+
 	_find_states(_model)
+
+
+## One side of the leaf: a quad hung off the spine, printed on one face.
+func _leaf_quad(size: Vector2, yaw: float) -> MeshInstance3D:
+	var q := MeshInstance3D.new()
+	var mesh := QuadMesh.new()
+	mesh.size = size
+	q.mesh = mesh
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	# The same two settings the page itself needs, and for the same reason: a leaf
+	# that depth-tests disappears into the boat halfway through its sweep.
+	m.no_depth_test = true
+	# ALPHA-SORTED SO THE PRIORITY ACTUALLY APPLIES.
+	#
+	# `render_priority` orders TRANSPARENT materials only - opaque geometry is
+	# sorted by depth and ignores it entirely. With depth testing off on both the
+	# page and the leaf, that left the draw order undefined, and the page won: the
+	# leaf was present, visible, correctly angled, correctly textured, and drawn
+	# underneath the thing it was supposed to be turning over. The turn worked
+	# perfectly and could not be seen.
+	#
+	# The alpha stays at 1. This costs a sort for two quads that are only on
+	# screen for a third of a second.
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.render_priority = 9          ## above the page it is turning over
+	m.cull_mode = BaseMaterial3D.CULL_BACK
+	q.material_override = m
+	q.rotation_degrees = Vector3(0, yaw, 0)
+	# Hung off the pivot rather than centred on it.
+	# BOTH FACES HANG THE SAME WAY off the hinge. They are back to back, so they
+	# share an offset and differ only in which way they face - giving them
+	# opposite offsets put one on each side of the spine, so the page the reader
+	# was on swung down through the boat while the new one swung up behind them.
+	q.position = Vector3(size.x * -0.5, 0.0, 0.0)
+	q.name = "LeafFace"
+	return q
+
+
+## START A PAGE TURNING. `dir` is +1 forward, -1 back.
+##
+## THE FACE THAT LIFTS TOWARD THE READER IS BLANK PAPER, and that is not a
+## shortcut - it is what a page turn looks like. Lift a page off a book and what
+## comes up at you is the REVERSE of the leaf you were reading, not its front.
+##
+## The first version tried to be cleverer: it photographed the page with
+## `_viewport.get_texture().get_image()` before refreshing the content, so the
+## leaf would carry the words you had just been reading. The readback comes out
+## solid black. A SubViewport's texture is not finished at the point a script can
+## ask for it, so what arrives is a frame that has not been drawn - and the leaf
+## rendered perfectly as a black rectangle sweeping over the book. Chasing that
+## through `get_image` would have bought a worse-looking page turn than the
+## correct one.
+func begin_turn(dir: float) -> void:
+	_turn = 1.0
+	_turn_dir = signf(dir) if dir != 0.0 else 1.0
+	_turn_rang = false
+	# BACK TO FLAT, and visible from this frame rather than from the next one.
+	# The leaf kept the angle it finished the last turn at, so the second page a
+	# reader turned started already lying face down on the other side and swung
+	# back through the book. And a leaf that only appears on the next `advance`
+	# means the first frame of every turn shows the new page with nothing over it.
+	if _leaf != null:
+		_leaf.transform = _leaf_rest
+		_leaf.visible = _surface != null and _surface.visible
+
+
+func is_turning() -> bool:
+	return _turn > 0.0
+
+
+## How far through the current turn, 0 to 1. Read by the tests, and by nothing
+## else - the leaf positions itself.
+func turn_progress() -> float:
+	return 1.0 - _turn
+
+
+## How far the leaf has actually swung, in radians, read off the NODE rather than
+## off the counter that drives it. The tests ask this, so a leaf that stops being
+## moved fails them even while the turn timer keeps counting down.
+func leaf_angle() -> float:
+	if _leaf == null:
+		return 0.0
+	return (_leaf_rest.basis.inverse() * _leaf.transform.basis).get_euler().y
 
 
 ## A HINGED PART, for a model that has a lid rather than two whole states.
@@ -243,6 +399,71 @@ func advance(dt: float) -> void:
 		var m := _surface.material_override as StandardMaterial3D
 		if m != null:
 			m.albedo_color = Color(1, 1, 1, 1) * clampf((openness - 0.55) / 0.45, 0.0, 1.0)
+	_advance_turn(dt)
+
+
+## THE LEAF SWEEPS, AND THE LIGHT CATCHES IT.
+##
+## Eased at both ends rather than linear: a page is lifted, falls over and
+## settles, and a leaf turning at one rate reads as a slide transition.
+func _advance_turn(dt: float) -> void:
+	if _leaf == null:
+		return
+	if _turn <= 0.0:
+		_leaf.visible = false
+		return
+	_turn = maxf(0.0, _turn - dt / TURN_TIME)
+	if _turn <= 0.0:
+		# DOWN ON THE SAME FRAME IT FINISHES. Leaving it for the next call left
+		# the leaf lying over the page for a frame after the turn was over, which
+		# is a flash of the previous page every single time.
+		_leaf.visible = false
+		_leaf.transform = _leaf_rest
+		return
+	var k := turn_progress()
+	var eased := k * k * (3.0 - 2.0 * k)
+	_leaf.visible = _surface != null and _surface.visible
+	# Forward turns sweep the leaf up off the right-hand page and over to the
+	# left; a turn BACK is the same sweep run the other way.
+	#
+	# COMPOSED ONTO THE REST TRANSFORM, never assigned through `rotation.y`.
+	# `rotation` is the Euler decomposition of the whole basis, so writing one
+	# component REBUILDS the basis from (0, y, 0) and throws away the orientation
+	# that laid the page flat in the first place. The leaf stood bolt upright in
+	# the middle of the boat, twice the size of the book, and the arithmetic for
+	# the sweep was correct the whole time.
+	var spin := Transform3D(Basis(Vector3.UP, deg_to_rad(180.0 * eased) * _turn_dir),
+		Vector3.ZERO)
+	_leaf.transform = _leaf_rest * spin
+
+	# THE FLAP LANDS ON VERTICAL, not at the start. That is when a real page is
+	# doing the thing that makes the sound, and a sound that arrives before the
+	# motion reads as belonging to the button instead of to the paper.
+	if not _turn_rang and eased >= 0.5:
+		_turn_rang = true
+		page_flapped.emit()
+
+	# THE LEAF GOES DARK AS IT LIFTS, and this is what makes the turn visible at
+	# all rather than merely correct.
+	#
+	# It brightened, at first, on the plan's "light catching the paper". Measured
+	# against the actual picture that was useless: the page surface is UNSHADED so
+	# it is already near white, a leaf 30% brighter than white is white, and the
+	# whole animation was a cream page passing over an identical cream page with
+	# no edge between them. The geometry was right, the texture was right, and
+	# five screenshots in a row looked like nothing was happening.
+	#
+	# Darkening is both legible and honest: a page lifting off a book turns its
+	# face away from the sky, and the underside coming up is in shadow. It gives
+	# the sweep a hard edge against the bright page underneath, which is the thing
+	# the eye actually tracks.
+	var shade := lerpf(1.0, 0.52, sin(eased * PI))
+	var fm := _leaf_front.material_override as StandardMaterial3D
+	if fm != null:
+		fm.albedo_color = Color(PAPER.r * shade, PAPER.g * shade, PAPER.b * shade, 1.0)
+	var bm := _leaf_back.material_override as StandardMaterial3D
+	if bm != null:
+		bm.albedo_color = Color(shade, shade, shade, 1.0)
 
 
 ## Where the camera should sit to read this, in world space.

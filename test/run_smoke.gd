@@ -55,6 +55,7 @@ func _initialize() -> void:
 	_check_the_cast_is_a_swing_not_a_bend(main)
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
+	_check_the_pages_really_turn(main)
 	_check_the_lure_is_where_the_line_ends(main)
 	_check_every_room_opens_and_closes(main)
 	_check_the_shed_actually_spends_money(main)
@@ -525,6 +526,91 @@ func _check_the_catch_is_in_the_livewell(main) -> void:
 				moved = true
 				break
 		_t.ok(moved, "the gills never move, so the catch is a still life")
+
+## THE PAGES ACTUALLY TURN.
+##
+## Gideon: "the pages dont flip, they just change instantly". They did, and the
+## reason is worth keeping: `_turn_page` set a `_page_turn` variable that NOTHING
+## IN THE GAME EVER READ. One assignment, one declaration, no reader - so the
+## feature looked implemented, read as implemented, and did nothing.
+##
+## Which is why this asserts the leaf MOVES rather than asserting that a flag was
+## set. A test written against the flag would have passed the whole time.
+func _check_the_pages_really_turn(main) -> void:
+	_t.begin("smoke > the pages turn rather than changing instantly")
+	main.freeze(2)
+	main.sim.deepest_ever = 60.0
+	main._open_book()
+	main.advance(2.0)
+	_t.ok(main._book.is_open(), "the book never opened")
+	_t.ok(not main._book.is_turning(), "a page is turning before anything was pressed")
+
+	var was: int = main._book.page
+	main._turn_page(1)
+	_t.eq(main._book.page, was + 1, "the page did not change")
+	_t.ok(main._book.is_turning(), "the page changed without a leaf turning - it just swapped")
+
+	# THE LEAF SWEEPS A HALF TURN, and passes through vertical on the way. Read
+	# off the node, so this fails if the leaf stops being driven even while the
+	# progress counter keeps counting.
+	var leaf: Node3D = main._book._leaf
+	_t.ok(leaf != null, "there is no leaf to turn")
+	if leaf == null:
+		return
+	_t.ok(leaf.visible, "the leaf is invisible while it is turning")
+	var start: float = absf(main._book.leaf_angle())
+	var seen_upright := false
+	var steps := 0
+	# The furthest it got, sampled DURING the sweep. Reading the angle after the
+	# loop reads zero: the leaf is reset the moment its turn finishes, so a test
+	# that waits for the end and then looks is asking about a leaf that has
+	# already been put away.
+	var furthest := 0.0
+	while main._book.is_turning() and steps < 200:
+		main.advance(1.0 / 60.0)
+		steps += 1
+		var a := absf(main._book.leaf_angle())
+		furthest = maxf(furthest, a)
+		if absf(a - PI * 0.5) < 0.35:
+			seen_upright = true
+	_t.lt(start, 0.2, "the leaf starts part way through its own turn")
+	_t.ok(seen_upright, "the leaf never passes through vertical, so it does not read as paper")
+	_t.gt(furthest, PI * 0.9,
+		"the leaf only reaches %.2f rad, short of lying down on the other side" % furthest)
+	_t.ok(not leaf.visible, "the leaf is still there once the turn is over")
+
+	# AND IT TAKES ABOUT AS LONG AS PAPER DOES. Too fast and the eye never sees
+	# it; too slow and finding a page is a wait.
+	var seconds := float(steps) / 60.0
+	_t.gt(seconds, 0.2, "a page turns in %.2f s, which nobody will see" % seconds)
+	_t.lt(seconds, 0.6, "a page takes %.2f s to turn, which is a wait" % seconds)
+
+	# A TURN BACK IS THE SAME SWEEP THE OTHER WAY.
+	main._turn_page(-1)
+	main.advance(TURN_SAMPLE)
+	_t.lt(main._book.leaf_angle(), 0.0,
+		"turning back sweeps the leaf the same way as turning forward")
+	while main._book.is_turning():
+		main.advance(1.0 / 60.0)
+
+	# AND THE BOOK STILL DOES NOT PUT ITSELF DOWN at either cover.
+	for i in 40:
+		main._turn_page(1)
+		while main._book.is_turning():
+			main.advance(1.0 / 60.0)
+	_t.ok(main._book.is_open(), "the book shut itself at the back cover")
+	# PUT IT BACK THE WAY IT WAS FOUND. Leaving the book open at its last page
+	# broke a later check that turns pages of its own - the suite shares one live
+	# scene, so a check that does not clean up is a check that writes the next
+	# one's inputs.
+	main._shut_book()
+	main.advance(1.5)
+	while main._book.is_turning():
+		main.advance(1.0 / 60.0)
+
+
+const TURN_SAMPLE := 0.12
+
 
 
 func _first_gill(f: Node3D) -> Node3D:

@@ -45,6 +45,12 @@ var _tag := ""
 ## Second-argument values that name a ROOM rather than a fishing state.
 const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", "book", "box",
 	"well"]
+## `turn` is deliberately NOT in ROOMS. Everything in that list gets the
+## room-opening block near the shutter - reel in, back to IDLE, two advances -
+## which was quietly resetting a page turn between setting it up and
+## photographing it. Three separate real bugs were chased before the tool turned
+## out to be one of them.
+const MID_ACTION := ["turn"]
 
 
 func _initialize() -> void:
@@ -94,6 +100,28 @@ func _initialize() -> void:
 			_main._turn_page(1)
 			for i in 30:
 				_main.advance(1.0 / 60.0, 1.0 / 60.0)
+	elif _until == "turn":
+		# MID-TURN. A page turn lasts a third of a second, so the only way to
+		# photograph the leaf is to stop the clock inside it - and the leaf is the
+		# whole of R6. `-- 0.5 turn` is halfway over, which is where it is upright
+		# and catching the light.
+		if _main._title != null:
+			_main._title.skip()
+		_main.sim.deepest_ever = 60.0
+		_main._open_book()
+		var ot := 0.0
+		while ot < 3.0:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+			ot += 1.0 / 60.0
+		_main._turn_page(1)
+		var tt := 0.0
+		while tt < _seconds * 0.34:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+			tt += 1.0 / 60.0
+		print("leaf: visible %s  angle %.1f deg  turning %s  front tex %s" % [
+			_main._book._leaf.visible, rad_to_deg(_main._book.leaf_angle()),
+			_main._book.is_turning(),
+			"yes" if (_main._book._leaf_front.material_override as StandardMaterial3D).albedo_texture != null else "NONE"])
 	elif _until == "gate" or _until == "arrive":
 		# Photograph a sequence part-way through: `-- 2.0 gate` is two seconds
 		# into the walk down to the boat.
@@ -128,7 +156,8 @@ func _initialize() -> void:
 			break
 		Policies.act(Policies.HUMAN, _main.sim, step, mem)
 		_main.advance(step, step)
-	if _until != "" and _main.sim.state != _until and not (_until in ROOMS):
+	if _until != "" and _main.sim.state != _until and not (_until in ROOMS) \
+			and not (_until in MID_ACTION):
 		printerr("never reached state '%s' in %.1fs" % [_until, _seconds])
 
 	if _until == "well":
@@ -198,7 +227,7 @@ func _initialize() -> void:
 			for c in n.get_children():
 				stack.append(c)
 
-	if _until in ROOMS:
+	if _until in ROOMS and not (_until in MID_ACTION):
 		_main.sim.econ.money = 900
 		_main.sim.econ.has_motor = true
 		# Deep enough that the book has something in it - a screenshot of an

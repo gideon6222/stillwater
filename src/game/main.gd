@@ -4710,7 +4710,6 @@ var _book_rel := Transform3D.IDENTITY
 ## The swipe that turns a page, and the little kick the paper gives afterwards.
 var _page_from := Vector2.ZERO
 var _page_swiped := false
-var _page_turn := 0.0
 ## THE TACKLE BOX. See `_build_tacklebox`.
 var _tacklebox: Room3D
 ## The real things lying in the box. See `_build_box_items`.
@@ -5478,6 +5477,13 @@ func _build_book() -> void:
 	_book.build(model, Vector2(0.335, 0.185),
 		Transform3D(lie_flat, Vector3(0.026, 0.020, 0.0)),
 		page, BOOK_PAGE_PX)
+	# THE PAPER MAKES THE SOUND, not the button. The flap used to play the moment
+	# the arrow was pressed, which put it a third of a second before the leaf got
+	# anywhere near vertical - and a sound that lands before its own motion reads
+	# as UI feedback rather than as a page.
+	_book.page_flapped.connect(func() -> void:
+		if _audio != null:
+			_audio.play("page", -5.0))
 	_boat.add_child(_book)
 	_refresh_book()
 
@@ -5653,11 +5659,13 @@ func _turn_page(by: int) -> void:
 	# not true. Running out of pages stops, and the arrow greys.
 	if want < 0 or want >= _book_pages:
 		return
+	# THE STILL IS TAKEN BEFORE THE CONTENT CHANGES. `begin_turn` copies what the
+	# page is showing NOW onto the front of the leaf, so the order of these three
+	# lines is the whole animation: photograph the old page, change to the new
+	# one, sweep the old one away over the top of it.
+	_book.begin_turn(signf(float(by)))
 	_book.page = want
 	_refresh_book()
-	_page_turn = 1.0 * signf(float(by))
-	if _audio != null:
-		_audio.play("page", -5.0)
 
 
 ## A tap while reading: the left third goes back, the right two thirds go on,
