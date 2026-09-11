@@ -23,3 +23,9 @@ Every asset that was not made here. Appended by scripts/assets.py.
 | 2026-09-11 | Google Fonts | IM Fell English | OFL | https://fonts.google.com/specimen/IM%20Fell%20English |
 | 2026-09-11 | Google Fonts | Homemade Apple | OFL | https://fonts.google.com/specimen/Homemade%20Apple |
 | 2026-09-11 | Google Fonts | Manrope | OFL | https://fonts.google.com/specimen/Manrope |
+| 2026-09-11 | Freesound | 2021-08-30-rowing-boat-008.wav by ilmari_freesound (#585312) | CC0 | https://freesound.org/people/ilmari_freesound/sounds/585312/ |
+| 2026-09-11 | Freesound | Dawn Chorus at a Lakeside Marina Germany by Garuda1982 (#852696) | CC0 | https://freesound.org/people/Garuda1982/sounds/852696/ |
+| 2026-09-11 | Freesound | Dawn Chorus at a Lakeside Marina Germany by Garuda1982 (#852696) | CC0 | https://freesound.org/people/Garuda1982/sounds/852696/ |
+| 2026-09-11 | Freesound | 2021-08-30-rowing-boat-008.wav by ilmari_freesound (#585312) | CC0 | https://freesound.org/people/ilmari_freesound/sounds/585312/ |
+| 2026-09-11 | Freesound | 2021-08-30-rowing-boat-008.wav by ilmari_freesound (#585312) | CC0 | https://freesound.org/people/ilmari_freesound/sounds/585312/ |
+| 2026-09-11 | Freesound | Dawn Chorus at a Lakeside Marina Germany by Garuda1982 (#852696) | CC0 | https://freesound.org/people/Garuda1982/sounds/852696/ |

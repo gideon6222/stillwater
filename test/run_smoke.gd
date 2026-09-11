@@ -56,6 +56,7 @@ func _initialize() -> void:
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
+	_check_the_new_sounds_exist_and_are_placed(main)
 	_check_the_water_breaks_against_the_hull(main)
 	_check_the_sky_has_more_than_one_kind_of_cloud(main)
 	_check_the_shed_is_a_room(main)
@@ -387,6 +388,55 @@ func _check_the_sky_has_more_than_one_kind_of_cloud(main) -> void:
 	main.sim.state = was_state
 	for i in 600:
 		main._sync_mood(1.0 / 12.0)
+
+
+## W6: THE OARS AND THE DAWN CHORUS.
+##
+## The two sounds PLAN.md says genuinely could not be generated, and the two most
+## likely in the whole mixer to be silently absent: `_stream` returns null for a
+## missing file and every caller handles null by doing nothing, which is correct
+## behaviour and completely inaudible. A sound that never loads is indistinguishable
+## from a sound that is playing quietly.
+func _check_the_new_sounds_exist_and_are_placed(main) -> void:
+	_t.begin("smoke > the oars and the dawn chorus are in the mix")
+	var audio = main._audio
+	_t.ok(audio != null, "there is no audio")
+	if audio == null:
+		return
+
+	# THEY LOAD. Both are OGG, and the loader used to take WAV only - so this is
+	# also the check that the loader learned the second extension.
+	for id in ["oars", "birds"]:
+		_t.ok(audio._stream(id, false) != null,
+			"'%s' does not load - the mixer will play silence and report nothing" % id)
+
+	# THE BIRDS ARE A PLACE AND AN HOUR, not a constant. Loudest at first light,
+	# gone by the afternoon, and gone at depth whatever the hour.
+	main.sim.state = Sim.WAITING
+	main.sim.lure_depth = 0.0
+	main.sim.hour = "dawn"
+	for i in 240:
+		audio.tick(1.0 / 30.0, false)
+	var at_dawn: float = audio._amb[3].volume_db
+	main.sim.hour = "afternoon"
+	for i in 240:
+		audio.tick(1.0 / 30.0, false)
+	var at_noon: float = audio._amb[3].volume_db
+	_t.gt(at_dawn, at_noon + 6.0,
+		"the dawn chorus is as loud at noon as at first light (%.1f against %.1f dB)" % [
+			at_dawn, at_noon])
+
+	# ...and the deep takes them, beside the bells.
+	main.sim.hour = "dawn"
+	main.sim.lure_depth = Audio.DREAD_FULL
+	for i in 480:
+		audio.tick(1.0 / 30.0, false)
+	var down_deep: float = audio._amb[3].volume_db
+	_t.gt(at_dawn, down_deep + 6.0,
+		"the birds follow the line down into the quarry (%.1f against %.1f dB)" % [
+			at_dawn, down_deep])
+	main.sim.lure_depth = 0.0
+	main.sim.state = Sim.IDLE
 
 
 

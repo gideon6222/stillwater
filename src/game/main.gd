@@ -3639,6 +3639,10 @@ func _chart_take() -> void:
 		_enter_shed()
 		return
 	sim.travel_to(str(row["id"]))
+	# THE ONLY SOUND ROWING HAS EVER HAD. Travel between spots used to be silent -
+	# the water changed under you and nothing said you had moved.
+	if _audio != null:
+		_audio.play("oars", -3.0)
 	_shut_chart()
 	_say_hint("You row over to %s." % str(row["name"]))
 	_save_due = 0.6
@@ -3958,6 +3962,8 @@ func _enter_shed() -> void:
 		_shed.visible = true
 	_refresh_shed_board()
 	_shed_pending = "in"
+	if _audio != null:
+		_audio.play("oars", -2.0)
 	_play_sequence(Sequence.to_the_shed())
 
 
@@ -3966,6 +3972,8 @@ func _leave_shed() -> void:
 		return
 	_in_shed = false
 	_shed_pending = "out"
+	if _audio != null:
+		_audio.play("oars", -2.0)
 	_play_sequence(Sequence.from_the_shed())
 
 
