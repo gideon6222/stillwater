@@ -58,6 +58,7 @@ func _initialize() -> void:
 	_check_the_pages_really_turn(main)
 	_check_the_lake_is_six_places(main)
 	_check_rowing_is_a_crossing(main)
+	_check_sleeping_is_a_transition(main)
 	_check_the_new_sounds_exist_and_are_placed(main)
 	_check_the_water_breaks_against_the_hull(main)
 	_check_the_sky_has_more_than_one_kind_of_cloud(main)
@@ -310,6 +311,48 @@ func _page_hand(page) -> String:
 		for c in n.get_children():
 			stack.append(c)
 	return ""
+
+## P5: SLEEPING IS A TRANSITION, AND IT IS REACHABLE AT ALL.
+##
+## The second half of that is not hypothetical. Sleeping lived on the old map
+## SCREEN, and when R5 took the dock away that screen stopped being reachable - so
+## for a few builds the hour could not be changed by any means the player had.
+## Nothing failed, nothing errored, and the whole day/night arc was simply gone.
+func _check_sleeping_is_a_transition(main) -> void:
+	_t.begin("smoke > putting your head down is a transition")
+	main.freeze(2)
+	main.sim.reel_in()
+	main.sim.state = Sim.IDLE
+	main.advance(0.2)
+
+	# IT IS ON THE CHART, which is the only screen that can be reached now.
+	var found := false
+	for row in main._chart_rows():
+		if str(row["id"]) == "sleep":
+			found = true
+	_t.ok(found, "there is no way to sleep from anywhere the player can reach")
+
+	# IT TAKES TIME, and the hour does not turn on the frame you ask.
+	var was: String = main.sim.hour
+	main._sleep_now()
+	_t.ok(main._in_sequence, "sleeping did not start a transition")
+	_t.eq(main.sim.hour, was, "the hour turned before you had lain down")
+	var slept := 0.0
+	while slept < 14.0 and main._in_sequence:
+		main.advance(1.0 / 60.0)
+		slept += 1.0 / 60.0
+	_t.ok(main.sim.hour != was, "you woke at the same hour you lay down at")
+	_t.gt(slept, 3.0, "sleeping took %.1fs, which is a cut" % slept)
+	_t.lt(slept, 10.0, "sleeping took %.1fs, which is a wait" % slept)
+
+	# AND A CUT SLEEP STILL WAKES YOU SOMEWHERE ELSE.
+	was = main.sim.hour
+	main._sleep_now()
+	main.advance(0.3)
+	main._seq.skip()
+	main._end_sequence()
+	_t.ok(main.sim.hour != was, "a sleep that was tapped away left the hour where it was")
+
 
 
 ## P2: THE CHART IS A CROSSING, NOT A TELEPORT.

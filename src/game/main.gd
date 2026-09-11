@@ -2383,6 +2383,9 @@ func _tick(dt: float) -> void:
 	if _title != null:
 		_title.tick(dt)
 	_sync_sequence(dt)
+	# The light moves faster while your eyes are shut. See SLEEP_LIGHT_RATE.
+	if _in_sequence and (_sleep_pending or _seq.shots == Sequence.sleeping()):
+		_sync_mood(dt * (SLEEP_LIGHT_RATE - 1.0))
 	_sync_intro(dt)
 	_sync_stick(dt)
 	_sync_needle(dt)
@@ -3549,6 +3552,13 @@ func _chart_rows() -> Array:
 	rows.append({
 		"id": "shed", "name": "The shed", "note": "buy, sell, and weigh in",
 		"here": false, "can": true})
+	# AND THE OTHER THING YOU DO THAT IS NOT FISHING. Different water bites at
+	# different hours, so when to fish is the same kind of decision as where - and
+	# this is the screen that decision is made on.
+	rows.append({
+		"id": "sleep", "name": "Put your head down",
+		"note": "until %s" % World.next_hour(sim.hour),
+		"here": false, "can": true})
 	return rows
 
 
@@ -3639,6 +3649,9 @@ func _chart_take() -> void:
 	if str(row["id"]) == "shed":
 		_shut_chart()
 		_enter_shed()
+		return
+	if str(row["id"]) == "sleep":
+		_sleep_now()
 		return
 	_row_to(str(row["id"]))
 	_shut_chart()
@@ -4116,6 +4129,45 @@ func _shed_take() -> void:
 		_build_shed_stock()
 	_refresh_shed_board()
 	_sync_bars()
+
+## PUT YOUR HEAD DOWN.
+##
+## P5, and it fixes a hole R5 left: sleeping lived on the old map SCREEN, and when
+## the dock went away that screen became unreachable - so for a few builds the
+## hour could not be changed at all. It belongs with travel anyway. The chart is
+## the "what next" of this game, and the two things you do that are not fishing
+## are going somewhere and waiting for a better hour.
+var _sleep_pending := false
+
+
+func _sleep_now() -> void:
+	if _in_sequence or sim.state != Sim.IDLE:
+		return
+	_shut_chart()
+	_sleep_pending = true
+	_play_sequence(Sequence.sleeping())
+
+
+## Turn the hour under the sky shot, once.
+func _sync_sleeping() -> void:
+	if not _sleep_pending or not _in_sequence:
+		return
+	if _seq.index < Sequence.SLEEP_SWAP:
+		return
+	_sleep_pending = false
+	sim.sleep()
+	_say_hint("You wake at %s." % sim.hour)
+	_save_due = 0.8
+
+
+## HOW FAST THE LIGHT MOVES while you are lying there.
+##
+## The mood follows the hour at a rate tuned for a cast going down - about a
+## second and a half to settle - which across a sleep would mean sitting up into
+## the old light and watching it catch up afterwards. During the sleep it runs at
+## four times, so the change happens in the shot that exists to show it.
+const SLEEP_LIGHT_RATE := 4.0
+
 
 
 ## ROW THERE, rather than arriving there.
@@ -5765,6 +5817,11 @@ func _action_for_state() -> String:
 		var crows := _chart_rows()
 		if _chart_pick < 0 or _chart_pick >= crows.size():
 			return "Row there"
+		var pick := str(crows[_chart_pick]["id"])
+		if pick == "sleep":
+			return "Sleep"
+		if pick == "shed":
+			return "Row over"
 		return "Here" if bool(crows[_chart_pick]["here"]) else "Row there"
 	if _in_shed:
 		var rows := _shed_rows()
@@ -6853,6 +6910,7 @@ func _sync_sequence(dt: float) -> void:
 	_seq_look = f["look"]
 	_gate_open = float(f["gate"])
 	_sync_rowing()
+	_sync_sleeping()
 	if _seq_line != null:
 		var say := str(f.get("say", ""))
 		_seq_line.text = say
@@ -6875,6 +6933,11 @@ func _end_sequence() -> void:
 		var want := _row_pending
 		_row_pending = ""
 		sim.travel_to(want)
+		_save_due = 0.8
+	# ...and a cut sleep still wakes you up somewhere else, for the same reason.
+	if _sleep_pending:
+		_sleep_pending = false
+		sim.sleep()
 		_save_due = 0.8
 	# THE NOTE THE CALLER LEFT. Arriving at the shed is the only thing that
 	# survives the end of a sequence, and leaving it is the only thing that has to

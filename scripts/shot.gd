@@ -50,7 +50,7 @@ const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", 
 ## which was quietly resetting a page turn between setting it up and
 ## photographing it. Three separate real bugs were chased before the tool turned
 ## out to be one of them.
-const MID_ACTION := ["turn", "inshed", "hull", "stow"]
+const MID_ACTION := ["turn", "inshed", "hull", "stow", "chart"]
 
 
 func _initialize() -> void:
@@ -100,6 +100,21 @@ func _initialize() -> void:
 			_main._turn_page(1)
 			for i in 30:
 				_main.advance(1.0 / 60.0, 1.0 / 60.0)
+	elif _until == "chart":
+		# THE CHART, OPEN. It is the "what next" screen of the whole game now -
+		# where to fish, when to fish, and the row over to the shed - so it is
+		# worth being able to photograph on its own.
+		if _main._title != null:
+			_main._title.skip()
+		_main.sim.econ.has_motor = true
+		_main.sim.econ.line = 5
+		for i in 90:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		_main._open_chart()
+		_main._chart_pick = int(_seconds)
+		_main._refresh_chart()
+		for i in 60:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
 	elif _until == "stow":
 		# DOWN AT THE PORT SIDE, where the oars are stowed. They are scenery now
 		# rather than something you can use, and scenery still has to read - the

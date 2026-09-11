@@ -177,6 +177,42 @@ static func rowing() -> Array:
 const ROWING_SWAP := 2
 
 
+## PUTTING YOUR HEAD DOWN. P5: "The hour change becomes a transition rather than
+## a number."
+##
+## It was a row in a list that said "You wake at dusk." and swapped the sky
+## between one frame and the next - which is the same fault the chart had and the
+## fight had: a thing happening TO the player, reported afterwards.
+##
+## You lie back along the thwart and look at the sky. That is the whole shot,
+## because the sky is the thing that changes, and the light moving across it while
+## you watch is the transition - there is nothing else to show and nothing else
+## needed. Then you sit up somewhere else in the day.
+##
+## Longer than the crossing, and deliberately: this is the one sequence that is a
+## REST. It still cuts on a tap.
+static func sleeping() -> Array:
+	return [
+		{"at": SEAT, "look": Vector3(0.0, 0.70, 6.0), "for": 0.8, "gate": 1.0, "ease": "in"},
+		# Lying back. The look point goes up and behind, so the horizon slides off
+		# the bottom of the frame and there is only sky.
+		{"at": Vector3(0.0, 0.92, 0.40), "look": Vector3(0.0, 7.0, 2.6), "for": 1.5,
+			"gate": 1.0, "ease": "inout"},
+		# THE HOUR TURNS HERE, with nothing in shot but the sky it turns.
+		{"at": Vector3(0.0, 0.86, 0.30), "look": Vector3(0.0, 9.0, 1.6), "for": 2.2,
+			"gate": 1.0, "ease": "inout"},
+		{"at": Vector3(0.0, 0.94, 0.45), "look": Vector3(0.0, 5.0, 4.0), "for": 1.2,
+			"gate": 1.0, "ease": "inout"},
+		{"at": SEAT, "look": SEAT_LOOK, "for": 0.9, "gate": 1.0, "ease": "out"},
+	]
+
+
+## Which shot the hour turns under. The same arrangement as the crossing, and for
+## the same reason: the change has to happen where it can be SEEN rather than
+## where it would pop.
+const SLEEP_SWAP := 2
+
+
 var shots: Array = []
 var index := 0
 var elapsed := 0.0
