@@ -1,10 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <!-- Placeholder icon: the road, the player, one obstacle. Replace it per
-       game - the launcher icon is the only part of a phone game a player sees
-       before they decide whether to open it. -->
-  <rect width="128" height="128" fill="#5c9ed1"/>
-  <path d="M40 128 L56 44 L72 44 L88 128 Z" fill="#8c8478"/>
-  <path d="M62 118 L66 118 L66 104 L62 104 Z M62 96 L66 96 L66 82 L62 82 Z M63 74 L65 74 L65 62 L63 62 Z" fill="#e8e4dc"/>
-  <rect x="54" y="94" width="20" height="20" rx="3" fill="#fbcc40"/>
-  <rect x="70" y="60" width="14" height="14" rx="3" fill="#b83d4c"/>
+  <!-- Stillwater. A float on dark water at first light.
+
+       Drawn for a LAUNCHER, which means it is judged at about 48 px on a busy
+       home screen: three shapes, one accent, and no detail that survives only at
+       full size. The float is the one red thing in a game that is otherwise
+       grey-green water, so it is the only thing here that is not the palette. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c9c2bd"/>
+      <stop offset="1" stop-color="#e4d7c6"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a5450"/>
+      <stop offset="1" stop-color="#151c1e"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="128" height="128" rx="26" fill="url(#sky)"/>
+  <path d="M0 62 H128 V128 H0 Z" fill="url(#water)"/>
+
+  <!-- The far bank, low, so the water has somewhere to end. -->
+  <path d="M0 62 h34 l10 -4 h22 l14 4 h48 v4 H0 Z" fill="#2b332f" opacity="0.85"/>
+
+  <!-- Two ripple rings round the float. The only thing that says the water is
+       water rather than a dark band. -->
+  <ellipse cx="64" cy="84" rx="30" ry="7" fill="none" stroke="#9fb0ab" stroke-width="2" opacity="0.30"/>
+  <ellipse cx="64" cy="84" rx="17" ry="4" fill="none" stroke="#b9c8c3" stroke-width="2" opacity="0.45"/>
+
+  <!-- The line, coming in from the rod that is out of frame. -->
+  <path d="M104 40 Q86 56 68 72" fill="none" stroke="#e8e2d6" stroke-width="2" opacity="0.75"/>
+
+  <!-- The float. Red over white, sitting IN the water rather than on it: the
+       waterline cuts it, which is the whole difference between a bobber and a
+       ball. -->
+  <path d="M64 62 a11 11 0 0 1 11 11 v6 a11 9 0 0 1 -22 0 v-6 a11 11 0 0 1 11 -11 Z" fill="#e9e4da"/>
+  <path d="M64 62 a11 11 0 0 1 11 11 h-22 a11 11 0 0 1 11 -11 Z" fill="#c0342b"/>
+  <rect x="62.5" y="50" width="3" height="13" rx="1.5" fill="#2f2a26"/>
 </svg>

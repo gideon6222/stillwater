@@ -1276,9 +1276,9 @@ only here. A resuming session works from the first unticked box.
 ## Phase T — the seams (§9.5)
 
 - [ ] **T1 Travel, sleep, shed, landing and the line purchase all become moves rather than cuts.** Every one already has the tool: a sequence is a list of shots over the real scene
-- [ ] **T2 No title after the first launch.** Continue IS the walk down
+- [x] **T2 No title after the first launch.** Continue IS the walk down. Starting again moved to the settings room behind a confirm, which is where a choice that destroys a season belongs
 - [ ] **T3 11.9b The tackle box as a Room3D**, and **11.9d real page turns** — the two remaining room seams
-- [ ] **T4 11.6 First-run polish.** Orientation lock, pause, app icon, audio on first touch
+- [x] **T4 First-run polish.** Orientation lock (already set), a real pause on backgrounding, and a launcher icon — the slots were empty, which ships the Godot logo
 
 ### Open, and not milestones
 

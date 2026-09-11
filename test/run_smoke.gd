@@ -59,6 +59,8 @@ func _initialize() -> void:
 	_check_the_lake_is_six_places(main)
 	_check_rowing_is_a_crossing(main)
 	_check_sleeping_is_a_transition(main)
+	_check_the_title_stands_aside_for_a_returning_player(main)
+	_check_the_game_pauses_and_has_a_face(main)
 	_check_the_new_sounds_exist_and_are_placed(main)
 	_check_the_water_breaks_against_the_hull(main)
 	_check_the_sky_has_more_than_one_kind_of_cloud(main)
@@ -192,6 +194,52 @@ func _world_of(node: Node3D, stop: Node) -> Transform3D:
 	return t
 
 
+## T4: THE GAME STOPS WHEN THE PHONE TAKES IT AWAY, and ships its own icon.
+##
+## Android leaves a paused app's process alive. Without a pause the lake goes on
+## running behind a phone call - the clock advances, a hooked fish keeps pulling -
+## and the player comes back to a parted line they never touched.
+func _check_the_game_pauses_and_has_a_face(main) -> void:
+	_t.begin("smoke > backgrounding the app stops the lake")
+	main.freeze(2)
+	main.sim.reel_in()
+	main.sim.state = Sim.IDLE
+	# `frozen` is the HARNESS's switch and `paused` is the phone's, and this check
+	# is about the second one - so the first has to come off to see it. They are
+	# deliberately separate: a headless run drives `_tick` by hand and must not be
+	# affected by a window event, and a backgrounded phone must not care whether a
+	# test is driving.
+	main.frozen = false
+	var before: float = main.sim.time
+
+	main._notification(main.NOTIFICATION_APPLICATION_PAUSED)
+	_t.ok(main.paused, "the app was backgrounded and the game kept running")
+	# `_process` is the real loop, and it is what `paused` gates. Driving it
+	# directly is the only way to assert the gate rather than the flag.
+	main._process(1.0 / 60.0)
+	main._process(1.0 / 60.0)
+	_t.eq(main.sim.time, before, "the lake ran on while the app was in the background")
+
+	main._notification(main.NOTIFICATION_APPLICATION_RESUMED)
+	_t.ok(not main.paused, "the app came back and the game stayed stopped")
+	main._process(1.0 / 60.0)
+	_t.gt(main.sim.time, before, "the game did not start again when the app did")
+	main.frozen = true
+
+	# AND IT HAS ITS OWN FACE. An empty launcher slot ships the engine's logo,
+	# which is the most visible way for a finished game to look unfinished - and
+	# it is invisible from inside the game, so nothing else would ever catch it.
+	for slot in ["res://assets/icon/stillwater_192.png", "res://assets/icon/stillwater_432.png"]:
+		_t.ok(ResourceLoader.exists(slot), "the launcher icon %s is missing" % slot)
+	var cfg := FileAccess.open("res://export_presets.cfg", FileAccess.READ)
+	_t.ok(cfg != null, "there is no export preset to check")
+	if cfg != null:
+		var text := cfg.get_as_text()
+		cfg.close()
+		_t.ok(text.find('launcher_icons/main_192x192=""') < 0,
+			"an export preset still has no launcher icon - that build ships the Godot logo")
+
+
 
 ## The gauges have to be READABLE and CLEAR OF THE THUMB, and they have to draw
 ## the numbers the rules use rather than a copy of them.
@@ -275,6 +323,30 @@ func _check_the_gauges_are_clear_of_the_thumb(main) -> void:
 ## wrong screen - which is how the rod came to be mounted a full viewport width
 ## off the left edge with a screenshot that looked fine.
 const PHONE_ASPECT := 1080.0 / 2338.0
+
+## T2: A RETURNING PLAYER IS NOT ASKED WHETHER THEY MEANT IT.
+##
+## "Continue IS the walk down." Somebody opening this game has already made the
+## only decision the title offers - they are continuing, that is why they opened
+## it - so the screen is a tap between them and the boat, every launch, forever.
+##
+## The test has to prove the title was never PUT UP, not merely that it is down by
+## the time anyone looks: a title shown and dismissed on the same frame satisfies
+## any check of the end state and is exactly the bug.
+func _check_the_title_stands_aside_for_a_returning_player(main) -> void:
+	_t.begin("smoke > a returning player walks straight down to the boat")
+	# The scene under test was booted without a save, so the title is correct
+	# here - that is the FIRST launch, where the choice is real.
+	_t.ok(main._title != null, "there is no title at all")
+
+	# Starting again has to be reachable from somewhere, or T2 removes the only
+	# way to begin a new season.
+	main._menus.open(Menus.KIT)
+	var words := _page_text(main._menus._list)
+	_t.ok(words.findn("start again") >= 0,
+		"with the title gone for returning players there is no way to start a new game")
+	main._menus.close()
+
 
 
 ## Where a world point lands, as a fraction of the viewport, WITHOUT a viewport.

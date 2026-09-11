@@ -22,6 +22,11 @@ extends CanvasLayer
 
 signal changed            ## something was bought, sold, or travelled to
 signal closed
+signal start_over         ## the player asked to wipe the save and begin again
+
+## Whether the "are you sure" is showing. Reset whenever the room closes, so a
+## half-answered question is never waiting the next time it opens.
+var _confirm_wipe := false
 
 const SHED := "shed"
 const MAP := "map"
@@ -94,6 +99,7 @@ func open(screen: String) -> void:
 
 func close() -> void:
 	_screen = ""
+	_confirm_wipe = false
 	_root.visible = false
 	closed.emit()
 
@@ -743,6 +749,34 @@ func _fill_kit() -> void:
 		str(Gear.ROD[sim.econ.rod]["name"]),
 		str(Gear.REEL[sim.econ.reel]["name"])])
 	_note("%d cast, %d landed, %d lost." % [sim.casts, sim.caught, sim.lost_count])
+
+	# STARTING AGAIN LIVES HERE NOW, because T2 took the title away from a
+	# returning player and this was the only other place it could be. It is the
+	# better place anyway: a choice that destroys a season should not sit under a
+	# thumb on the opening screen next to the one that continues it.
+	#
+	# TWO TAPS, and the second one says what it does. A single "New game" row in
+	# a settings list, one slip away from a season's work, is the kind of button
+	# that only ever gets pressed by accident.
+	_heading("starting again")
+	if _confirm_wipe:
+		_note("This deletes the book, the boat and everything in it.", WRONG)
+		var yes := _row("Yes, start again", "wipe", "there is no undo", true, WRONG)
+		yes.pressed.connect(func() -> void:
+			_confirm_wipe = false
+			start_over.emit())
+		_list.add_child(yes)
+		var no := _row("Keep this one", "back", "", true, GOOD)
+		no.pressed.connect(func() -> void:
+			_confirm_wipe = false
+			refresh())
+		_list.add_child(no)
+	else:
+		var b := _row("Start again", "", "a new lake, and this book closed", true)
+		b.pressed.connect(func() -> void:
+			_confirm_wipe = true
+			refresh())
+		_list.add_child(b)
 
 
 # --- the book ---------------------------------------------------------------

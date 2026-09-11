@@ -15,11 +15,27 @@ extends RefCounted
 ## `.import` file that is regenerated whenever the source changes, and because
 ## the next texture anybody adds will arrive with the same default.
 
+## THE LAUNCHER ICONS ARE NOT GAME TEXTURES.
+##
+## `assets/icon/` is read by the ANDROID PACKAGER, not by the renderer - those
+## PNGs become the app's icon in the phone's launcher and are never drawn by this
+## game at all. Mipmaps and VRAM compression are meaningless for them, and the two
+## checks above exist for a reason that does not apply: a texture tiling twenty
+## times across a plank at a grazing angle.
+##
+## Excluded rather than silenced. The rules above stay strict for everything the
+## game actually draws.
+static func _is_launcher_icon(path: String) -> bool:
+	return path.begins_with("res://assets/icon/")
+
+
 
 func test_every_imported_texture_has_mipmaps(t: TestHarness) -> void:
 	var missing: Array[String] = []
 	var checked := 0
 	for path in _import_files("res://assets"):
+		if _is_launcher_icon(path):
+			continue
 		var text := FileAccess.get_file_as_string(path)
 		if not text.contains("mipmaps/generate="):
 			continue
@@ -37,6 +53,8 @@ func test_every_imported_texture_has_mipmaps(t: TestHarness) -> void:
 func test_every_imported_texture_is_sized_for_a_phone(t: TestHarness) -> void:
 	var loose: Array[String] = []
 	for path in _import_files("res://assets"):
+		if _is_launcher_icon(path):
+			continue
 		var text := FileAccess.get_file_as_string(path)
 		if not text.contains("compress/mode="):
 			continue

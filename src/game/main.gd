@@ -2366,8 +2366,16 @@ func _mat(c: Color, rough: float = 0.6) -> StandardMaterial3D:
 
 # --- loop -----------------------------------------------------------------
 
+## True while the phone has the app in the background. See `_notification`.
+##
+## Separate from `frozen`, which is the TEST harness's switch: a headless run
+## drives `_tick` by hand and must not be affected by a window event, and a
+## backgrounded phone must not be affected by whether a test is driving.
+var paused := false
+
+
 func _process(delta: float) -> void:
-	if frozen:
+	if frozen or paused:
 		return
 	_tick(delta)
 
@@ -4648,6 +4656,17 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
 		if sim != null and _booted:
 			_save_game()
+		# T4: AND THE GAME STOPS. Android leaves a paused app's process alive, so
+		# without this the lake goes on running behind a phone call: the clock
+		# advances, a hooked fish keeps pulling, and the player comes back to a
+		# broken line they never touched. `paused` is read by `_process`.
+		paused = true
+		if _audio != null:
+			_audio.set_muted(true)
+	elif what == NOTIFICATION_APPLICATION_RESUMED:
+		paused = false
+		if _audio != null and sim != null:
+			_audio.set_muted(sim.sound_muted)
 	elif what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		_go_back()
 
@@ -6647,15 +6666,36 @@ func _build_title() -> void:
 	_title = TitleScreen.new()
 	_title.name = "Title"
 	add_child(_title)
-	_title.setup(FileAccess.file_exists(SAVE_PATH))
+	var returning := FileAccess.file_exists(SAVE_PATH)
+	_title.setup(returning)
 	# The title is a PLACE: standing outside the gate, in the real scene, with
 	# the real water beyond it. Nothing here is a separate menu world.
 	_in_sequence = true
 	_seq_at = Sequence.OUTSIDE
 	_seq_look = Sequence.GATE_AT
 	_gate_open = 0.0
+
+	# T2: NO TITLE AFTER THE FIRST LAUNCH. "Continue IS the walk down."
+	#
+	# A returning player has already made the only decision the title screen
+	# offers - they are continuing, that is why they opened the game - so being
+	# asked again is a tap between them and the boat, every single time, forever.
+	# The gate opens and they walk down. It is the same shot either way; what goes
+	# is the asking.
+	#
+	# The title still exists and is still the first thing a NEW player sees,
+	# because the first launch is the one time the choice is real. And New Game
+	# lives in the settings room, which is where a decision that destroys a save
+	# belongs anyway - not under a thumb on the opening screen.
+	if returning:
+		_on_continue()
 	_title.start_continue.connect(_on_continue)
 	_title.start_new.connect(_on_new_game)
+	# The settings room can now end the game as well as tune it. See `_fill_kit`.
+	if _menus != null:
+		_menus.start_over.connect(func() -> void:
+			_menus.close()
+			_on_new_game())
 	_title.open_settings.connect(func() -> void:
 		# The SAME settings room the game uses. One settings screen in the
 		# project, not two that have to agree with each other.
@@ -6667,6 +6707,14 @@ func _on_continue() -> void:
 	if _audio != null:
 		_audio.play("page", -4.0)
 	_play_sequence(Sequence.going_out())
+
+
+## Whether the title was ever put up this launch. Read by the tests: "the title
+## does not appear for a returning player" is the claim, and a title that is shown
+## and instantly dismissed would satisfy any check that only looked at the end
+## state.
+func title_was_offered() -> bool:
+	return _title != null and _title.is_up()
 
 
 ## Wipe and start again. The save is deleted rather than overwritten, so a crash
