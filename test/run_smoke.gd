@@ -748,6 +748,17 @@ func _check_the_pages_really_turn(main) -> void:
 		var who := _page_hand(main._book_page)
 		if who != "":
 			faces[who] = true
+	# W5: AND THE CHROME IS NOT ONE OF THEM. The claim the UI face exists for is
+	# "so UI chrome can never be mistaken for the logbook", which only means
+	# anything as a COMPARISON - a project default font set and then also used on
+	# the page would pass any check that looked at either one alone.
+	var ui: Font = main._ui_font()
+	_t.ok(ui != null, "the interface has no face of its own")
+	if ui != null:
+		for used in faces.keys():
+			_t.ok(str(used) != ui.resource_path,
+				"the logbook is written in the interface font - the chrome and the book are the same hand")
+
 	_t.gt(float(faces.size()), 2.0,
 		"the whole logbook is written in %d typeface(s) - the keepers are one hand at several greys" % faces.size())
 	main._book.page = 0

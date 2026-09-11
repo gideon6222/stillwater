@@ -33,6 +33,22 @@ window/handheld/orientation=1
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[gui]
+
+; THE UI HAS ITS OWN FACE, AND IT IS NOT THE LOGBOOK'S.
+;
+; W5. Every control in this game drew in Godot's fallback font, which is a
+; perfectly good sans and belongs to no game in particular. It matters more now
+; than it did: the logbook is written in five real handwriting faces, so the
+; chrome around it has to be unmistakably NOT handwriting or the two blur into
+; each other.
+;
+; Set as the project default rather than applied control by control, so anything
+; added later inherits it. The book's own pages override the font explicitly -
+; see `Book3D.HANDS` - and an override always wins over the default, which is
+; what keeps the five hands out of the HUD and the HUD out of the book.
+gui/theme/custom_font="res://assets/fonts/Manrope/Manrope-Medium.ttf"
+
 [rendering]
 
 ; "mobile" is the Vulkan mobile backend - the right default for a modern

@@ -2100,7 +2100,11 @@ func _draw_distance_bar() -> void:
 	var mark := Rect2(x - 3.0, face.position.y - 2.0 + shake, 6.0, face.size.y + 4.0)
 	_distance_bar.draw_rect(mark, Color(0.98, 0.92, 0.76, 0.92))
 
-	var font := ThemeDB.fallback_font
+	# THE UI FACE, not the engine's fallback. `draw_string` takes a Font directly
+	# and never consults the theme, so these three call sites are the only places
+	# in the game that can silently keep drawing in the default while everything
+	# around them has changed.
+	var font := _ui_font()
 	_distance_bar.draw_string(font,
 		Vector2(face.position.x + 10, face.end.y - face.size.y * 0.16),
 		"OUT", HORIZONTAL_ALIGNMENT_LEFT, -1, int(h * 0.20),
@@ -4417,7 +4421,11 @@ func _draw_sounder() -> void:
 			Color(0.90, 0.92, 0.88, 0.35), 1.0)
 		_sounder.draw_circle(Vector2(w * 0.5, ly), 5.0, Color(0.92, 0.34, 0.26))
 
-	var font := ThemeDB.fallback_font
+	# THE UI FACE, not the engine's fallback. `draw_string` takes a Font directly
+	# and never consults the theme, so these three call sites are the only places
+	# in the game that can silently keep drawing in the default while everything
+	# around them has changed.
+	var font := _ui_font()
 	_sounder.draw_string(font, Vector2(10, h - 12), SimUtil.fmt_m(bed),
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.72, 0.86, 0.78, 0.7))
 	# The lure's depth is written NEXT TO THE LURE, not in a corner. It is the one
@@ -5664,6 +5672,19 @@ func _kick(amount: float) -> void:
 ## is safe to add to a game with a whole-run golden test.
 func _hit_stop(seconds: float) -> void:
 	_freeze_left = maxf(_freeze_left, seconds)
+
+## The interface face. One place, so the three `draw_string` call sites and every
+## themed Control cannot drift apart - and one fallback, so a missing file leaves
+## the HUD legible rather than blank.
+static var _ui_face: Font = null
+
+
+func _ui_font() -> Font:
+	if _ui_face == null:
+		var f = load("res://assets/fonts/Manrope/Manrope-Medium.ttf")
+		_ui_face = f if f != null else ThemeDB.fallback_font
+	return _ui_face
+
 
 
 ## The phone buzzing. The third feedback channel, and on a touch device it is the
@@ -7045,7 +7066,11 @@ func _draw_charge_ring() -> void:
 	_charge_ring.draw_arc(mid, r, -PI * 0.5, -PI * 0.5 + TAU * k, 48,
 		Color(1.0, 0.86, 0.52, 0.95), 6.0)
 	# And the distance, in the middle, because the charge IS a distance.
-	var font := ThemeDB.fallback_font
+	# THE UI FACE, not the engine's fallback. `draw_string` takes a Font directly
+	# and never consults the theme, so these three call sites are the only places
+	# in the game that can silently keep drawing in the default while everything
+	# around them has changed.
+	var font := _ui_font()
 	var text := "%.0f m" % Tuning.cast_distance(sim.charge)
 	# Centred on the button under the word, at a size that can be read while the
 	# thumb is on it. 30 pt on a 260 px ring was a caption on a dinner plate.

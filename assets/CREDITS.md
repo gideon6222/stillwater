@@ -22,3 +22,4 @@ Every asset that was not made here. Appended by scripts/assets.py.
 | 2026-09-11 | Google Fonts | Dancing Script | OFL | https://fonts.google.com/specimen/Dancing%20Script |
 | 2026-09-11 | Google Fonts | IM Fell English | OFL | https://fonts.google.com/specimen/IM%20Fell%20English |
 | 2026-09-11 | Google Fonts | Homemade Apple | OFL | https://fonts.google.com/specimen/Homemade%20Apple |
+| 2026-09-11 | Google Fonts | Manrope | OFL | https://fonts.google.com/specimen/Manrope |
