@@ -2,12 +2,18 @@
 .godot/
 .import/
 
-# Export output.
-build/
-# ...except the marker that stops Godot importing everything the tools write there.
-# Without this exception the .gdignore is missing on every fresh clone, and the first
-# editor open imports thousands of film frames.
-!build/
+# Export output, film frames and check logs - everything a tool writes in here.
+#
+# `build/*` and not `build/`: a bare `build/` stops git descending into the
+# directory at all, so `!build/.gdignore` can never match; adding `!build/`
+# to get around that un-ignores the whole DIRECTORY and git then tracks
+# everything inside it. Ignoring the CONTENTS and re-including one file is the
+# pattern that actually works.
+build/*
+# ...except the marker that stops Godot importing and EXPORTING what films and
+# exports leave in there. Without it the .gdignore is missing on every fresh
+# clone, the first editor open imports thousands of film frames, and the
+# exporter packs them into the APK.
 !build/.gdignore
 *.apk
 *.aab
