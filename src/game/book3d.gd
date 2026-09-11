@@ -90,7 +90,11 @@ static func fill(into: VBoxContainer, sim: Sim, page_index: int,
 					_head(into, "%s, %d" % [who, int(e["year"])], ink_dim, rule)
 				# The older the hand, the further it has faded into the paper.
 				var age := clampf((float(e["at"]) - 1.0) / 140.0, 0.0, 1.0)
-				_body(into, str(e["text"]), ink.lerp(ink_dim, age * 0.8))
+				var l := _body(into, str(e["text"]), ink.lerp(ink_dim, age * 0.8))
+				# ...and it is written in that keeper's own face. The fade and the
+				# face together are what say "somebody else, a long time ago";
+				# either on its own says "the same person, styled".
+				_write_in(l, who, 30)
 		"catch":
 			_head(into, "What you have had out", ink_dim, rule)
 			for row in here["items"]:
@@ -107,7 +111,7 @@ static func fill(into: VBoxContainer, sim: Sim, page_index: int,
 				var col := ink
 				if bool(row.get("wrong", false)):
 					col = ink.lerp(Color(0.42, 0.18, 0.18), 0.55)
-				_body(into, line, col)
+				_write_in(_body(into, line, col), "", 30)
 				if row.has("note"):
 					_body(into, "   " + str(row["note"]), ink_dim)
 
@@ -186,18 +190,87 @@ static func _line(into: VBoxContainer, what: String, says: String,
 	var left := Label.new()
 	left.text = what
 	left.add_theme_color_override("font_color", ink_dim)
-	# THE SAME SIZE AS THE REST OF THE BOOK. Left at the theme default these came
-	# out about a third of the height of the heading above them - legible in a
-	# screenshot on a desk and not on a phone, which is the only place it matters.
-	left.add_theme_font_size_override("font_size", 30)
+	_write_in(left, "", 30)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(left)
 	var right := Label.new()
 	right.text = says
 	right.add_theme_color_override("font_color", ink)
-	right.add_theme_font_size_override("font_size", 30)
+	_write_in(right, "", 30)
 	row.add_child(right)
 	into.add_child(row)
+
+
+## THE FIVE HANDS ARE FIVE FACES.
+##
+## W4, and the plan is blunt about why: "The five keepers differ by WEIGHT AND
+## COLOUR today, which is not five hands." A logbook whose whole conceit is that
+## four strangers wrote in it before you, in different decades, cannot make that
+## point in one typeface at four greys.
+##
+## The assignment is chronological rather than decorative. Samuel Crake is the
+## oldest and writes in a face cut from a 1680s English type; Peter Vance is
+## mid-century and writes the slow, upright, deliberate hand of someone taught
+## penmanship; Edith Moss and Ruth Alder are recent and write fast. The player is
+## the fifth hand - the front matter and the catch records - and writes in the
+## roundest, newest face of the lot.
+##
+## `size` is a multiplier, not a size. These faces have wildly different x-heights
+## - Homemade Apple at 30 px is half the height of Caveat at 30 - so one number
+## per face is what stops the book looking like five different point sizes rather
+## than five different people.
+const HANDS := {
+	"Samuel Crake": {
+		"font": "res://assets/fonts/IMFellEnglish/IMFellEnglish-Regular.ttf",
+		"size": 1.00,
+	},
+	"Peter Vance": {
+		"font": "res://assets/fonts/HomemadeApple/HomemadeApple-Regular.ttf",
+		"size": 0.78,
+	},
+	"Edith Moss": {
+		"font": "res://assets/fonts/Kalam/Kalam-Regular.ttf",
+		"size": 0.92,
+	},
+	"Ruth Alder": {
+		"font": "res://assets/fonts/Caveat/Caveat-Regular.ttf",
+		"size": 1.22,
+	},
+	# The player's own. Used for the front matter and the catch records, which are
+	# the only pages in the book they actually write.
+	"": {
+		"font": "res://assets/fonts/DancingScript/DancingScript-Regular.ttf",
+		"size": 1.34,
+	},
+}
+
+## Loaded once and kept. A FontFile is a resource, and building one per label
+## would rebuild five atlases every time a page turned.
+static var _faces: Dictionary = {}
+
+
+static func _face(who: String) -> FontFile:
+	if _faces.has(who):
+		return _faces[who]
+	var row: Dictionary = HANDS.get(who, HANDS[""])
+	var f = load(str(row["font"]))
+	_faces[who] = f
+	return f
+
+
+static func _face_size(who: String) -> float:
+	var row: Dictionary = HANDS.get(who, HANDS[""])
+	return float(row["size"])
+
+
+## Put a hand on a label. One place, so a face and its size can never be applied
+## apart from each other.
+static func _write_in(node: Control, who: String, base: int) -> void:
+	var f := _face(who)
+	if f == null:
+		return
+	node.add_theme_font_override("font", f)
+	node.add_theme_font_size_override("font_size", int(round(float(base) * _face_size(who))))
 
 
 
@@ -215,10 +288,14 @@ static func _head(into: VBoxContainer, text: String, col: Color, rule: Color) ->
 	into.add_child(r)
 
 
-static func _body(into: VBoxContainer, text: String, col: Color) -> void:
+## RETURNS THE LABEL, so a caller can put a hand on it. Everything in this book
+## is written by somebody, and until W4 the only thing that varied between them
+## was the grey.
+static func _body(into: VBoxContainer, text: String, col: Color) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", 32)
 	l.add_theme_color_override("font_color", col)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	into.add_child(l)
+	return l

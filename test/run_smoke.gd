@@ -293,6 +293,22 @@ func _on_screen(cam: Camera3D, world: Vector3) -> Vector2:
 		(local.y / -local.z) / half)
 	return Vector2(0.5 + ndc.x * 0.5, 0.5 - ndc.y * 0.5)
 
+## Which typeface a page is written in, by resource path, or "" if nothing on it
+## carries a font override. Reads the LABELS, so a hand that is configured and
+## never applied reads as no hand at all - which is the point.
+func _page_hand(page) -> String:
+	var stack: Array = [page]
+	while not stack.is_empty():
+		var n = stack.pop_back()
+		if n is Label:
+			var f = (n as Label).get_theme_font("font")
+			if f != null and f.resource_path != "":
+				return f.resource_path
+		for c in n.get_children():
+			stack.append(c)
+	return ""
+
+
 
 ## Everything written on a page, as one lowercase string. The book is built out of
 ## Labels in a VBox, so this is what a reader sees and nothing else.
@@ -718,6 +734,23 @@ func _check_the_pages_really_turn(main) -> void:
 		"the front matter did not follow the catch - it is a printed page, not a record")
 	main.sim.caught = 0
 	main.sim.total_weight = 0.0
+	main._refresh_book()
+
+	# W4: FIVE HANDS ARE FIVE FACES, not one face at five greys.
+	#
+	# Asserted on the PAGE rather than on the table, because the table being right
+	# and the label never being given the font is the failure that leaves the book
+	# looking exactly as it did before.
+	var faces := {}
+	for page in range(0, main._book_pages):
+		main._book.page = page
+		main._refresh_book()
+		var who := _page_hand(main._book_page)
+		if who != "":
+			faces[who] = true
+	_t.gt(float(faces.size()), 2.0,
+		"the whole logbook is written in %d typeface(s) - the keepers are one hand at several greys" % faces.size())
+	main._book.page = 0
 	main._refresh_book()
 
 	var was: int = main._book.page

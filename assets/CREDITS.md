@@ -17,3 +17,8 @@ Every asset that was not made here. Appended by scripts/assets.py.
 | 2026-09-11 | Poly Haven | worn_metal_rack (models, 1k) | CC0 | https://polyhaven.com/a/worn_metal_rack |
 | 2026-09-11 | ambientCG | Planks039 1K JPG [Planks039_1K-JPG.usdc, Planks039_1K-JPG_AmbientOcclusion.jpg, Planks039_1K-JPG_Color.jpg, Planks039_1K-JPG_Displacement.jpg, Planks039_1K-JPG_NormalDX.jpg, Planks039_1K-JPG_NormalGL.jpg, Planks039_1K-JPG_Roughness.jpg, Planks039_1K-JPG.blend, Planks039_1K-JPG.mtlx, Planks039_1K-JPG.tres, Planks039.png] | CC0 | https://ambientcg.com/view?id=Planks039 |
 | 2026-09-11 | Poly Haven | overcast_soil_puresky (hdris, 1k) | CC0 | https://polyhaven.com/a/overcast_soil_puresky |
+| 2026-09-11 | Google Fonts | Caveat | OFL | https://fonts.google.com/specimen/Caveat |
+| 2026-09-11 | Google Fonts | Kalam | OFL | https://fonts.google.com/specimen/Kalam |
+| 2026-09-11 | Google Fonts | Dancing Script | OFL | https://fonts.google.com/specimen/Dancing%20Script |
+| 2026-09-11 | Google Fonts | IM Fell English | OFL | https://fonts.google.com/specimen/IM%20Fell%20English |
+| 2026-09-11 | Google Fonts | Homemade Apple | OFL | https://fonts.google.com/specimen/Homemade%20Apple |
