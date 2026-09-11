@@ -1240,7 +1240,7 @@ only here. A resuming session works from the first unticked box.
 
 ## Phase W — the water and the art pass. *"Update all of the models, textures, sounds, graphics"*
 
-- [ ] **W1 The water shader.** `boujie_water_shader` (MIT), foam round the hull, colour and foam driven from `dread` so it is not a second state. Half the screen at all times; the biggest single change in the game
+- [x] **W1 Foam round the hull, and colour and foam from `dread`.** *The `boujie_water_shader` import was deliberately NOT taken* - that shader brings its own waves, and this game's wave sum is shared with the CPU (`_wave_offset` floats the bobber, heaves the hull, hangs the line), so swapping the surface would either break that agreement or mean re-deriving it to gain a look this shader already has. The colour half was already done through `mood.gd`; what was missing was the boat sitting IN the water. Analytic foam, because `DEPTH_TEXTURE` is corrupt on Forward Mobile with MSAA
 - [ ] **W2 The overcast sky**, and the middle bands moved onto it
 - [ ] **W3 The surfaces of the drowned town.** Roof tiles, wet asphalt, quarry rock, brick, torn net — the textures the generated geometry in Phase P will be skinned with
 - [ ] **W4 Five real hands in the logbook.** Five typefaces, not one at five weights. About 20 KB each and the cheapest large improvement available

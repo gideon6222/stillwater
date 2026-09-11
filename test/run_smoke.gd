@@ -56,6 +56,7 @@ func _initialize() -> void:
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
+	_check_the_water_breaks_against_the_hull(main)
 	_check_the_shed_is_a_room(main)
 	_check_the_shed_stock_is_physical(main)
 	_check_the_lure_is_where_the_line_ends(main)
@@ -304,6 +305,76 @@ func _page_text(page) -> String:
 		for c in n.get_children():
 			stack.append(c)
 	return out.to_lower()
+
+
+## W1: THE WATER BREAKS AGAINST THE HULL.
+##
+## The foam is analytic rather than a depth-difference, because PIPELINE.md has
+## DEPTH_TEXTURE as corrupt on Forward Mobile with MSAA - so the surface has to be
+## TOLD where the boat is, every frame. That hand-off is the thing that can rot:
+## a shader still compiles and still draws when the position it is given is stale,
+## wrong, or never sent, and the only symptom is foam in the wrong place on the
+## lake, which nobody will be looking at.
+func _check_the_water_breaks_against_the_hull(main) -> void:
+	_t.begin("smoke > the water foams round the hull")
+	main.freeze(2)
+	main.advance(0.5)
+	var mat: ShaderMaterial = main._water_mat
+	_t.ok(mat != null, "there is no water material")
+	if mat == null:
+		return
+
+	for want in ["hull_at", "hull_yaw", "hull_half", "foam", "foam_tint"]:
+		_t.ok(mat.get_shader_parameter(want) != null,
+			"the water has no '%s' - the foam is not wired up" % want)
+
+	# THE COLLAR IS ON THE BOAT. Centred ahead of the hull's origin, because the
+	# hull runs from z -0.85 to 2.25 and an ellipse centred on the origin rings
+	# the water a metre astern of the transom.
+	var at: Vector2 = mat.get_shader_parameter("hull_at")
+	var origin: Vector3 = main._boat_pose.origin
+	_t.lt(at.distance_to(Vector2(origin.x, origin.z)), 1.4,
+		"the foam collar is %.2f m from the boat" % at.distance_to(Vector2(origin.x, origin.z)))
+	_t.gt(at.distance_to(Vector2(origin.x, origin.z)), 0.2,
+		"the foam collar is centred on the boat's origin rather than on its waterline")
+
+	# AND IT IS AHEAD OF THE ORIGIN, ALONG THE BOAT'S OWN AXIS.
+	#
+	# This is the assertion that would catch the mistake actually available here:
+	# `_boat_pose.basis.z` is the boat's +Z and the hull runs from -0.85 to 2.25
+	# in that frame, so the collar belongs 0.70 m along it. Take the sign the
+	# wrong way - which is easy, since Godot's node forward is -Z - and the foam
+	# rings the water a metre and a half astern of the transom while still looking
+	# plausible in a screenshot taken over the bow.
+	#
+	# An earlier version of this check shoved `_boat_pose.origin` sideways and
+	# asserted the foam followed. It tested nothing: `_sync` recomputes the pose
+	# from the wave sum on the very next line, so the shove was gone before the
+	# assertion read it - and it left the swell mid-stride for the two checks
+	# after it, which both failed.
+	var fwd: Vector3 = main._boat_pose.basis.z
+	var along := Vector2(fwd.x, fwd.z).normalized()
+	var offset: Vector2 = at - Vector2(origin.x, origin.z)
+	_t.gt(offset.dot(along), 0.4,
+		"the foam collar sits ASTERN of the boat rather than on her waterline")
+	_t.lt(absf(offset.dot(Vector2(-along.y, along.x))), 0.2,
+		"the foam collar is off to one side of the boat")
+
+	# FOAM IS THE SAME STATE AS THE WEATHER, not a second one. A storm works the
+	# water harder than a flat calm and has to make more of it.
+	main.sim.weather = "clear"
+	for i in 400:
+		main._sync_mood(1.0 / 12.0)
+	var calm: float = mat.get_shader_parameter("foam")
+	main.sim.weather = "storm"
+	for i in 400:
+		main._sync_mood(1.0 / 12.0)
+	var blown: float = mat.get_shader_parameter("foam")
+	_t.gt(blown, calm + 0.01,
+		"a storm makes no more foam than a flat calm (%.2f against %.2f)" % [blown, calm])
+	main.sim.weather = "clear"
+	for i in 400:
+		main._sync_mood(1.0 / 12.0)
 
 
 
@@ -1948,6 +2019,13 @@ func _check_the_float_floats_on_the_water(main) -> void:
 	var first_pos: Vector3 = main.lure_world_position()
 	var first: float = first_pos.y
 	for i in 240:
+		# HOLD THE FISH OFF for the length of the measurement. The window used to
+		# end early whenever something bit, so how far the float had been seen to
+		# move depended on when a bite happened to land - and the assertion sat at
+		# 0.005 m against a typical 0.03. Inserting an unrelated check earlier in
+		# the suite shifted the clock, a fish bit sooner, and this failed at
+		# 0.0044 with nothing wrong with the float at all.
+		main.sim.bite_in = 999.0
 		main.advance(1.0 / 60.0, 1.0 / 60.0)
 		if main.sim.state != Sim.WAITING:
 			break

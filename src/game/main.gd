@@ -434,6 +434,9 @@ func _build_water() -> void:
 	m.set_shader_parameter("beam", 1.0)
 	m.set_shader_parameter("ripple", 1.0)
 	m.set_shader_parameter("clarity", 0.30)
+	m.set_shader_parameter("hull_half", Vector2(0.70, 1.62))
+	m.set_shader_parameter("foam", 0.55)
+	m.set_shader_parameter("foam_tint", Color(0.90, 0.92, 0.91))
 	_water.material_override = m
 	_water_mat = m
 	add_child(_water)
@@ -525,6 +528,27 @@ uniform float beam = 1.0;
 uniform float ripple = 1.0;
 // How see-through the surface gets, and only where it is nearly underfoot.
 uniform float clarity = 0.30;
+
+// --- foam round the hull --------------------------------------------------
+//
+// W1. The plan named `boujie_water_shader` for this and it is the wrong import:
+// that shader brings its own waves, and THIS game's wave sum is shared with the
+// CPU - `_wave_offset` floats the bobber, heaves the hull and hangs the line off
+// it. Swapping the surface would either break that agreement or mean re-deriving
+// it against someone else's Gerstner constants, to gain a look this shader
+// already has. What the plan actually wants is the part that was missing, which
+// is the boat sitting IN the water instead of on it.
+//
+// AND THERE IS NO DEPTH BUFFER TO DO IT THE USUAL WAY. Contact foam is normally
+// a depth-difference against DEPTH_TEXTURE, and PIPELINE.md has it that that
+// sample is corrupt on Forward Mobile with MSAA. So the foam is analytic: the
+// simulation already knows exactly where the hull is, which is the same reason
+// `bed_depth` is a uniform rather than a texture read.
+uniform vec2 hull_at = vec2(0.0, 0.0);     // world xz of the hull's middle
+uniform float hull_yaw = 0.0;              // which way it is pointing
+uniform vec2 hull_half = vec2(0.66, 1.55); // half beam, half length
+uniform float foam = 0.55;                 // how much there is
+uniform vec4 foam_tint : source_color;
 
 varying vec3 world_pos;
 
@@ -676,6 +700,48 @@ __WAVE_TAPS__
 	// So the transparency is capped low, falls off with distance, and closes
 	// completely at a grazing angle where a real lake also becomes a mirror.
 	// The fish swim well below the depth this reaches.
+	// FOAM ROUND THE HULL, hugging an ellipse rather than a circle, because a
+	// boat is three times longer than it is wide and a round collar reads as a
+	// bubble. Into the boat's own frame first so it turns with her.
+	vec2 rel = world_pos.xz - hull_at;
+	float cy = cos(-hull_yaw);
+	float sy = sin(-hull_yaw);
+	vec2 loc = vec2(rel.x * cy - rel.y * sy, rel.x * sy + rel.y * cy);
+	// Distance from the waterline in units of "hull", then back into metres.
+	float edge = (length(loc / hull_half) - 1.0) * min(hull_half.x, hull_half.y);
+	// Outside only. A third of a metre was the right number for a boat and the
+	// wrong one for a phone: seen from the seat at a grazing angle that band is
+	// about fifteen pixels, and once the lace mask had broken it up there was
+	// nothing left to see. Measured by widening it to two and a half metres in a
+	// diagnostic - which showed the collar was in exactly the right place the
+	// whole time and simply too thin. 0.8 m reads without becoming a slick.
+	float band = clamp(1.0 - edge / 0.80, 0.0, 1.0) * step(0.0, edge);
+	if (band > 0.001) {
+		// BROKEN UP, or it is a painted ring. Two scrolling noise fields, one
+		// slow and coarse for the clumps and one fast and fine for the fizz -
+		// and the whole thing is multiplied by the band so it can only ever
+		// appear where the hull is.
+		float ft = TIME;
+		float clump = vnoise(world_pos.xz * 5.5 + vec2(ft * 0.11, -ft * 0.08));
+		float fizz = vnoise(world_pos.xz * 19.0 - vec2(ft * 0.52, ft * 0.37));
+		float mask = clamp(clump * 0.75 + fizz * 0.45 - 0.30, 0.0, 1.0);
+		// Thickest right against the planking and lacy at the outer edge, which
+		// is what makes it read as being pushed off the hull. The inner third is
+		// nearly solid: `band * band` alone left even the water against the
+		// strake at the mercy of the noise, and foam that flickers on and off
+		// where the hull meets the lake reads as z-fighting.
+		float lace = mix(mask, 1.0, smoothstep(0.40, 1.0, band));
+		float f = band * lace * clamp(foam, 0.0, 1.0);
+		ALBEDO = mix(ALBEDO, foam_tint.rgb, clamp(f, 0.0, 0.92));
+		// Foam is air in water. It is rough, it is not a mirror, and it does not
+		// take a specular streak - without these three the ring came out as a
+		// shiny white gasket.
+		ROUGHNESS = mix(ROUGHNESS, 0.92, f);
+		SPECULAR = mix(SPECULAR, 0.05, f);
+		n = normalize(mix(n, vec3(0.0, 1.0, 0.0), f * 0.5));
+		NORMAL = (VIEW_MATRIX * vec4(n, 0.0)).xyz;
+	}
+
 	float near_edge = clamp(1.0 - length(VERTEX) / 7.0, 0.0, 1.0);
 	float straight_on = clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0);
 	ALPHA = 1.0 - clarity * near_edge * straight_on * (1.0 - clamp(fres, 0.0, 1.0));
@@ -2413,6 +2479,17 @@ func _sync() -> void:
 	# the camera against this one, and the float drifted a few millimetres off
 	# the end of its own line every frame.
 	_sync_boat_pose()
+	# WHERE THE HULL IS, handed to the water. The foam is analytic - there is no
+	# usable depth buffer on this renderer - so the surface has to be told, every
+	# frame, where the boat it is breaking against actually sits. Derived from
+	# `_boat_pose` rather than assumed to be the origin, so it stays correct when
+	# the boat moves between spots.
+	if _water_mat != null:
+		var o := _boat_pose.origin
+		var fwd := _boat_pose.basis.z
+		_water_mat.set_shader_parameter("hull_at",
+			Vector2(o.x, o.z) + Vector2(fwd.x, fwd.z).normalized() * HULL_FOAM_MID)
+		_water_mat.set_shader_parameter("hull_yaw", atan2(fwd.x, fwd.z))
 	_sync_rod()
 	_sync_line_colour()
 	var out := lure_world_position()
@@ -3404,7 +3481,7 @@ func _build_chart() -> void:
 	_chart.build(model, CHART_SIZE * 0.94,
 		Transform3D(lie_flat, Vector3(0.0, 0.006, 0.0)),
 		_chart_page(), Vector2i(840, 600))
-	_chart.position = Vector3(0.52, _hull_floor_y(2.05) + 0.09, 2.05)
+	_chart.position = Vector3(0.58, _hull_floor_y(2.22) + 0.09, 2.22)
 	_chart.rotation_degrees = Vector3(0, -14.0, 0)
 	_boat.add_child(_chart)
 	_chart.open()
@@ -4111,6 +4188,19 @@ func _sync_mood(dt: float) -> void:
 		var rp: float = _water_mat.get_shader_parameter("ripple")
 		_water_mat.set_shader_parameter("ripple",
 			lerpf(rp, clampf(float(look["chop"]), 0.5, 2.6), k))
+		# FOAM IS THE SAME STATE AS EVERYTHING ELSE, which is the half of W1 that
+		# matters: "colour and foam driven from dread so it is not a second
+		# state". More of it when the water is working, and dirtier the deeper
+		# you are - the quarry does not make white foam, it makes grey.
+		var fm: float = _water_mat.get_shader_parameter("foam")
+		_water_mat.set_shader_parameter("foam",
+			lerpf(fm, clampf(0.30 + 0.34 * float(look["chop"]), 0.0, 1.0), k))
+		var ft: Color = _water_mat.get_shader_parameter("foam_tint")
+		# Tinted from the sky the water is already reflecting, so foam under a
+		# storm is storm-coloured rather than a white that belongs to no weather.
+		var want_foam: Color = (look["water_sky"] as Color).lerp(Color(1, 1, 1), 0.45)
+		want_foam = want_foam.lerp(Color(0.46, 0.47, 0.45), _dread * 0.55)
+		_water_mat.set_shader_parameter("foam_tint", ft.lerp(want_foam, k))
 
 
 # --- keeping it -----------------------------------------------------------
@@ -5084,6 +5174,11 @@ func _build_float() -> Node3D:
 ##
 ## The hull still moves - more visibly than before against a steady horizon, which
 ## is the point - and the view no longer swings.
+## Where the middle of the waterline is, measured along the boat from its origin.
+## The hull runs from z -0.85 to 2.25, so its centre is 0.70 ahead - and the foam
+## ellipse has to be centred on THAT rather than on the origin, or the collar sits
+## a metre aft of the boat and rings the water behind the transom.
+const HULL_FOAM_MID := 0.70
 const HULL_FOLLOW := 3.2       ## how fast the hull answers the swell
 const HULL_HEAVE := 0.78       ## metres of rise, as a share of the sampled wave
 const HULL_PITCH := 1.05       ## a long hull in a low swell barely pitches
@@ -5575,7 +5670,7 @@ func _build_things() -> void:
 			# WHERE TO FISH, now that the button is gone.
 			"id": "chart",
 			"name": "The chart",
-			"at": Vector3(0.52, _hull_floor_y(2.05) + 0.10, 2.05),
+			"at": Vector3(0.58, _hull_floor_y(2.22) + 0.10, 2.22),
 			"look": func() -> String:
 				return "A chart of the lake, gone soft at the folds.",
 			"use": func() -> void:

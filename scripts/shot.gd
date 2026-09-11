@@ -50,7 +50,7 @@ const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", 
 ## which was quietly resetting a page turn between setting it up and
 ## photographing it. Three separate real bugs were chased before the tool turned
 ## out to be one of them.
-const MID_ACTION := ["turn", "inshed"]
+const MID_ACTION := ["turn", "inshed", "hull"]
 
 
 func _initialize() -> void:
@@ -100,6 +100,24 @@ func _initialize() -> void:
 			_main._turn_page(1)
 			for i in 30:
 				_main.advance(1.0 / 60.0, 1.0 / 60.0)
+	elif _until == "hull":
+		# OVER THE SIDE, at the waterline. The foam collar round the hull is the
+		# whole of W1 and it is invisible from the seat looking forward, because
+		# the gunwale is between the eye and the water it breaks against. A
+		# feature you cannot photograph is a feature nobody will see.
+		if _main._title != null:
+			_main._title.skip()
+		for i in 90:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		var eye: Vector3 = Sequence.SEAT
+		var at := Vector3(-2.40, 0.0, 2.10)
+		var to := at - eye
+		_main._look_yaw_want = clampf(atan2(to.x, to.z),
+			-_main.LOOK_YAW_LIMIT, _main.LOOK_YAW_LIMIT)
+		_main._look_pitch_want = clampf(atan2(to.y, Vector2(to.x, to.z).length()),
+			-_main.LOOK_PITCH_DOWN, _main.LOOK_PITCH_UP)
+		for i in 90:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
 	elif _until == "inshed":
 		# STANDING AT THE COUNTER. The trip there is a sequence, so this plays it
 		# out rather than teleporting - which also means the shot proves the
