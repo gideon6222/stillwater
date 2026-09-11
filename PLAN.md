@@ -1250,7 +1250,7 @@ only here. A resuming session works from the first unticked box.
 
 ## Phase P — the lake as a place. *"Not that one boat in that one spot"*
 
-- [ ] **P1 One landmark per spot.** Six silhouettes, each visible from the seat and never repeated. Most of the effect for almost none of the work — do this first
+- [x] **P1 One landmark per spot.** Six silhouettes, each visible from the seat and never repeated. The boathouse, two bluffs, telegraph poles walking under, the steeple, a cut face, and drowned trees. Generated, per §8.2, and the reeds and the bank are gated to Reed Bay with them
 - [ ] **P2 Rowing between spots.** The map stops being a teleport. Oars, the landmark you leave, the one you arrive at, skippable like the gate
 - [ ] **P3 The bank you can stand on.** Reed Bay: the jetty, the wall, the gate, walkable. Subsumes 11.9c, the shed as a place
 - [ ] **P4 The roof of the steeple.** At low water at Old Town, tie up and stand on a rooftop forty metres above a street. The image Act II turns on

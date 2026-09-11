@@ -56,6 +56,7 @@ func _initialize() -> void:
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
+	_check_the_lake_is_six_places(main)
 	_check_the_new_sounds_exist_and_are_placed(main)
 	_check_the_water_breaks_against_the_hull(main)
 	_check_the_sky_has_more_than_one_kind_of_cloud(main)
@@ -388,6 +389,61 @@ func _check_the_sky_has_more_than_one_kind_of_cloud(main) -> void:
 	main.sim.state = was_state
 	for i in 600:
 		main._sync_mood(1.0 / 12.0)
+
+## P1: THE LAKE IS SIX PLACES.
+##
+## Gideon, at the start of all this: "I don't want the whole game to take place in
+## that one boat and in that one spot." Until P1 it literally did - the reeds and
+## the bank were built once and drawn everywhere, so rowing to the Quarry changed
+## the water's colour, the fish table, and nothing you could see.
+##
+## The claim is not "there is scenery". It is that the RIGHT scenery is up and the
+## rest is not, which is the half that breaks silently: a landmark left visible at
+## every spot looks perfectly good in a screenshot of the spot it belongs to.
+func _check_the_lake_is_six_places(main) -> void:
+	_t.begin("smoke > every spot on the lake looks like itself")
+	main.freeze(2)
+	main.sim.econ.has_motor = true
+	main.sim.econ.line = 5
+
+	for spot in World.SPOTS:
+		var id := str(spot["id"])
+		_t.ok(main._landmarks.has(id), "%s has no landmark at all" % id)
+
+	for spot in World.SPOTS:
+		var id := str(spot["id"])
+		main.sim.spot = id
+		main.advance(0.1)
+		var up: Array[String] = []
+		for other in main._landmarks:
+			if (main._landmarks[other] as Node3D).visible:
+				up.append(str(other))
+		_t.eq(up.size(), 1,
+			"at %s the lake shows %d landmarks: %s" % [id, up.size(), ", ".join(up)])
+		if up.size() == 1:
+			_t.eq(up[0], id, "at %s the landmark up is %s" % [id, up[0]])
+		# THE REEDS ARE REED BAY'S. Drawing them in the middle of the quarry was
+		# the loudest part of the lake being one place.
+		_t.eq(main._reeds.visible, id == "reed_bay",
+			"the reeds are %s at %s" % ["up" if main._reeds.visible else "down", id])
+
+	# AND NO TWO PLACES ARE THE SAME PLACE. Counted off the geometry, because "six
+	# silhouettes, never repeated" is the whole of the milestone and a copied
+	# landmark would pass every check above.
+	var shapes := {}
+	for id in main._landmarks:
+		var n: Node3D = main._landmarks[id]
+		var sig := "%d" % n.get_child_count()
+		var box: AABB = main._local_bounds(n)
+		sig += ":%.1f,%.1f,%.1f" % [box.size.x, box.size.y, box.size.z]
+		_t.ok(not shapes.has(sig),
+			"%s is the same shape as %s - the landmarks repeat" % [id, str(shapes.get(sig, ""))])
+		shapes[sig] = id
+		_t.gt(box.size.y, 2.0, "%s has nothing standing out of the water" % id)
+
+	main.sim.spot = "reed_bay"
+	main.advance(0.1)
+
 
 
 ## W6: THE OARS AND THE DAWN CHORUS.

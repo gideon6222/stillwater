@@ -253,6 +253,12 @@ func _initialize() -> void:
 	# The sounder is the most expensive thing in the shed, so a screenshot of the
 	# game without it is a screenshot of two thirds of the HUD.
 	_main.sim.econ.has_sounder = true
+	# A SIXTH ARGUMENT NAMES THE SPOT, so each of the six landmarks can be
+	# photographed without also having to reach it in the fiction.
+	if args.size() > 5 and _until == "boat":
+		_main.sim.econ.has_motor = true
+		_main.sim.econ.line = 5
+		_main.sim.spot = String(args[5])
 	if args.size() > 4:
 		# Dread is depth, so this is "photograph it as if the line were this far
 		# down" - the whole visual arc in one number.

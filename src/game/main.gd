@@ -352,6 +352,7 @@ func _build_world() -> void:
 
 	_build_water()
 	_build_boat()
+	_build_landmarks()
 	_build_shed()
 
 	# The line. Ten thin boxes along a sagging curve, rebuilt each frame - see
@@ -2483,6 +2484,7 @@ func _sync() -> void:
 	# pose halfway down meant `out` was computed against last frame's boat and
 	# the camera against this one, and the float drifted a few millimetres off
 	# the end of its own line every frame.
+	_sync_landmarks()
 	_sync_boat_pose()
 	# WHERE THE HULL IS, handed to the water. The foam is analytic - there is no
 	# usable depth buffer on this renderer - so the surface has to be told, every
@@ -3647,6 +3649,269 @@ func _chart_take() -> void:
 	_say_hint("You row over to %s." % str(row["name"]))
 	_save_due = 0.6
 	_sync_bars()
+
+
+# --- the lake is six places ------------------------------------------------
+
+## ONE LANDMARK PER SPOT, and it is the whole of P1.
+##
+## Gideon, at the start of all this: "I don't want the whole game to take place in
+## that one boat and in that one spot." Until now it did, literally: the reeds and
+## the bank at Reed Bay were built once and drawn at every spot on the lake, so
+## rowing to the Quarry changed the water's colour, the fish table and nothing you
+## could see. The plan calls this "most of the effect for almost none of the work"
+## and it is right.
+##
+## Six silhouettes, none repeated, each one a fact about the place it names:
+##
+##   Reed Bay      the boathouse you came from, low on the bank
+##   The Narrows   two bluffs squeezing the channel, close enough to feel
+##   Drowned Road  telegraph poles marching out of the water and under it
+##   The Steeple   a church spire standing clear, and the ridge of its roof
+##   Quarry Wall   a sheer cut face, the only vertical thing on the lake
+##   The Spring    drowned trees, and nothing else at all
+##
+## Generated rather than imported, and that is the scout's finding rather than a
+## shortcut: PLAN.md 8.2 searched and there is no CC0 photoreal steeple, quarry
+## face, stone wall or gate anywhere. They are skinned with the stone and plank
+## textures the hull and the bank already use, so they belong to the same lake.
+const LANDMARK_AT := {
+	# FAR ENOUGH TO BE A LANDMARK. The first pass put these at 30 to 44 m and
+	# every one of them filled the frame - a quarry face you cannot see the top of
+	# is a wall you are moored against, not a place across the water. Measured off
+	# the screenshots: the wall subtended most of a portrait frame at 40 m, so it
+	# wants three times that. A landmark has to be far enough away that ROWING TO
+	# IT would be a journey, because in P2 it will be.
+	#
+	# X is mirrored on screen - the camera's basis is composed after a half turn,
+	# which has caught this file out twice - so a positive x here appears to the
+	# LEFT of the bow.
+	"reed_bay": Vector3(-38.0, 0.0, 96.0),
+	"narrows": Vector3(0.0, 0.0, 78.0),
+	"road": Vector3(26.0, 0.0, 88.0),
+	"steeple": Vector3(-22.0, 0.0, 118.0),
+	"quarry": Vector3(34.0, 0.0, 104.0),
+	"spring": Vector3(-14.0, 0.0, 84.0),
+}
+
+var _landmarks: Dictionary = {}
+
+## CUT ROCK, not masonry.
+##
+## `_stone_mat` is a block wall - courses, mortar, the lot - and it is right for
+## the steeple and the boathouse, which are buildings. On the quarry face and the
+## narrows it read as brickwork: measured off a screenshot, the quarry came out as
+## a forty-metre garden wall standing in a lake.
+##
+## Same map, scaled up by eight so no course is legible at the distance these are
+## seen from, and pulled grey-green and dark. What survives at that scale is the
+## grain and the streaking, which is what a cut face actually shows.
+func _rock_mat() -> StandardMaterial3D:
+	var m := _stone_mat()
+	m.uv1_scale = Vector3(0.16, 0.16, 0.16)
+	m.albedo_color = Color(0.30, 0.33, 0.31)
+	m.roughness = 1.0
+	return m
+
+
+
+func _build_landmarks() -> void:
+	var stone := _stone_mat()
+	var dark := _mat(Color(0.16, 0.16, 0.15), 0.95)
+	var timber := _wood_mat(Color(0.235, 0.175, 0.125), Vector3(1.0, 2.0, 1.0))
+	var slate := _mat(Color(0.22, 0.23, 0.24), 0.80)
+
+	var rock := _rock_mat()
+	for id in LANDMARK_AT:
+		var n := Node3D.new()
+		n.name = "Landmark_" + str(id)
+		n.position = LANDMARK_AT[id]
+		n.visible = false
+		add_child(n)
+		_landmarks[id] = n
+		match str(id):
+			"reed_bay": _mark_boathouse(n, timber, slate)
+			"narrows": _mark_narrows(n, rock)
+			"road": _mark_road(n, dark)
+			"steeple": _mark_steeple(n, stone, slate)
+			"quarry": _mark_quarry(n, rock)
+			"spring": _mark_spring(n, dark)
+
+
+## A long low shed with a pitched roof and an open mouth onto the water. The place
+## the boat came from, seen from out on the bay.
+func _mark_boathouse(into: Node3D, timber: Material, slate: Material) -> void:
+	var body := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(15.0, 5.6, 10.0)
+	body.mesh = bm
+	body.position = Vector3(0, 2.8, 0)
+	body.material_override = timber
+	into.add_child(body)
+	# The roof is two slabs leaned together. A prism would be one mesh and would
+	# not catch the light along the ridge, which is the only part of a roof that
+	# reads at forty metres.
+	for side in [-1.0, 1.0]:
+		var pitch := MeshInstance3D.new()
+		var pm := BoxMesh.new()
+		pm.size = Vector3(9.3, 0.36, 10.6)
+		pitch.mesh = pm
+		pitch.position = Vector3(side * 3.9, 7.0, 0)
+		pitch.rotation_degrees = Vector3(0, 0, side * -32.0)
+		pitch.material_override = slate
+		into.add_child(pitch)
+	# The mouth, dark, at the waterline.
+	var mouth := MeshInstance3D.new()
+	var mm := BoxMesh.new()
+	mm.size = Vector3(5.3, 3.6, 0.5)
+	mouth.mesh = mm
+	mouth.position = Vector3(0, 1.8, -5.0)
+	mouth.material_override = _mat(Color(0.05, 0.05, 0.05), 1.0)
+	into.add_child(mouth)
+
+
+## Two bluffs, one either side, leaning in. The only landmark the boat passes
+## BETWEEN rather than looks at.
+func _mark_narrows(into: Node3D, stone: Material) -> void:
+	for side in [-1.0, 1.0]:
+		var bluff := MeshInstance3D.new()
+		var m := BoxMesh.new()
+		m.size = Vector3(22.0, 13.0, 30.0)
+		bluff.mesh = m
+		bluff.position = Vector3(side * 26.0, 3.2, 0)
+		bluff.rotation_degrees = Vector3(0, side * 7.0, side * 9.0)
+		bluff.material_override = stone
+		into.add_child(bluff)
+
+
+## Telegraph poles, walking out of the water and going under. The road is down
+## there; this is all you see of it.
+func _mark_road(into: Node3D, dark: Material) -> void:
+	for i in 7:
+		var t := float(i) / 6.0
+		var pole := MeshInstance3D.new()
+		var m := CylinderMesh.new()
+		# THEY GET SHORTER AS THEY GO, because the road goes down. The last one is
+		# a stump in the water and the one after it is not there at all - which is
+		# the sentence the whole landmark exists to say.
+		m.height = lerpf(11.0, 1.4, t * t)
+		m.top_radius = 0.16
+		m.bottom_radius = 0.22
+		m.radial_segments = 7
+		pole.mesh = m
+		pole.position = Vector3(float(i) * 7.5 - 22.0, m.height * 0.5 - 0.3,
+			float(i) * 5.5)
+		pole.rotation_degrees = Vector3(sin(float(i) * 1.7) * 5.0, 0.0,
+			cos(float(i) * 2.3) * 6.0)
+		pole.material_override = dark
+		into.add_child(pole)
+		# A crossarm on the first three, while there is still enough pole to carry
+		# one. Past that the water has it.
+		if i < 3:
+			var arm := MeshInstance3D.new()
+			var am := BoxMesh.new()
+			am.size = Vector3(4.2, 0.26, 0.26)
+			arm.mesh = am
+			arm.position = pole.position + Vector3(0, m.height * 0.40, 0)
+			arm.material_override = dark
+			into.add_child(arm)
+
+
+## The spire, and the ridge of the nave beside it just breaking the surface. The
+## image Act II turns on.
+func _mark_steeple(into: Node3D, stone: Material, slate: Material) -> void:
+	var tower := MeshInstance3D.new()
+	var tm := BoxMesh.new()
+	tm.size = Vector3(7.0, 22.0, 7.0)
+	tower.mesh = tm
+	tower.position = Vector3(0, 9.0, 0)
+	tower.material_override = stone
+	into.add_child(tower)
+
+	var spire := MeshInstance3D.new()
+	var sm := CylinderMesh.new()
+	sm.height = 12.0
+	sm.top_radius = 0.05
+	sm.bottom_radius = 4.8
+	sm.radial_segments = 4
+	spire.mesh = sm
+	spire.position = Vector3(0, 26.0, 0)
+	spire.rotation_degrees = Vector3(0, 45.0, 1.5)
+	spire.material_override = slate
+	into.add_child(spire)
+
+	# The nave's ridge, mostly under. Long and low, so the tower has something to
+	# belong to - a spire alone in open water reads as a buoy.
+	var ridge := MeshInstance3D.new()
+	var rm := BoxMesh.new()
+	rm.size = Vector3(8.5, 1.8, 29.0)
+	ridge.mesh = rm
+	ridge.position = Vector3(0.6, 0.4, 19.0)
+	ridge.rotation_degrees = Vector3(0, 4.0, 0)
+	ridge.material_override = slate
+	into.add_child(ridge)
+
+
+## A cut face. The only vertical thing on the lake, and it does not end where you
+## can see - it runs off both sides of the view.
+func _mark_quarry(into: Node3D, stone: Material) -> void:
+	for i in 4:
+		var slab := MeshInstance3D.new()
+		var m := BoxMesh.new()
+		# WIDE AND NOT ESPECIALLY TALL. A face is a long thing seen edge on, and
+		# the first version was as tall as it was wide, which is a tower.
+		m.size = Vector3(38.0, lerpf(21.0, 13.0, float(i) / 3.0), 9.0)
+		slab.mesh = m
+		slab.position = Vector3(float(i) * 34.0 - 51.0, m.size.y * 0.5 - 2.0,
+			float(i) * 6.0)
+		slab.rotation_degrees = Vector3(0, float(i) * 5.0 - 7.0, float(i) * 1.2 - 1.8)
+		slab.material_override = stone
+		into.add_child(slab)
+
+
+## Drowned trees, and nothing else. The Spring has no ruin on it - whatever was
+## here went under before there was anything to leave behind.
+func _mark_spring(into: Node3D, dark: Material) -> void:
+	for i in 9:
+		var a := float(i) * 2.399963
+		var r := 9.0 + float(i) * 3.1
+		var trunk := MeshInstance3D.new()
+		var m := CylinderMesh.new()
+		m.height = 4.4 + sin(float(i) * 1.31) * 3.0
+		m.top_radius = 0.12
+		m.bottom_radius = 0.42
+		m.radial_segments = 6
+		trunk.mesh = m
+		trunk.position = Vector3(cos(a) * r, m.height * 0.5 - 0.5, sin(a) * r)
+		trunk.rotation_degrees = Vector3(sin(a) * 9.0, 0, cos(a) * 11.0)
+		trunk.material_override = dark
+		into.add_child(trunk)
+		# One branch each, where there is trunk enough to carry it.
+		if m.height > 2.4:
+			var br := MeshInstance3D.new()
+			var bm2 := CylinderMesh.new()
+			bm2.height = 1.3
+			bm2.top_radius = 0.03
+			bm2.bottom_radius = 0.07
+			bm2.radial_segments = 5
+			br.mesh = bm2
+			br.position = trunk.position + Vector3(0.35, m.height * 0.28, 0.1)
+			br.rotation_degrees = Vector3(0, 0, 64.0)
+			br.material_override = dark
+			into.add_child(br)
+
+
+## SHOW THE ONE YOU ARE AT, and nothing else.
+##
+## The reeds go with it: they are Reed Bay's, and drawing them in the middle of
+## the quarry was the loudest part of the lake being one place.
+func _sync_landmarks() -> void:
+	for id in _landmarks:
+		(_landmarks[id] as Node3D).visible = (sim.spot == id)
+	if _reeds != null:
+		_reeds.visible = sim.spot == "reed_bay"
+	if _shore != null:
+		_shore.visible = sim.spot == "reed_bay" or _in_sequence
 
 
 
