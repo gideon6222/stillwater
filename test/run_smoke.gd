@@ -22,6 +22,14 @@ func _initialize() -> void:
 
 	var main = scene.instantiate()
 	root.add_child(main)
+	# A SCRIPT THAT DID NOT PARSE LEAVES A BARE Node3D, and the suite then drives a
+	# stub that can never reach any state - which presents as a HANG rather than a
+	# failure, because every "advance until X" loop simply runs to its limit. One
+	# line turns a silent multi-minute timeout into an instant, accurate failure.
+	if not main.has_method("freeze"):
+		printerr("  main.tscn did not load its script - read the parse error ABOVE this line")
+		quit(1)
+		return
 
 	# Freeze first, then step. Two reasons, and the second is not obvious: real
 	# frames run between a scene loading and a harness taking over, so without
