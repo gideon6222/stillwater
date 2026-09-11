@@ -1235,8 +1235,8 @@ only here. A resuming session works from the first unticked box.
 - [x] **R8 The tackle box is its contents.** Real objects in the trays, one lit at a time, up/down to move, name and description on settle. `fish_knife` and `pliers` imported; reel, spools, lures, floats, hooks, bait tin and the broken-down rod modelled in code because no photoreal free version of any of them exists (§8.2)
 - [x] **R9 Arrows and pips for variants.** Yellow arrows when there is another version, grey when this is all you own — his mechanism. Plus a pip row so the ladder shows its empty rungs. No silent wraparound
 - [x] **R10 The primary button says what the moment is.** Cast over water, Select over a thing, dimmed over nothing, Reel/LET GO in a fight. Fixed position and size, ~200 ms cross-fade, hysteresis on the gunwale boundary
-- [ ] **R11 Every caught fish is visible in the livewell.** Over the gunwale, into the bucket, five or six real slots and a tally past that, cheaper material once placed. Feeds §7.5's "the livewell is a space you pack"
-- [ ] **R12 The generated fish earn close inspection.** A wet specular sheen, slow gill movement, more mesh detail on the ones at rest - because R11 puts them under the player's nose for minutes rather than seconds
+- [x] **R11 Every caught fish is visible in the livewell.** Over the gunwale, into the bucket, five or six real slots and a tally past that, cheaper material once placed. Feeds §7.5's "the livewell is a space you pack"
+- [x] **R12 The generated fish earn close inspection.** A wet specular sheen, slow gill movement, more mesh detail on the ones at rest - because R11 puts them under the player's nose for minutes rather than seconds
 
 ## Phase W — the water and the art pass. *"Update all of the models, textures, sounds, graphics"*
 

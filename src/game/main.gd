@@ -30,6 +30,10 @@ var _line: MeshInstance3D
 var _line_chain: Array[MeshInstance3D] = []
 var _float: Node3D
 var _fish: Node3D
+## THE DAY'S CATCH, lying in the bucket. See `_sync_livewell`.
+var _livewell_prop: Node3D = null
+var _livewell_fish: Array[Node3D] = []
+var _livewell_shown := ""
 var _ui: Control
 var _readout: Label
 var _stamp: Label
@@ -1227,13 +1231,38 @@ func _fish_girth(t: float) -> float:
 	return pow(x, 0.42) * pow(1.0 - x * 0.92, 0.75) * 1.72
 
 
+## THE FISH THE PLAYER IS HOLDING UP. One node, rebuilt when the species changes.
 func _rebuild_fish(id: String) -> void:
 	if _fish == null:
 		return
 	for c in _fish.get_children():
 		_fish.remove_child(c)
 		c.queue_free()
+	_fill_fish(_fish, id, FISH_RINGS, FISH_SIDES)
 
+
+## A FISH OF ITS OWN, for the livewell.
+##
+## The generator used to write straight into `_fish` - the single node the landing
+## shot uses - so there was exactly one fish in the game at a time and every one
+## ever caught vanished the moment the next was hooked. Making it a factory is
+## what lets R11 put the whole day's catch in the bucket.
+##
+## `rings` and `sides` are the detail dial. The held fish is a portrait at arm's
+## length and gets the full mesh; the ones lying in the bucket are seen at a
+## glance from above and get about a third of the triangles, which is the "cheaper
+## material once placed" the plan asks for.
+func _make_fish(id: String, rings: int, sides: int) -> Node3D:
+	var f := Node3D.new()
+	f.name = "Fish_" + id
+	_fill_fish(f, id, rings, sides)
+	return f
+
+
+## The generator itself. Everything about how a species looks comes from the
+## species table - see `Species.LOOKS` - so a new fish is a row and nothing here
+## has to learn about it.
+func _fill_fish(into: Node3D, id: String, rings: int, sides: int) -> void:
 	var look := Species.look_of(id)
 	var row := Species.by_id(id)
 	# **THE WRONG ONES ARE THE SAME GENERATOR WITH WORSE NUMBERS.**
@@ -1271,12 +1300,12 @@ func _rebuild_fish(id: String) -> void:
 	var cols := PackedColorArray()
 	var idx := PackedInt32Array()
 
-	for i in FISH_RINGS:
-		var t := float(i) / float(FISH_RINGS - 1)
+	for i in rings:
+		var t := float(i) / float(rings - 1)
 		var g := _fish_girth(t)
 		var z := length * (0.5 - t)
-		for j in FISH_SIDES:
-			var a := TAU * float(j) / float(FISH_SIDES)
+		for j in sides:
+			var a := TAU * float(j) / float(sides)
 			var cx := sin(a)
 			var cy := cos(a)
 			verts.append(Vector3(cx * half_w * g, cy * half_h * g, z))
@@ -1302,12 +1331,12 @@ func _rebuild_fish(id: String) -> void:
 					c = c.darkened(0.30 * (bar - 0.45) / 0.55)
 			cols.append(c)
 
-	for i in FISH_RINGS - 1:
-		for j in FISH_SIDES:
-			var a0 := i * FISH_SIDES + j
-			var a1 := i * FISH_SIDES + (j + 1) % FISH_SIDES
-			var b0 := (i + 1) * FISH_SIDES + j
-			var b1 := (i + 1) * FISH_SIDES + (j + 1) % FISH_SIDES
+	for i in rings - 1:
+		for j in sides:
+			var a0 := i * sides + j
+			var a1 := i * sides + (j + 1) % sides
+			var b0 := (i + 1) * sides + j
+			var b1 := (i + 1) * sides + (j + 1) % sides
 			idx.append_array([a0, b0, a1, a1, b0, b1])
 
 	var arr := []
@@ -1328,9 +1357,19 @@ func _rebuild_fish(id: String) -> void:
 	# the counter-shading is the entire reason a generated body reads as a fish.
 	bmat.roughness = 0.42
 	bmat.metallic = 0.0
+	# THE WET LOOK IS A CLEARCOAT, not metal. That is the whole trick: a thin
+	# glossy layer OVER the albedo leaves the counter-shading underneath exactly
+	# as it was and puts a highlight on top of it, which is physically what a film
+	# of water on a fish is. Raising metallic tints the specular by the albedo and
+	# washes the flank out, which is why the first attempt at "wet" had to be
+	# taken out again. R11 puts these under the player's nose for minutes, so it
+	# is worth the one extra parameter.
+	bmat.clearcoat_enabled = true
+	bmat.clearcoat = 0.65
+	bmat.clearcoat_roughness = 0.12
 	body.material_override = bmat
 	body.name = "Body"
-	_fish.add_child(body)
+	into.add_child(body)
 
 	# Fins, cut from the same two numbers as the body, so a long thin fish gets
 	# long thin fins without a second table.
@@ -1343,7 +1382,7 @@ func _rebuild_fish(id: String) -> void:
 	# The tail, forked. The fork says "fish" at a glance more than the body does.
 	var tail_z := -length * 0.52
 	var tail_h := half_h * 1.30
-	_fish.add_child(_fin([
+	into.add_child(_fin([
 		Vector3(0, 0, tail_z + 0.03),
 		Vector3(0, tail_h, tail_z - length * 0.19),
 		Vector3(0, tail_h * 0.26, tail_z - length * 0.10),
@@ -1351,7 +1390,7 @@ func _rebuild_fish(id: String) -> void:
 		Vector3(0, -tail_h, tail_z - length * 0.19),
 	], fmat, "Tail"))
 
-	_fish.add_child(_fin([
+	into.add_child(_fin([
 		Vector3(0, half_h * 0.88, length * 0.22),
 		Vector3(0, half_h * 1.34, length * 0.06),
 		Vector3(0, half_h * 1.22, -length * 0.12),
@@ -1360,7 +1399,7 @@ func _rebuild_fish(id: String) -> void:
 
 	# An anal fin as well as a dorsal. Two read as a built animal; one reads as
 	# a shark silhouette.
-	_fish.add_child(_fin([
+	into.add_child(_fin([
 		Vector3(0, -half_h * 0.86, -length * 0.14),
 		Vector3(0, -half_h * 1.22, -length * 0.24),
 		Vector3(0, -half_h * 0.82, -length * 0.30),
@@ -1378,7 +1417,7 @@ func _rebuild_fish(id: String) -> void:
 			], fmat, "SecondPair")
 			extra.rotation_degrees = Vector3(0, 0, side3 * 74.0)
 			extra.position = Vector3(side3 * half_w * 0.80, -half_h * 0.20, 0)
-			_fish.add_child(extra)
+			into.add_child(extra)
 
 	for side in [-1.0, 1.0]:
 		var pec := _fin([
@@ -1388,7 +1427,28 @@ func _rebuild_fish(id: String) -> void:
 		], fmat, "Pectoral")
 		pec.rotation_degrees = Vector3(0, 0, side * 70.0)
 		pec.position = Vector3(side * half_w * 0.85, -half_h * 0.15, 0)
-		_fish.add_child(pec)
+		into.add_child(pec)
+
+	# THE GILL PLATE, which is the part that moves.
+	#
+	# A flat plate over the gill, hinged at its front edge so `_breathe` can swing
+	# it a few degrees. It earns its place twice: it is the only moving part on a
+	# fish lying in the livewell, and it puts a real edge between the head and the
+	# body, which the smooth swept hull never had - the generated fish used to run
+	# from nose to tail in one unbroken curve, and no fish does.
+	for gside in [-1.0, 1.0]:
+		var gill := Node3D.new()
+		gill.name = "Gill"
+		gill.position = Vector3(gside * half_w * 0.72, half_h * 0.05, length * 0.20)
+		var plate := _fin([
+			Vector3(0, half_h * 0.62, 0.0),
+			Vector3(0, half_h * 0.30, -length * 0.11),
+			Vector3(0, -half_h * 0.52, -length * 0.09),
+			Vector3(0, -half_h * 0.60, 0.0),
+		], _mat(back.lerp(belly, 0.35).lightened(0.06), 0.34), "Plate")
+		plate.rotation_degrees = Vector3(0, 0, 90.0)
+		gill.add_child(plate)
+		into.add_child(gill)
 
 	# The eye, and it is the first place a wrong fish gives itself away - the
 	# Blindfish has an iris the colour of its own skin, which reads before the
@@ -1412,7 +1472,7 @@ func _rebuild_fish(id: String) -> void:
 		eye.material_override = emat
 		eye.position = Vector3(side2 * half_w * 0.62, half_h * 0.34, length * 0.395)
 		eye.name = "Eye"
-		_fish.add_child(eye)
+		into.add_child(eye)
 
 
 ## A flat fin from a fan of points in the YZ plane, double sided.
@@ -2443,6 +2503,7 @@ func _sync() -> void:
 
 	_sync_wake(out)
 	_sync_fish()
+	_sync_livewell()
 	_write_readout()
 	_sync_bars()
 	_sync_primary_button()
@@ -2919,6 +2980,114 @@ func _sync_fish() -> void:
 	if _fish_shown != sim.fish_id:
 		_fish_shown = sim.fish_id
 		_rebuild_fish(sim.fish_id)
+
+## EVERY FISH YOU HAVE CAUGHT TODAY IS IN THE BUCKET.
+##
+## Gideon: "can you make it so we see the fish when we catch it and put it in the
+## live well, so that we can see every fish we catch?"
+##
+## `econ.held` is already the list - id, weight and whether it was a wrong one -
+## and it is already in the save, so this reads state rather than keeping its own.
+## That matters more than it looks: the livewell survives a reload because it was
+## never a separate fact, and the number in the prompt over the bucket and the
+## fish lying in it cannot disagree.
+##
+## Rebuilt only when the contents CHANGE, keyed on a signature of the list. A
+## rebuild allocates six bodies of a few hundred triangles each, which is nothing
+## once and unaffordable every frame.
+const LIVEWELL_SLOTS := 6     ## real fish. Past this the count in the prompt carries it
+const LIVEWELL_RINGS := 12    ## against FISH_RINGS 22 for the one being held up
+const LIVEWELL_SIDES := 8
+
+
+func _sync_livewell() -> void:
+	if _livewell_prop == null:
+		return
+	var held: Array = sim.econ.held
+	var sig := ""
+	for i in mini(held.size(), LIVEWELL_SLOTS):
+		sig += "%s:%.3f|" % [held[i]["id"], float(held[i]["weight"])]
+	if sig == _livewell_shown:
+		_place_livewell()
+		return
+	_livewell_shown = sig
+
+	for f in _livewell_fish:
+		f.queue_free()
+	_livewell_fish.clear()
+
+	for i in mini(held.size(), LIVEWELL_SLOTS):
+		var row: Dictionary = Species.by_id(String(held[i]["id"]))
+		if row.is_empty():
+			continue
+		var f := _make_fish(String(held[i]["id"]), LIVEWELL_RINGS, LIVEWELL_SIDES)
+		_boat.add_child(f)
+		_livewell_fish.append(f)
+	_place_livewell()
+
+
+## Where they lie. Measured off the bucket rather than typed as offsets, so moving
+## the prop moves the catch with it and a different bucket model still works.
+func _place_livewell() -> void:
+	if _livewell_prop == null or _livewell_fish.is_empty():
+		return
+	var box := _local_bounds(_livewell_prop)
+	var sc: float = _livewell_prop.scale.x
+	# MEASURED AGAINST THE BUCKET'S WIDTH, NOT ITS HEIGHT. The AABB is 0.29 wide
+	# and 0.44 tall because it includes the wire HANDLE arching over the top, so a
+	# fraction of the height put the catch up level with the rim and half of it
+	# hanging over the side. The width is the honest measure of the opening, and
+	# this asset's body is about as tall as it is wide.
+	var wide: float = minf(box.size.x, box.size.z) * sc
+	var base: float = _livewell_prop.position.y + box.position.y * sc
+	var mid := Vector3(_livewell_prop.position.x, base + wide * 0.26, _livewell_prop.position.z)
+	var r: float = wide * 0.15
+
+	var held: Array = sim.econ.held
+	for i in _livewell_fish.size():
+		var f := _livewell_fish[i]
+		var w := float(held[i]["weight"]) if i < held.size() else 0.5
+		# Same cube root the landing shot uses, so a fish is the size in the
+		# bucket that it was in your hands. Smaller overall - these are lying in
+		# a bucket, not being held up to the light.
+		# Sized to the BUCKET. A fish is 1.35 long at scale 1, so this is 0.08 m
+		# to 0.13 m against an opening of about 0.23 m - a small one lies across
+		# the bottom with room to spare and a big one only just fits, which is
+		# what the livewell's weight limit is supposed to feel like.
+		var scale := 0.058 + 0.040 * pow(clampf(w / 3.0, 0.05, 1.0), 1.0 / 3.0)
+		f.scale = Vector3.ONE * scale
+		# Stacked in a rough fan, each one turned a little further and lying a
+		# little higher on the one below. Deterministic from the INDEX, never
+		# random: two screenshots of the same livewell have to match, and a fish
+		# that jitters when the list is rebuilt reads as a bug.
+		var a := float(i) * 2.399963     # the golden angle, so they do not line up
+		var lift := float(i) * 0.006
+		f.position = mid + Vector3(cos(a) * r, lift, sin(a) * r)
+		# On its side, nose out at its own angle. `PI * 0.5` about Z lays the
+		# flank up, which is the view from a seat looking down into a bucket.
+		f.rotation = Vector3(0.0, a + 0.6, PI * 0.5 + sin(a * 3.0) * 0.22)
+		_breathe(f, float(i) * 0.7)
+
+
+## THE GILLS STILL WORK.
+##
+## Gideon asked for fish we can see rather than a number, and a fish that is
+## perfectly still in a bucket is a prop. One slow cycle on the operculum is the
+## cheapest thing that says otherwise, and it is the difference between a catch
+## and an ornament.
+##
+## Driven off the sim's own clock rather than a node tween, so two screenshots a
+## second apart are comparable and the headless harness sees the same motion the
+## phone does.
+func _breathe(f: Node3D, phase: float) -> void:
+	var cycle := sin(sim.time * 1.7 + phase)
+	for part in f.get_children():
+		if part is Node3D and String(part.name).begins_with("Gill"):
+			var side: float = 1.0 if part.position.x > 0.0 else -1.0
+			# Opens a few degrees and shuts. Small, because a gill plate that
+			# swings reads as a broken model rather than as breathing.
+			(part as Node3D).rotation_degrees.y = side * (5.0 + cycle * 5.0)
+
 
 
 ## What the player is told, in the words the rules use.
@@ -4757,7 +4926,7 @@ func _build_props() -> void:
 	# frame while the lantern hid behind the rod. Spread along the hull, none of
 	# them across the water the player is casting into, and none of them large
 	# enough to be the subject.
-	_place_prop("livewell", Vector3(-0.34, _hull_floor_y(0.98), 0.98), 0.80, 18.0)
+	_livewell_prop = _place_prop("livewell", Vector3(-0.34, _hull_floor_y(0.98), 0.98), 0.80, 18.0)
 	_place_prop("baitbox", Vector3(-0.22, _hull_floor_y(1.90), 1.90), 0.50, -12.0)
 	# The lantern goes on the STEM, where it lights the water ahead rather than
 	# the boards - and where it is a silhouette against the sky at night.

@@ -43,7 +43,8 @@ var _until := ""
 var _tag := ""
 
 ## Second-argument values that name a ROOM rather than a fishing state.
-const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", "book", "box"]
+const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", "book", "box",
+	"well"]
 
 
 func _initialize() -> void:
@@ -129,6 +130,30 @@ func _initialize() -> void:
 		_main.advance(step, step)
 	if _until != "" and _main.sim.state != _until and not (_until in ROOMS):
 		printerr("never reached state '%s' in %.1fs" % [_until, _seconds])
+
+	if _until == "well":
+		# LOOK INTO THE BUCKET. The livewell is down and to the left of a seated
+		# angler, so a forward-facing screenshot never shows the catch at all -
+		# which is exactly how "every fish you catch is visible" could be built,
+		# photographed, and still be wrong.
+		#
+		# Aimed by geometry rather than by a typed yaw: the head turns to where
+		# the prop actually is, so moving the bucket moves the shot with it.
+		var well = _main._livewell_prop
+		if well == null:
+			printerr("there is no livewell prop to photograph")
+		else:
+			var eye: Vector3 = Sequence.SEAT
+			var to: Vector3 = well.position - eye
+			_main._look_yaw_want = clampf(atan2(to.x, to.z),
+				-_main.LOOK_YAW_LIMIT, _main.LOOK_YAW_LIMIT)
+			_main._look_pitch_want = clampf(atan2(to.y, Vector2(to.x, to.z).length()),
+				-_main.LOOK_PITCH_DOWN, _main.LOOK_PITCH_UP)
+			# Let the head actually get there - the look is eased, so setting the
+			# want and photographing the same frame photographs the old view.
+			for i in 90:
+				_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		print("livewell holds %d fish" % _main.sim.econ.held.size())
 
 	# A ROOM instead of a state. The shed, the map and the log are built in code
 	# from live data, so the only way to find out that a price runs off the edge

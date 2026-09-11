@@ -54,6 +54,7 @@ func _initialize() -> void:
 	_check_the_float_is_the_nibble_minigame(main)
 	_check_the_cast_is_a_swing_not_a_bend(main)
 	_check_the_fight_is_visible_and_felt(main)
+	_check_the_catch_is_in_the_livewell(main)
 	_check_the_lure_is_where_the_line_ends(main)
 	_check_every_room_opens_and_closes(main)
 	_check_the_shed_actually_spends_money(main)
@@ -450,6 +451,88 @@ func _check_the_fight_is_visible_and_felt(main) -> void:
 	_t.gt(float(fired), 1.0, "the heavy buzz fires once and never repeats, so it is an event rather than a state")
 	_t.lt(float(fired), seconds / main.BUZZ_OVER_EVERY + 2.0,
 		"the heavy buzz fired %d times in a second - that is a continuous hum, not a pulse" % fired)
+
+## EVERY FISH YOU CATCH IS IN THE BUCKET, AND IN IT RATHER THAN ON IT.
+##
+## Gideon: "can you make it so we see the fish when we catch it and put it in the
+## live well, so that we can see every fish we catch?"
+##
+## The containment half of this is not pedantry. The first build placed the catch
+## at a fraction of the bucket's HEIGHT, and the bucket's bounding box includes
+## the wire handle arching over the top - so the fish sat level with the rim with
+## half of each one hanging over the side, and every one of them was visible,
+## present, correctly counted and obviously wrong.
+func _check_the_catch_is_in_the_livewell(main) -> void:
+	_t.begin("smoke > the catch is visible in the livewell")
+	main.freeze(2)
+	_t.ok(main._livewell_prop != null, "there is no livewell to put anything in")
+	if main._livewell_prop == null:
+		return
+
+	# Land some fish through the real seam rather than writing econ.held by hand,
+	# so this fails if LANDING stops adding to the livewell as well as if the
+	# drawing does.
+	var mem := {}
+	var step := 1.0 / 60.0
+	for i in int(round(240.0 / step)):
+		if main.sim.econ.held.size() >= 3:
+			break
+		Policies.act(Policies.HUMAN, main.sim, step, mem)
+		main.advance(step, step)
+	var held: int = main.sim.econ.held.size()
+	_t.gt(float(held), 0.0, "nothing was landed, so the livewell cannot be checked")
+	if held == 0:
+		return
+
+	main.advance(0.2)
+	var shown: int = main._livewell_fish.size()
+	_t.eq(shown, mini(held, main.LIVEWELL_SLOTS),
+		"the livewell holds %d fish and shows %d of them" % [held, shown])
+
+	# INSIDE THE BUCKET. Measured against the bucket's own bounds, in boat space,
+	# with the fish's own size accounted for - a nose poking out is still out.
+	var box: AABB = main._local_bounds(main._livewell_prop)
+	var sc: float = main._livewell_prop.scale.x
+	var centre: Vector3 = main._livewell_prop.position
+	var wide: float = minf(box.size.x, box.size.z) * sc
+	var base: float = centre.y + box.position.y * sc
+	for f in main._livewell_fish:
+		var half: float = 1.35 * f.scale.x * 0.5
+		var flat := Vector2(f.position.x - centre.x, f.position.z - centre.z).length()
+		_t.lt(flat + half, wide * 0.5,
+			"a fish in the livewell reaches %.3f m from the middle of a bucket %.3f m across - it is hanging over the side" % [
+				flat + half, wide])
+		_t.gt(f.position.y, base - 0.001, "a fish has fallen through the bottom of the bucket")
+		# DOWN IN IT, which for anything bucket-shaped means the lower half of its
+		# own width above the base. The first version of this bound allowed nine
+		# tenths of the width and duly PASSED when the height bug was put back -
+		# a containment check loose enough to admit the bug it was written for is
+		# not a containment check.
+		_t.lt(f.position.y, base + wide * 0.45,
+			"a fish sits %.3f m above the base of a bucket %.3f m across - it is up on the rim rather than down in it" % [
+				f.position.y - base, wide])
+
+	# AND THEY ARE STILL BREATHING. A fish that never moves is an ornament, and
+	# the gill plate is the only moving part on one lying in a bucket.
+	var gill := _first_gill(main._livewell_fish[0])
+	_t.ok(gill != null, "the fish in the livewell have no gills to move")
+	if gill != null:
+		var was: float = gill.rotation_degrees.y
+		var moved := false
+		for i in 40:
+			main.advance(1.0 / 30.0)
+			if absf(gill.rotation_degrees.y - was) > 0.5:
+				moved = true
+				break
+		_t.ok(moved, "the gills never move, so the catch is a still life")
+
+
+func _first_gill(f: Node3D) -> Node3D:
+	for c in f.get_children():
+		if c is Node3D and String(c.name).begins_with("Gill"):
+			return c as Node3D
+	return null
+
 
 
 
