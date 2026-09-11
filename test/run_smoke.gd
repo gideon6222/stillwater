@@ -56,6 +56,7 @@ func _initialize() -> void:
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
+	_check_the_shed_is_a_room(main)
 	_check_the_lure_is_where_the_line_ends(main)
 	_check_every_room_opens_and_closes(main)
 	_check_the_shed_actually_spends_money(main)
@@ -607,6 +608,92 @@ func _check_the_pages_really_turn(main) -> void:
 	main.advance(1.5)
 	while main._book.is_turning():
 		main.advance(1.0 / 60.0)
+
+## THE SHED IS A ROOM YOU ARE ROWED TO, AND YOU CAN BUY THINGS IN IT.
+##
+## Gideon: "When the shop is available, there should be a shop button but the
+## camera pans over to a separate room that is a full 3d room of some kind, like a
+## shed or old bait shop where you can buy items."
+##
+## Four claims, and the last two are the ones that would rot quietly: you GET
+## there, the room is actually around you, the board can be walked and bought
+## from, and the X brings you back to the boat rather than leaving you standing
+## in a shed with a fishing rod on screen.
+func _check_the_shed_is_a_room(main) -> void:
+	_t.begin("smoke > the shed is a room you are rowed to")
+	main.freeze(2)
+	main.sim.reel_in()
+	main.sim.state = Sim.IDLE
+	main.sim.econ.money = 900
+	main.advance(0.2)
+	_t.ok(main._shed != null, "there is no shed")
+	if main._shed == null:
+		return
+	_t.ok(not main._shed.visible, "the shed is being drawn while the player is on the water")
+
+	# THE TRIP. It is a sequence, so it takes real seconds and the player is not
+	# in the shed until it finishes.
+	main._enter_shed()
+	_t.ok(main._in_sequence, "asking for the shed did not start the trip")
+	_t.ok(not main._in_shed, "the player is in the shed before being taken there")
+	var waited := 0.0
+	while waited < 12.0 and not main._in_shed:
+		main.advance(1.0 / 60.0)
+		waited += 1.0 / 60.0
+	_t.ok(main._in_shed, "the trip to the shed never arrived")
+	if not main._in_shed:
+		return
+	_t.gt(waited, 1.5, "the trip took %.1fs, which is a cut rather than a journey" % waited)
+	_t.lt(waited, 8.0, "the trip took %.1fs, which is a wait" % waited)
+	_t.ok(main._shed.visible, "the shed is not drawn once you are standing in it")
+
+	# THE CAMERA IS IN THE ROOM. Measured against the shed's own walls, so moving
+	# the room moves the check with it.
+	var eye: Vector3 = main._cam.transform.origin
+	var inside: Vector3 = eye - main._shed.position
+	_t.lt(absf(inside.x), main.SHED_W * 0.5, "the player is standing outside the shed's walls")
+	_t.lt(absf(inside.z), main.SHED_D * 0.5, "the player is standing outside the shed's walls")
+	_t.gt(inside.y, 0.5, "the player is standing in the floor")
+	_t.lt(inside.y, main.SHED_H, "the player is standing through the roof")
+
+	# THE BOARD HAS PRICES ON IT, and they are the prices the game charges.
+	var rows: Array = main._shed_rows()
+	_t.gt(float(rows.size()), 3.0, "the chalkboard has almost nothing on it")
+	_t.eq(str(rows[0]["kind"]), "sell", "the catch is not the first thing on the board")
+
+	# WALKING IT. Up at the top and down at the bottom are dead, which is what the
+	# greyed buttons say.
+	main._shed_pick = 0
+	main._sync_room_bar()
+	_t.ok(main._room_up.disabled, "the up button is live at the top of the board")
+	_t.ok(not main._room_down.disabled, "the down button is dead with rows below")
+	main._shed_move(1)
+	_t.eq(main._shed_pick, 1, "the board does not scroll")
+
+	# BUYING. Through the same button a thumb presses.
+	var line_before: int = main.sim.econ.line
+	var money_before: int = main.sim.econ.money
+	for i in rows.size():
+		if str(rows[i]["kind"]) == "line":
+			main._shed_pick = i
+			break
+	_t.eq(main._action_for_state(), "Buy", "the button does not offer to buy anything")
+	main._cast_pressed()
+	_t.eq(main.sim.econ.line, line_before + 1, "buying the next line did nothing")
+	_t.lt(main.sim.econ.money, money_before, "the line was bought and cost nothing")
+
+	# AND THE WAY OUT PUTS YOU BACK IN THE BOAT.
+	main._room_close_pressed()
+	waited = 0.0
+	while waited < 12.0 and (main._in_sequence or main._in_shed):
+		main.advance(1.0 / 60.0)
+		waited += 1.0 / 60.0
+	_t.ok(not main._in_shed, "the X never left the shed")
+	_t.ok(not main._shed.visible, "the shed is still being drawn after leaving it")
+	var back: Vector3 = main._cam.transform.origin
+	_t.lt(back.distance_to(Sequence.SEAT), 1.2,
+		"leaving the shed did not put the player back on the seat")
+
 
 
 const TURN_SAMPLE := 0.12

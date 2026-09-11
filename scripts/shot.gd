@@ -50,7 +50,7 @@ const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", 
 ## which was quietly resetting a page turn between setting it up and
 ## photographing it. Three separate real bugs were chased before the tool turned
 ## out to be one of them.
-const MID_ACTION := ["turn"]
+const MID_ACTION := ["turn", "inshed"]
 
 
 func _initialize() -> void:
@@ -100,6 +100,21 @@ func _initialize() -> void:
 			_main._turn_page(1)
 			for i in 30:
 				_main.advance(1.0 / 60.0, 1.0 / 60.0)
+	elif _until == "inshed":
+		# STANDING AT THE COUNTER. The trip there is a sequence, so this plays it
+		# out rather than teleporting - which also means the shot proves the
+		# sequence arrives where it says it does.
+		if _main._title != null:
+			_main._title.skip()
+		_main.sim.econ.money = 900
+		_main._enter_shed()
+		var st := 0.0
+		while st < 12.0 and not _main._in_shed:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+			st += 1.0 / 60.0
+		for i in 30:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		print("in shed: %s  after %.1fs" % [_main._in_shed, st])
 	elif _until == "turn":
 		# MID-TURN. A page turn lasts a third of a second, so the only way to
 		# photograph the leaf is to stop the clock inside it - and the leaf is the

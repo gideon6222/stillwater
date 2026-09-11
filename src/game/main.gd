@@ -31,6 +31,11 @@ var _line_chain: Array[MeshInstance3D] = []
 var _float: Node3D
 var _fish: Node3D
 ## THE DAY'S CATCH, lying in the bucket. See `_sync_livewell`.
+var _shed: Node3D = null
+var _shed_list: VBoxContainer = null
+var _shed_pick := 0
+var _shed_board: Room3D = null
+var _in_shed := false
 var _livewell_prop: Node3D = null
 var _livewell_fish: Array[Node3D] = []
 var _livewell_shown := ""
@@ -343,6 +348,7 @@ func _build_world() -> void:
 
 	_build_water()
 	_build_boat()
+	_build_shed()
 
 	# The line. Ten thin boxes along a sagging curve, rebuilt each frame - see
 	# `_draw_line_between`, where the shape is a readout of the tension. `_line`
@@ -1735,6 +1741,10 @@ func _build_hud() -> void:
 			# button is the one anybody finds, so the object might as well not
 			# have existed.
 			b.pressed.connect(func() -> void: _open_book())
+		elif screen == Menus.SHED:
+			# THE REAL SHED, for the same reason. This button used to open a list
+			# over the top of the lake; it rows you there now.
+			b.pressed.connect(func() -> void: _enter_shed())
 		else:
 			b.pressed.connect(func() -> void: _open(screen))
 		_dock.add_child(b)
@@ -1843,7 +1853,7 @@ func _sync_bars() -> void:
 
 	if _action != null:
 		var label := _action_for_state()
-		_action.visible = label != "" and not in_room
+		_action.visible = label != "" and (not in_room or _in_shed)
 		# ...and it goes cold when the fish is about to pull. Colour, caption and
 		# the wake are three readings of one state: no single channel has to be
 		# the one the player happens to be watching.
@@ -2171,6 +2181,9 @@ func _on_cast_input(event: InputEvent) -> void:
 ## forward when you release it." Which is also how a cast actually works, and it
 ## puts the charge under a thumb that is not covering the water.
 func _cast_pressed() -> void:
+	if _in_shed:
+		_shed_take()
+		return
 	match sim.state:
 		Sim.IDLE, Sim.HOLDING, Sim.LOST:
 			# Whatever the button SAYS is what it does - one decision, made once,
@@ -2487,6 +2500,24 @@ func _sync() -> void:
 		# HUD, which stands down on exactly that condition, was never told to.
 		# The title showed a purse and a Cast button over the gate.
 		_cam.transform = Transform3D(Basis.IDENTITY, _seq_at).looking_at(_seq_look, Vector3.UP)
+	elif _in_shed:
+		# STANDING IN THE SHED. The rails end here and the camera stays put: the
+		# sequence that brought you over finished, and without this branch the
+		# next frame would have snapped the view back to the boat seat with the
+		# shop still open, which is the "menu over the lake" the room exists to
+		# replace.
+		#
+		# Looking is still allowed - the stick turns your head at the counter the
+		# same way it does in the boat, because a room you cannot look around is
+		# a photograph.
+		var look_at := Sequence.SHED_LOOK
+		var away := (look_at - Sequence.SHED_STAND).length()
+		var yaw := Basis(Vector3.UP, _look_yaw)
+		var pitch := Basis(Vector3.RIGHT, _look_pitch)
+		var facing := (look_at - Sequence.SHED_STAND).normalized()
+		var base := Basis.looking_at(facing, Vector3.UP)
+		_cam.transform = Transform3D(Basis.IDENTITY, Sequence.SHED_STAND).looking_at(
+			Sequence.SHED_STAND + (base * yaw * pitch * Vector3(0, 0, -1)) * away, Vector3.UP)
 	else:
 		_sync_play_camera(out)
 
@@ -3089,6 +3120,399 @@ func _breathe(f: Node3D, phase: float) -> void:
 			(part as Node3D).rotation_degrees.y = side * (5.0 + cycle * 5.0)
 
 
+# --- the shed ---------------------------------------------------------------
+
+## THE SHED IS A PLACE, NOT A SCREEN.
+##
+## Gideon: "When the shop is available, there should be a shop button but the
+## camera pans over to a separate room that is a full 3d room of some kind, like a
+## shed or old bait shop where you can buy items."
+##
+## It was a list. A long one - the livewell, three gear ladders, the boat, the
+## bait - and it opened over the top of the lake like a phone menu, which is the
+## one thing this game has been steadily removing everywhere else.
+##
+## So the room is real and you are rowed to it. It sits on the bank west of the
+## gate, close enough that the trip is four seconds and far enough that it is
+## plainly somewhere else. The whole of it is premade (PLAN.md 8.2): shelving, a
+## counter, a till, a chalkboard, a stove, a rack, crates and a barrel.
+##
+## The SHOP ITSELF is on the chalkboard, as a Room3D surface - the same pattern as
+## the logbook's page and the tackle box's tray. That is deliberate: a shed whose
+## prices are a floating panel would have moved the menu rather than replaced it,
+## and the chalkboard is where a bait shop writes its prices anyway.
+const SHED_AT := Vector3(-13.0, 0.0, -14.2)
+const SHED_W := 5.0            ## metres across
+const SHED_D := 6.2            ## metres deep
+const SHED_H := 2.9            ## to the eaves
+## Where the player stands, in the shed's own space: in front of the counter,
+## facing the chalkboard behind it.
+const SHED_STAND := Vector3(0.0, 1.62, -1.35)
+const SHED_LOOK := Vector3(0.0, 1.30, 1.60)
+
+## WHAT IS FOR SALE, as rows, in the order a keeper would read them.
+##
+## The catch first, because weighing in is what pays for everything under it, and
+## then the ladders. One list rather than the five headed sections the screen had:
+## a chalkboard is read top to bottom and the up/down buttons walk it.
+##
+## Built fresh each time rather than cached. The prices move as the ladders climb
+## and the catch changes every fish, so a cached board is a board that lies.
+func _shed_rows() -> Array:
+	var econ := sim.econ
+	var rows: Array = []
+
+	var worth := 0
+	for f in econ.held:
+		worth += Econ.value_of(f["id"], f["weight"], f["wrong"])
+	rows.append({
+		"kind": "sell", "what": "Weigh in the catch",
+		"note": "%d fish, %.1f kg" % [econ.held.size(), econ.load_kg()],
+		"price": -worth, "can": not econ.held.is_empty()})
+
+	for kind in ["line", "rod", "reel"]:
+		var table: Array = Gear.LINE if kind == "line" else (Gear.ROD if kind == "rod" else Gear.REEL)
+		var at: int = econ.line if kind == "line" else (econ.rod if kind == "rod" else econ.reel)
+		if at + 1 < table.size():
+			var nxt: Dictionary = table[at + 1]
+			var price := int(nxt["price"])
+			var note := ""
+			match kind:
+				"line": note = "reaches %s" % SimUtil.fmt_m(float(nxt["depth"]))
+				"rod": note = "holds %.0f kg" % float(nxt["strength"])
+				"reel": note = "hauls %.0f%% faster" % ((float(nxt["haul"]) - 1.0) * 100.0)
+			rows.append({"kind": kind, "what": str(nxt["name"]), "note": note,
+				"price": price, "can": econ.can_afford(price)})
+
+	var lw: int = econ.livewell + 1
+	if lw < Econ.CAPACITY.size():
+		var price2: int = Econ.CAPACITY_PRICE[lw]
+		rows.append({"kind": "livewell", "what": "A bigger livewell",
+			"note": "%.0f kg instead of %.0f" % [Econ.CAPACITY[lw], econ.capacity()],
+			"price": price2, "can": econ.can_afford(price2)})
+
+	if not econ.has_motor:
+		rows.append({"kind": "motor", "what": "An outboard motor",
+			"note": "takes you off this bay", "price": Gear.MOTOR_PRICE,
+			"can": econ.can_afford(Gear.MOTOR_PRICE)})
+	if not econ.has_sounder:
+		rows.append({"kind": "sounder", "what": "A depth sounder",
+			"note": "draws what is under the hull", "price": Gear.SOUNDER_PRICE,
+			"can": econ.can_afford(Gear.SOUNDER_PRICE)})
+	if not econ.has_lamp:
+		rows.append({"kind": "lamp", "what": "A deck lamp",
+			"note": "for fishing after dark", "price": Gear.LAMP_PRICE,
+			"can": econ.can_afford(Gear.LAMP_PRICE)})
+
+	for b in Gear.BAIT:
+		var id: String = b["id"]
+		var price3 := int(b["price"])
+		# Offerings are FOUND, never sold. The shelf does not carry them and the
+		# board does not list them.
+		if price3 < 0:
+			continue
+		if bool(b["reusable"]) and id in econ.owned_lures:
+			continue
+		rows.append({"kind": "bait:" + id, "what": str(b["name"]),
+			"note": "favours %s" % _favours_short(b), "price": price3,
+			"can": econ.can_afford(price3)})
+	return rows
+
+
+func _favours_short(b: Dictionary) -> String:
+	var f = b.get("favours", [])
+	if f is Array and not (f as Array).is_empty():
+		return str((f as Array)[0])
+	return "anything that bites"
+
+
+## DRAW THE BOARD. Chalk on slate: no panels, no borders, one column.
+func _refresh_shed_board() -> void:
+	if _shed_list == null:
+		return
+	for c in _shed_list.get_children():
+		_shed_list.remove_child(c)
+		c.queue_free()
+	var rows := _shed_rows()
+	_shed_pick = clampi(_shed_pick, 0, maxi(0, rows.size() - 1))
+
+	var head := Label.new()
+	head.text = "THE SHED          %d coin" % sim.econ.money
+	head.add_theme_font_size_override("font_size", 34)
+	head.add_theme_color_override("font_color", Color(0.90, 0.88, 0.80))
+	_shed_list.add_child(head)
+
+	var rule := ColorRect.new()
+	rule.color = Color(0.55, 0.55, 0.50, 0.55)
+	rule.custom_minimum_size = Vector2(0, 2)
+	_shed_list.add_child(rule)
+
+	for i in rows.size():
+		var row: Dictionary = rows[i]
+		var line := Label.new()
+		var price := int(row["price"])
+		var money := ("+%d" % -price) if price < 0 else ("%d" % price)
+		line.text = "%s  %s   %s   %s" % [
+			">" if i == _shed_pick else " ", str(row["what"]), str(row["note"]), money]
+		line.add_theme_font_size_override("font_size", 26)
+		# CHALK, GREY AND DIM. Three states and no icons: what you are on, what
+		# you could buy, and what you cannot afford yet. The last one stays on the
+		# board on purpose - a price you cannot pay is the thing that makes the
+		# next hour of fishing mean something.
+		var col := Color(0.80, 0.78, 0.70)
+		if not bool(row["can"]):
+			col = Color(0.46, 0.46, 0.44)
+		if i == _shed_pick:
+			col = Color(0.98, 0.93, 0.62) if bool(row["can"]) else Color(0.70, 0.62, 0.48)
+		line.add_theme_color_override("font_color", col)
+		_shed_list.add_child(line)
+
+
+## Up and down the board.
+func _shed_move(by: int) -> void:
+	var rows := _shed_rows()
+	if rows.is_empty():
+		return
+	_shed_pick = clampi(_shed_pick + by, 0, rows.size() - 1)
+	_refresh_shed_board()
+	if _audio != null:
+		_audio.play("page", -9.0)
+
+
+## BUY IT, or weigh in. One button, and what it does is whatever the line under
+## the mark says - which is the same rule the primary button in the boat follows.
+func _shed_take() -> void:
+	var rows := _shed_rows()
+	if _shed_pick < 0 or _shed_pick >= rows.size():
+		return
+	var row: Dictionary = rows[_shed_pick]
+	if not bool(row["can"]):
+		return
+	var kind := str(row["kind"])
+	var did := false
+	if kind == "sell":
+		did = sim.sell() > 0
+	elif kind in ["line", "rod", "reel", "livewell"]:
+		did = sim.econ.buy_next(kind)
+	elif kind in ["motor", "sounder", "lamp"]:
+		did = sim.econ.buy_boat(kind)
+	elif kind.begins_with("bait:"):
+		did = sim.econ.buy_bait(kind.substr(5))
+	if did:
+		if _audio != null:
+			_audio.play("land", -6.0)
+		_save_due = 0.6
+	_refresh_shed_board()
+	_sync_bars()
+
+
+
+func _build_shed() -> void:
+	_shed = Node3D.new()
+	_shed.name = "Shed"
+	_shed.position = SHED_AT
+	add_child(_shed)
+
+	# BOARDS, and the same three maps the hull uses. The plank material is the
+	# room: five surfaces of it, so anything cheaper than a real texture would be
+	# the first thing the eye landed on.
+	var boards := StandardMaterial3D.new()
+	boards.albedo_texture = load("res://assets/tex/Planks039/Planks039_1K-JPG_Color.jpg")
+	boards.normal_enabled = true
+	boards.normal_texture = load("res://assets/tex/Planks039/Planks039_1K-JPG_NormalGL.jpg")
+	boards.roughness_texture = load("res://assets/tex/Planks039/Planks039_1K-JPG_Roughness.jpg")
+	# TILED TO THE SIZE OF A BOARD. At 2 the texture stretched one plank across
+	# two and a half metres of wall and the shed read as a photograph of wood
+	# rather than a wall built out of it. At 9 a plank is about 55 cm, which is
+	# what the boat is planked at.
+	boards.uv1_scale = Vector3(9.0, 9.0, 9.0)
+	boards.albedo_color = Color(0.74, 0.70, 0.64)
+
+	var floor_mat := StandardMaterial3D.new()
+	floor_mat.albedo_texture = boards.albedo_texture
+	floor_mat.normal_enabled = true
+	floor_mat.normal_texture = boards.normal_texture
+	floor_mat.roughness_texture = boards.roughness_texture
+	floor_mat.uv1_scale = Vector3(7.0, 7.0, 7.0)
+	floor_mat.albedo_color = Color(0.52, 0.47, 0.42)
+
+	_shed.add_child(_slab(Vector3(SHED_W, 0.12, SHED_D), Vector3(0, -0.06, 0), floor_mat, "Floor"))
+	_shed.add_child(_slab(Vector3(SHED_W, 0.12, SHED_D), Vector3(0, SHED_H, 0), boards, "Ceiling"))
+	# Four walls. The front one has the doorway in it, so it is two posts and a
+	# lintel rather than a slab - you came in through it and it should read that
+	# way when you turn round.
+	_shed.add_child(_slab(Vector3(SHED_W, SHED_H, 0.12),
+		Vector3(0, SHED_H * 0.5, SHED_D * 0.5), boards, "WallBack"))
+	_shed.add_child(_slab(Vector3(0.12, SHED_H, SHED_D),
+		Vector3(-SHED_W * 0.5, SHED_H * 0.5, 0), boards, "WallLeft"))
+	_shed.add_child(_slab(Vector3(0.12, SHED_H, SHED_D),
+		Vector3(SHED_W * 0.5, SHED_H * 0.5, 0), boards, "WallRight"))
+	var door_w := 1.25
+	for side in [-1.0, 1.0]:
+		var post_w := (SHED_W - door_w) * 0.5
+		_shed.add_child(_slab(Vector3(post_w, SHED_H, 0.12),
+			Vector3(side * (door_w + post_w) * 0.5, SHED_H * 0.5, -SHED_D * 0.5),
+			boards, "WallFront"))
+	_shed.add_child(_slab(Vector3(door_w, SHED_H - 2.05, 0.12),
+		Vector3(0, SHED_H - (SHED_H - 2.05) * 0.5, -SHED_D * 0.5), boards, "Lintel"))
+
+	# THE THINGS IN IT. Placed against the walls rather than scattered: a shop is
+	# a counter you stand at with everything behind it, and a room with its
+	# furniture in the middle reads as a storeroom.
+	_shed_prop("counter", Vector3(0.0, 0.0, 0.15), 1.15, 0.0)
+	_shed_prop("till", Vector3(0.78, 0.78, 0.12), 0.85, -18.0)
+	_shed_prop("shelf", Vector3(-1.72, 0.0, 2.55), 1.0, 0.0)
+	_shed_prop("rack", Vector3(1.85, 0.0, 2.35), 1.0, -90.0)
+	_shed_prop("stove", Vector3(-1.90, 0.0, -1.30), 1.0, 32.0)
+	_shed_prop("barrel", Vector3(1.82, 0.0, -0.30), 1.0, 0.0)
+	_shed_prop("crate2", Vector3(-1.55, 0.0, 0.55), 1.0, 14.0)
+	_shed_prop("baitbox", Vector3(1.40, 0.0, 1.35), 1.0, -22.0)
+	var lamp := _shed_prop("shedlamp", Vector3(-0.72, 0.80, 0.70), 1.0, 8.0)
+
+	# THE LIGHT IS IN THE ROOM, not on it. One warm lamp on the counter and a
+	# colder spill through the doorway behind you, because a shed lit evenly is a
+	# diorama. The player is looking INTO the warm end.
+	var glow := OmniLight3D.new()
+	glow.name = "ShedGlow"
+	glow.light_color = Color(1.0, 0.82, 0.56)
+	glow.light_energy = 3.4
+	glow.omni_range = 6.5
+	glow.position = Vector3(-0.72, 1.28, 0.70) if lamp != null else Vector3(0, 1.9, 0.6)
+	_shed.add_child(glow)
+
+	var door_light := OmniLight3D.new()
+	door_light.name = "ShedDoor"
+	door_light.light_color = Color(0.62, 0.72, 0.86)
+	door_light.light_energy = 1.6
+	door_light.omni_range = 5.0
+	door_light.position = Vector3(0.0, 1.7, -SHED_D * 0.5 + 0.4)
+	_shed.add_child(door_light)
+
+	_build_shed_board()
+	_shed.visible = false
+
+## GO TO THE SHED, and come back from it.
+##
+## `_shed_pending` is what the end of a sequence does next. The sequence player
+## has no idea what it is playing - it moves a camera along shots and stops - so
+## the caller leaves a note for `_end_sequence` to read. One flag rather than a
+## second sequence system.
+var _shed_pending := ""
+
+
+func _enter_shed() -> void:
+	if sim.state != Sim.IDLE or _in_sequence or _in_shed:
+		return
+	# The room is hidden until it is wanted. It is twenty-odd metres away with
+	# four walls and nine imported props in it, and drawing that behind the
+	# player's back for a whole session to save one boolean is the wrong trade.
+	if _shed != null:
+		_shed.visible = true
+	_refresh_shed_board()
+	_shed_pending = "in"
+	_play_sequence(Sequence.to_the_shed())
+
+
+func _leave_shed() -> void:
+	if not _in_shed or _in_sequence:
+		return
+	_in_shed = false
+	_shed_pending = "out"
+	_play_sequence(Sequence.from_the_shed())
+
+
+## What the primary button says and does while you are standing at the counter.
+func _shed_close_pressed() -> void:
+	_leave_shed()
+
+
+
+## A box. Used for the shell only - the furniture is all imported.
+func _slab(size: Vector3, at: Vector3, mat: Material, slab_name: String) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	m.mesh = box
+	m.position = at
+	m.material_override = mat
+	m.name = slab_name
+	return m
+
+
+## One imported prop, in the shed's own space.
+func _shed_prop(id: String, at: Vector3, scale: float, yaw: float) -> Node3D:
+	var n := _prop(id)
+	if n == null:
+		push_warning("shed prop '%s' is missing" % id)
+		return null
+	n.name = "Shed_" + id
+	n.position = at
+	n.scale = Vector3.ONE * scale
+	n.rotation_degrees = Vector3(0, yaw, 0)
+	_shed.add_child(n)
+	return n
+
+
+## THE PRICES ARE ON THE CHALKBOARD.
+##
+## A Room3D whose model is the chalkboard and whose surface is the shop list -
+## the same machinery the logbook and the tackle box use, so the arrow buttons,
+## the X and the framing all work here without a second implementation. It is
+## always "open": the board is a thing in a room you have walked into, not a lid
+## that lifts.
+func _build_shed_board() -> void:
+	_shed_board = Room3D.new()
+	_shed_board.name = "ShedBoard"
+	var model := _prop("chalkboard")
+	if model == null:
+		model = Node3D.new()
+	# SCALED UP HALF AGAIN. Measured with `probe_board.gd`, the prop is 0.92 m
+	# wide - a real chalkboard, and far too small to hold a price list a player
+	# reads from across a counter on a phone. At 1.5 the slate is 1.38 m and a
+	# line of chalk is legible from where you stand.
+	model.scale = Vector3.ONE * 1.5
+	# FACING THE ROOM. A QuadMesh faces its own +Z, and the player stands on the
+	# board's -Z side, so it turns to meet them. The first version used the same
+	# `lie flat` basis the logbook's page uses - which is right for a book on the
+	# floor and put the chalkboard's prices face-up at the ceiling, showing as a
+	# one-pixel strip of text seen edge-on.
+	var face := Basis(Vector3.UP, PI)
+	# BIG ENOUGH TO READ FROM THE COUNTER. A 0.86 m board three and a half metres
+	# away is about a thumbnail on a phone held at arm's length; `read_pose` solves
+	# that for a thing you lean over, but the chalkboard is furniture you stand in
+	# front of and the camera does not come to it. Measured against the standing
+	# position instead: 1.5 m wide at 2.3 m reads.
+	# ON THE SLATE, proud of the frame by a centimetre. The numbers are the prop's
+	# own measured bounds times the scale above, not a guess: the board runs from
+	# y 0 to 1.51 and its front face is at z -0.379.
+	_shed_board.build(model, Vector2(1.06, 0.80),
+		Transform3D(face, Vector3(0.0, 1.66, -0.58)),
+		_shed_board_page(), Vector2i(1060, 800))
+	_shed_board.position = Vector3(0.0, 0.0, 1.05)
+	_shed_board.show_surface = true
+	_shed.add_child(_shed_board)
+	_shed_board.open()
+
+
+## The board's content. Built from the same Menus list the screen used, so the
+## prices on the board and the prices the game charges are one thing.
+func _shed_board_page() -> Control:
+	var root := ColorRect.new()
+	root.color = Color(0.13, 0.14, 0.13)
+	root.custom_minimum_size = Vector2(860, 640)
+	var pad := MarginContainer.new()
+	pad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pad.add_theme_constant_override("margin_left", 38)
+	pad.add_theme_constant_override("margin_right", 38)
+	pad.add_theme_constant_override("margin_top", 30)
+	pad.add_theme_constant_override("margin_bottom", 30)
+	root.add_child(pad)
+	_shed_list = VBoxContainer.new()
+	_shed_list.add_theme_constant_override("separation", 9)
+	pad.add_child(_shed_list)
+	return root
+
+
 
 ## What the player is told, in the words the rules use.
 ##
@@ -3207,6 +3631,12 @@ func _sync_mood(dt: float) -> void:
 	if _book != null:
 		_book.advance(dt)
 		_sync_book_hold(dt)
+	if _shed_board != null:
+		# The board is a Room3D like the book and the box, and a Room3D that is
+		# never advanced never shows its surface: `openness` stays at 0 and the
+		# page is hidden behind a `> 0.55` gate. The chalkboard rendered as a
+		# blank slate for exactly that reason.
+		_shed_board.advance(dt)
 	if _tacklebox != null:
 		_tacklebox.advance(dt)
 		_sync_box_items()
@@ -4379,6 +4809,14 @@ func water_height(x: float, z: float) -> float:
 ## the same decision made once. A button whose caption and effect are computed in
 ## two places is a button that lies the first time a state is added.
 func _action_for_state() -> String:
+	# THE COUNTER FIRST, because standing in the shed the sim is IDLE and the
+	# lake's answer to IDLE is "Cast" - which would offer a cast at a chalkboard.
+	if _in_shed:
+		var rows := _shed_rows()
+		if _shed_pick < 0 or _shed_pick >= rows.size():
+			return "Buy"
+		var row: Dictionary = rows[_shed_pick]
+		return "Weigh in" if str(row["kind"]) == "sell" else "Buy"
 	match sim.state:
 		Sim.IDLE, Sim.HOLDING, Sim.LOST:
 			# CAST ONLY OVER THE WATER. Looking into the boat, the same button
@@ -4876,6 +5314,20 @@ func _on_use() -> void:
 ## game had leaked in.
 const PROPS := {
 	"livewell": "res://assets/props/wooden_bucket_01/wooden_bucket_01_1k.gltf",
+	# THE SHED, and all of it premade. Gideon: "make sure premade assets are used
+	# for everything possible." PLAN.md 8.2 scouted this and the answer was that
+	# the shed is the one place where the answer is yes to almost everything -
+	# every one of these is CC0 from the same Poly Haven collections the boat's
+	# props already came from, so there is no style to reconcile.
+	"shelf": "res://assets/props/wooden_bookshelf_worn/wooden_bookshelf_worn_1k.gltf",
+	"counter": "res://assets/props/WoodenTable_03/WoodenTable_03_1k.gltf",
+	"till": "res://assets/props/CashRegister_01/CashRegister_01_1k.gltf",
+	"chalkboard": "res://assets/props/standing_chalkboard_01/standing_chalkboard_01_1k.gltf",
+	"stove": "res://assets/props/barrel_stove/barrel_stove_1k.gltf",
+	"shedlamp": "res://assets/props/vintage_oil_lamp/vintage_oil_lamp_1k.gltf",
+	"crate2": "res://assets/props/wooden_crate_02/wooden_crate_02_1k.gltf",
+	"barrel": "res://assets/props/Barrel_02/Barrel_02_1k.gltf",
+	"rack": "res://assets/props/worn_metal_rack/worn_metal_rack_1k.gltf",
 	"baitbox": "res://assets/props/wooden_crate_01/wooden_crate_01_1k.gltf",
 	"lamp": "res://assets/props/Lantern_01/Lantern_01_1k.gltf",
 	"lifebuoy": "res://assets/props/lifebuoy/lifebuoy_1k.gltf",
@@ -5340,6 +5792,20 @@ func _sync_sequence(dt: float) -> void:
 func _end_sequence() -> void:
 	_in_sequence = false
 	_gate_open = 1.0
+	# THE NOTE THE CALLER LEFT. Arriving at the shed is the only thing that
+	# survives the end of a sequence, and leaving it is the only thing that has to
+	# put the room away again.
+	if _shed_pending == "in":
+		_in_shed = true
+		_look_yaw = 0.0
+		_look_pitch = 0.0
+		_look_yaw_want = 0.0
+		_look_pitch_want = 0.0
+	elif _shed_pending == "out":
+		_in_shed = false
+		if _shed != null:
+			_shed.visible = false
+	_shed_pending = ""
 	if _seq_line != null:
 		_seq_line.text = ""
 		_seq_line.modulate.a = 0.0
@@ -5395,7 +5861,12 @@ func _hud_is_down() -> bool:
 		return true
 	if _title != null and _title.is_up():
 		return true
-	return _in_sequence or _reading or _at_box
+	# THE SHED COUNTS AS A ROOM for everything except the action button. Standing
+	# at the counter there is nothing to cast at and no purse to read over the
+	# water, so the lake's HUD goes down exactly as it does over the book - but the
+	# thing you came to do is BUY, and R10 says the primary button is what says
+	# what the moment is. So it stays, and says "Buy".
+	return _in_sequence or _reading or _at_box or _in_shed
 
 
 # --- the book, as a thing in the boat ---------------------------------------
@@ -6066,6 +6537,8 @@ func _room_step(by: int) -> void:
 		_turn_page(by)
 	elif _at_box:
 		_box_move(by)
+	elif _in_shed:
+		_shed_move(by)
 
 
 ## Left and right: the other VERSION of the selected thing, where there is one.
@@ -6080,6 +6553,8 @@ func _room_close_pressed() -> void:
 		_shut_book()
 	elif _at_box:
 		_shut_tacklebox()
+	elif _in_shed:
+		_leave_shed()
 
 
 ## Show the bar only while a room is open, and label the middle button for the
@@ -6088,7 +6563,7 @@ func _room_close_pressed() -> void:
 func _sync_room_bar() -> void:
 	if _room_bar == null:
 		return
-	var open := (_reading or _at_box) and not _in_sequence
+	var open := (_reading or _at_box or _in_shed) and not _in_sequence
 	_room_bar.visible = open
 	if not open:
 		return
@@ -6106,6 +6581,17 @@ func _sync_room_bar() -> void:
 		var page: int = _book.page if _book != null else 0
 		_room_up.disabled = page <= 0
 		_room_down.disabled = page >= _book_pages - 1
+		_room_prev.disabled = true
+		_room_next.disabled = true
+	elif _in_shed:
+		# The board is one column, so up and down walk it and left and right have
+		# nothing to do - greyed rather than removed, the same as in the book.
+		# This branch is not optional: without it the tackle box's `_box_slot`
+		# would be asked which variants the shed's current row has, and the shed
+		# has no slots at all.
+		var rows := _shed_rows()
+		_room_up.disabled = _shed_pick <= 0
+		_room_down.disabled = _shed_pick >= rows.size() - 1
 		_room_prev.disabled = true
 		_room_next.disabled = true
 	else:

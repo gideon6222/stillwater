@@ -85,6 +85,55 @@ static func arriving() -> Array:
 	]
 
 
+## THE SHED, on the bank west of the gate. Kept here rather than in `main.gd`
+## because the camera path has to agree with where the room actually is, and one
+## file owning both is what stops them drifting.
+const SHED_AT := Vector3(-13.0, 0.0, -14.2)
+const SHED_DOOR := SHED_AT + Vector3(0.0, 1.62, -3.9)
+## TWO METRES BACK FROM THE SLATE, which is arithmetic rather than taste. The
+## board is 1.16 m of writing and the phone is portrait, so the visible width at
+## distance d is about d * tan(37.5 deg) * 0.462 * 2. At 0.9 m that is 1.0 m and
+## the left half of every line ran off the screen; at 2.0 m it is 1.42 m and the
+## whole board sits inside the frame with the counter in front of it.
+const SHED_STAND := SHED_AT + Vector3(0.0, 1.58, -1.55)
+## Level with the middle of the chalkboard rather than tipped at the floor: you
+## came here to read the prices, so that is what the view is built around.
+const SHED_LOOK := SHED_AT + Vector3(0.0, 1.66, 0.47)
+
+
+## ROWED TO THE SHED. Four seconds, and a tap cuts it like every other sequence.
+##
+## The path matters more than the length: it leaves the seat looking at the bank,
+## crosses the water at seat height so the trip reads as a ROW rather than a
+## camera cut, then rises to standing as you step out and go in through the door.
+## A straight fly-through would have said "menu transition" in a way no amount of
+## scenery would fix.
+static func to_the_shed() -> Array:
+	return [
+		{"at": SEAT, "look": Vector3(-6.0, 1.0, -8.0), "for": 0.8, "gate": 1.0, "ease": "out"},
+		{"at": Vector3(-4.2, 1.22, -5.2), "look": Vector3(-11.0, 1.3, -12.0), "for": 1.2,
+			"gate": 1.0, "ease": "inout"},
+		{"at": Vector3(-9.4, 1.30, -11.2), "look": SHED_DOOR, "for": 1.1, "gate": 1.0, "ease": "inout"},
+		# Standing now, and through the door.
+		{"at": SHED_DOOR + Vector3(0.0, 0.0, -1.2), "look": SHED_LOOK, "for": 1.0,
+			"gate": 1.0, "ease": "inout"},
+		{"at": SHED_STAND, "look": SHED_LOOK, "for": 0.9, "gate": 1.0, "ease": "out"},
+	]
+
+
+## AND BACK OUT. Shorter, because the trip has been seen and the way home is
+## never the interesting half.
+static func from_the_shed() -> Array:
+	return [
+		{"at": SHED_STAND, "look": SHED_LOOK, "for": 0.4, "gate": 1.0, "ease": "in"},
+		{"at": SHED_DOOR + Vector3(0.0, 0.0, -1.0), "look": Vector3(-6.0, 1.0, -6.0), "for": 0.9,
+			"gate": 1.0, "ease": "inout"},
+		{"at": Vector3(-6.6, 1.26, -7.4), "look": Vector3(0.0, 0.9, 2.0), "for": 1.1,
+			"gate": 1.0, "ease": "inout"},
+		{"at": SEAT, "look": SEAT_LOOK, "for": 0.9, "gate": 1.0, "ease": "out"},
+	]
+
+
 var shots: Array = []
 var index := 0
 var elapsed := 0.0
