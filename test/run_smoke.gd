@@ -53,6 +53,7 @@ func _initialize() -> void:
 	_check_the_controls_are_anchored(main)
 	_check_the_float_is_the_nibble_minigame(main)
 	_check_the_cast_is_a_swing_not_a_bend(main)
+	_check_the_cast_is_one_motion(main)
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
@@ -846,6 +847,53 @@ func _check_the_cast_is_a_swing_not_a_bend(main) -> void:
 	_t.gt(tip_seg.rotation_degrees.x, 0.0,
 		"the rod bends UP under load - a fish pulls the tip down and forward")
 
+## F5: THE CAST IS ONE MOTION, NOT THREE.
+##
+## "The movement has felt odd." Measured (scripts/probe_cast.gd), the oddness
+## was a number: at the release the rod's angular velocity went from 54 deg/s
+## backwards to 361 deg/s forwards in one frame, 671 at full charge, because the
+## lift, the throw and the settle were three eases that shared no state. An arm
+## reverses through zero; a mechanism snaps. This samples the butt every frame
+## through a whole cast and asserts the speed never STEPS - while still peaking
+## like a whip, so smoothing cannot quietly turn the cast into a slow lever - and
+## that the tip stays above horizontal all the way, overshoot included.
+func _check_the_cast_is_one_motion(main) -> void:
+	_t.begin("smoke > the cast is one motion, not three")
+	main.freeze(1)
+	var butt: Node3D = main._rod
+	var dt := 1.0 / 60.0
+	var pitches: Array[float] = []
+	main.sim.hold_cast()
+	for i in 33:
+		main.advance(dt, dt)
+		pitches.append(butt.rotation_degrees.x)
+	main.sim.release_cast()
+	var guard := 0
+	while guard < 240 and (main.sim.state == Sim.FLYING or main.sim.state == Sim.SINKING):
+		main.advance(dt, dt)
+		pitches.append(butt.rotation_degrees.x)
+		guard += 1
+	_t.gt(float(pitches.size()), 60.0, "the cast never flew, so nothing below measured a cast")
+
+	var worst := 0.0
+	var peak := 0.0
+	var highest := -999.0
+	var prev_v := 0.0
+	for i in range(1, pitches.size()):
+		var v := (pitches[i] - pitches[i - 1]) / dt
+		if i > 1:
+			worst = maxf(worst, absf(v - prev_v))
+		peak = maxf(peak, v)
+		highest = maxf(highest, pitches[i])
+		prev_v = v
+	_t.lt(worst, 150.0,
+		"the rod changed speed by %.0f deg/s in one frame - the release restarts the motion instead of carrying it (415 before F5)" % worst)
+	_t.gt(peak, 200.0,
+		"the throw peaks at only %.0f deg/s - the smoothing turned the whip into a lever" % peak)
+	_t.lt(highest, 0.0,
+		"the tip went through horizontal (%.1f degrees) during the cast, overshoot included" % highest)
+
+
 ## THE THREE THINGS GIDEON ASKED TO SEE AND FEEL.
 ##
 ## "when you hold your finger on the reel button, I want to see an actual reeling
@@ -1463,8 +1511,9 @@ func _drive_until(main, want: String, limit: float) -> bool:
 ## Nothing is red, the count is just quietly smaller, and nobody reads the count.
 ##
 ## Raise this when the suite grows. It is a canary, not a target: it cannot say
-## which assertions went missing, only that some did.
-const MIN_ASSERTIONS := 390
+## which assertions went missing, only that some did. (746 on 2026-09-12; the
+## harness now also names the check that errored, so this is the blunt half.)
+const MIN_ASSERTIONS := 700
 
 
 func _finish() -> void:

@@ -696,6 +696,33 @@ real touches on finger 1. What it taught:
   noted rather than fixed: a bot that wiggles a stick to satisfy a tutorial is a bot lying
   about the player.
 
+## The cast is one motion (F5, 2026-09-12)
+
+**"The movement has felt odd" was a number.** `scripts/probe_cast.gd` samples the rod butt's
+pitch every frame through a charge, a throw and the settle and reports the largest change in
+angular velocity between two frames. Before: at the release the rod went from 54 deg/s
+backwards (the linear lift) to 361 deg/s forwards in ONE frame for a 0.55 s hold, and 671 at
+full charge - the lift, the throw and the settle were three eases that shared no state, so
+the release restarted the motion at the ease-out's peak speed. The other two boundaries were
+already continuous (0 to 0 deg/s).
+
+The swing is one damped spring now (`_spring_swing`), the ONE state all three phases drive
+toward a different target: the charge while loading (lagging it, `CAST_LIFT_TIME` 0.22 s,
+which is what makes the lift start and stop like an arm), `CAST_THROW_TO` on release
+(`CAST_SWING_TIME` 0.20 s), rest for everything else (`CAST_SETTLE_TIME` 0.55 s). The
+frequency is derived from the arrival time (`omega = 3 / (zeta * seconds)`, three time
+constants of the envelope) so the numbers in the file are the ones a person would tune.
+`SWING_DAMPING` 0.8 gives 1.5% overshoot, which on the throw is 0.1° past the stop. And
+**the spring alone was not enough**: a stiff spring's first frame IS a step, so
+`SWING_ACCEL_MAX` 7200 deg/s² bounds the reversal to a ramp of 120 deg/s per frame.
+
+After: the worst single-frame step is 120 (the cap, by design) for every hold length, the
+throw still peaks at 278 deg/s for a 0.55 s hold and 531 at full charge (a whip, not a
+lever), and the tip tops out at -5.9°, above horizontal. The smoke check asserts the step
+under 150, the peak over 200 and the tip under 0 - so raising the cap past the step's
+threshold, or damping the whip away, both go red. `_ease_out` had no other caller and is
+gone. Still owed: F6 and F7 need the phone, which was not attached this session.
+
 ## Open
 
 **The list moved to `PLAN.md` section 12**, which is now the milestone checklist the

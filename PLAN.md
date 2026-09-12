@@ -1204,7 +1204,7 @@ only here. A resuming session works from the first unticked box.
 - [x] **F2 The rod lags the boat.** Driven by the hull's angular velocity, not its angle
 - [x] **F3 The line is a line under tension.** Ten segments along a sag whose depth is the fight's own tension
 - [x] **F4 The stick has a gradient dead zone and a response curve.** The hard 0.14 cutoff is gone
-- [ ] **F5 The cast is smooth.** The charge, the throw and the settle are three eases that do not share a curve; the release should carry momentum into the flight rather than restarting it
+- [x] **F5 The cast is smooth.** The charge, the throw and the settle are three eases that do not share a curve; the release should carry momentum into the flight rather than restarting it. *Done 2026-09-12: one damped spring on the swing angle, aimed at a different target by each state, with its velocity carried across the release and a bound on how fast it can change speed. Measured with `scripts/probe_cast.gd`: the single-frame speed step at release went from 415 deg/s (671 at full charge) to 120, the throw still peaks at 278 deg/s (531 full), the tip tops out at -5.9°. `run_smoke.gd` asserts all three*
 - [ ] **F6 The fight is smooth.** The needle's overshoot should read as weight rather than lag — this is the one that needs the phone, not the desk
 - [ ] **F7 Judge F1–F6 on the phone.** `/playtest phone`. Nothing in this phase is finished until it has been held
 

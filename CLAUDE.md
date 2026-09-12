@@ -92,6 +92,7 @@ something to read.
 | `scripts/replay_player.gd` | The `ReplayPlayer` autoload. Records and replays touches by physics frame, and `policy=<name>` drives a bot through `Main.bot_touch_pixels` |
 | `test/test_replay_policy.gd` | Gates the bot seam: a fish lands through the real buttons, and asking never moves the sim |
 | `scripts/probe_prop.gd` | Prints an imported prop's mesh names and real bounds in metres |
+| `scripts/probe_cast.gd` | Measures the cast: the rod's speed step at each state boundary and its peak. `-- <hold seconds>` |
 | `test/replays/` | Recorded touch scenarios for `movie.ps1`. `idle.json` is empty on purpose |
 
 ## Invariants

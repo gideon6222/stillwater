@@ -112,6 +112,24 @@ var _rod_lag_last_roll := 0.0
 var _rod_yaw := 0.0
 var _boat_time := 0.0
 var _boat_dt := 1.0 / 60.0
+## The swing, as the one thing all three cast phases share. Degrees lifted up
+## and back (`back` in _sync_rod), and its rate, which survives every state
+## boundary - see CAST_LIFT_TIME.
+var _swing := 0.0
+var _swing_vel := 0.0
+
+
+## Drive the swing toward `target` as a damped spring that should arrive in
+## about `seconds`. The envelope of a damped spring is exp(-zeta * omega * t),
+## so "arrived" (5%) is three time constants: omega = 3 / (zeta * seconds).
+## Semi-implicit Euler, which is stable at omega * dt = 0.3 and keeps the
+## velocity as real state rather than something re-derived each frame.
+func _spring_swing(target: float, seconds: float, dt: float) -> void:
+	var omega := 3.0 / (SWING_DAMPING * maxf(0.05, seconds))
+	var accel := omega * omega * (target - _swing) - 2.0 * SWING_DAMPING * omega * _swing_vel
+	accel = clampf(accel, -SWING_ACCEL_MAX, SWING_ACCEL_MAX)
+	_swing_vel += accel * dt
+	_swing += _swing_vel * dt
 var _grade: ColorRect
 var _rain: GPUParticles3D
 var _mist: GPUParticles3D
@@ -234,7 +252,24 @@ const BUZZ_OVER_EVERY := 0.17     ## seconds between heavy pulses
 const ROD_REST := -14.0       ## tip a little up, holding the rod out
 const CAST_BACK := 62.0       ## degrees lifted BEHIND rest at full charge
 const CAST_THROW_TO := -6.0   ## where the throw stops. ABOVE horizontal, on purpose
-const CAST_SWING_TIME := 0.20 ## seconds of forward swing
+
+## THE CAST IS ONE MOTION (F5). The lift, the throw and the settle used to be
+## three eases that did not share a curve, and at the release the rod's angular
+## velocity went from 54 deg/s backwards to 361 deg/s forwards in ONE frame
+## (671 at full charge) - measured with scripts/probe_cast.gd. That step is what
+## "the movement has felt odd" is when it is a number: an arm reverses through
+## zero, a mechanism snaps. So the swing is a damped spring now, ONE state that
+## every phase drives toward a different target, and its velocity is carried
+## across the release instead of being restarted there. The three times below
+## are how long each phase takes to ARRIVE; the frequency is derived from them.
+const CAST_LIFT_TIME := 0.22   ## seconds the rod lags the charge while loading
+const CAST_SWING_TIME := 0.20  ## seconds the throw takes to reach CAST_THROW_TO
+const CAST_SETTLE_TIME := 0.55 ## seconds the rod takes to drift back to rest
+const SWING_DAMPING := 0.8     ## a touch under-damped: a rod tip overshoots, then stills
+## How fast the swing may change speed, in deg/s². The spring alone would still
+## jerk at the release (a stiff spring's first frame IS a step); this is what
+## bounds the reversal to a ramp. 7200 is 120 deg/s per frame at 60 Hz.
+const SWING_ACCEL_MAX := 7200.0
 
 ## How much taller than life the sounder draws whatever is standing on the bed.
 ## See the note in `_draw_sounder`: a real sounder exaggerates for exactly this
@@ -2525,6 +2560,10 @@ func freeze(seed_value: int = 1) -> void:
 	_gate_open = 1.0
 	if _seq_line != null:
 		_seq_line.text = ""
+	# The rod at rest and still. The swing carries velocity across states on
+	# purpose, so a known state has to put it down explicitly.
+	_swing = 0.0
+	_swing_vel = 0.0
 	sim.restart(seed_value)
 	_sync()
 
@@ -2916,30 +2955,35 @@ func _sync_rod() -> void:
 	#
 	# `back` and `bend` below are both written as POSITIVE quantities meaning
 	# what they say, and the sign is applied once, at the bottom.
-	var back := 0.0    ## degrees lifted up and behind the shoulder
 	var bend := 0.0    ## degrees the tip is pulled down and forward
 
+	# THE SWING IS ONE SPRING, AIMED SOMEWHERE DIFFERENT BY EACH STATE. Loading
+	# lifts it toward the charge, lagging it a little, which is what makes the
+	# lift start and stop like an arm; the release re-aims it forward and down to
+	# a stop that is STILL ABOVE HORIZONTAL, and the rod reverses THROUGH zero
+	# rather than restarting at full speed; everything else lets it drift home.
+	#
+	# Gideon: "when you cast the rod should pull back, then fling forward but
+	# still be angled up. when you cast currently, it pulls back a little then
+	# angles all the way into the water before returning." `CAST_THROW_TO` is an
+	# absolute angle so "still angled up" is stated rather than arrived at, and
+	# the smoke test asserts it stays above horizontal - and now also that the
+	# speed never steps.
+	var swing_to := 0.0
+	var swing_in := CAST_SETTLE_TIME
 	match sim.state:
 		Sim.CHARGING:
-			back = sim.charge * CAST_BACK
+			swing_to = sim.charge * CAST_BACK
+			swing_in = CAST_LIFT_TIME
 		Sim.FLYING:
-			# The throw: from wherever the charge had it, forward and down to a
-			# stop that is STILL ABOVE HORIZONTAL.
-			#
-			# Gideon: "when you cast the rod should pull back, then fling forward
-			# but still be angled up. when you cast currently, it pulls back a
-			# little then angles all the way into the water before returning."
-			# It was written as an offset PAST the rest angle, which put the tip
-			# under the waterline at the end of every cast. `CAST_THROW_TO` is an
-			# absolute angle now, so "still angled up" is stated rather than
-			# arrived at, and the smoke test asserts it stays above horizontal.
-			var k := _ease_out(clampf(sim.state_time / CAST_SWING_TIME, 0.0, 1.0))
-			back = lerpf(sim.charge * CAST_BACK, -(CAST_THROW_TO - ROD_REST), k)
-		Sim.SINKING:
-			# Drift back to rest rather than snapping, so the whole cast reads as
-			# one continuous motion.
-			var settle := _ease_out(clampf(sim.state_time / 0.55, 0.0, 1.0))
-			back = lerpf(-(CAST_THROW_TO - ROD_REST), 0.0, settle)
+			swing_to = -(CAST_THROW_TO - ROD_REST)
+			swing_in = CAST_SWING_TIME
+		_:
+			pass
+	_spring_swing(swing_to, swing_in, _boat_dt)
+	var back := _swing    ## degrees lifted up and behind the shoulder
+
+	match sim.state:
 		Sim.NIBBLING:
 			# The rod tip twitches with the tug as well as the float dipping -
 			# "just watching the rod or bobber pull down". Two readings of one
@@ -4685,13 +4729,6 @@ func _write_readout() -> void:
 			spot["name"], sim.day, sim.hour, sim.weather, light,
 			SimUtil.fmt_m(sim.deepest_here())]
 	_stamp.text = BuildStamp.line()
-
-
-## Ease-out, so the rod decelerates into the end of a swing instead of arriving
-## at constant speed. A linear cast reads as a mechanism rather than an arm.
-func _ease_out(k: float) -> float:
-	var x := clampf(k, 0.0, 1.0)
-	return 1.0 - (1.0 - x) * (1.0 - x)
 
 
 ## Put the hour, the weather and the depth into the picture.
