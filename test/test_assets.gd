@@ -99,6 +99,35 @@ func test_the_version_agrees_everywhere_it_is_written(t: TestHarness) -> void:
 		"the newest changelog entry is not the version being built")
 
 
+## AND version/code, WHICH IS THE ONE THE STORE ACTUALLY READS.
+##
+## The test above collected only `version/name=`, so the CODE was asserted
+## nowhere: it sat at 1 while the name climbed to 0.5.2. Play rejects every
+## upload after the first unless the code is higher than the last one, so the
+## single number that decides whether a build can be uploaded at all was the one
+## number no test looked at. gravewell and wildform carry the same assertion.
+##
+## It is tied to the changelog rather than typed by hand: one released entry is
+## one upload, so the code rises exactly when a note is written for it and can
+## never stand still or go backwards.
+func test_the_version_code_is_the_release_count(t: TestHarness) -> void:
+	var text := FileAccess.get_file_as_string("res://export_presets.cfg")
+	t.ok(text != "", "export_presets.cfg could not be read")
+	var codes: Array[int] = []
+	for line in text.split("\n"):
+		var s := line.strip_edges()
+		if s.begins_with("version/code="):
+			codes.append(int(s.trim_prefix("version/code=")))
+	t.gt(float(codes.size()), 1.0,
+		"expected a version/code in each preset, found %d" % codes.size())
+	for c in codes:
+		t.eq(c, codes[0],
+			"the export presets disagree about version/code: %d against %d" % [c, codes[0]])
+	t.eq(codes[0], Changelog.RELEASES.size(),
+		"version/code is %d but the changelog carries %d releases - bump the code to %d"
+			% [codes[0], Changelog.RELEASES.size(), Changelog.RELEASES.size()])
+
+
 func _import_files(dir: String) -> Array[String]:
 	var out: Array[String] = []
 	var d := DirAccess.open(dir)
