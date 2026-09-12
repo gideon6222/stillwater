@@ -2538,6 +2538,12 @@ func _check_the_stick_turns_the_view(main) -> void:
 	# sweep has to start at the positive limit to have travel available.
 	main._look_yaw = LOOK_START
 	main._look_yaw_want = LOOK_START
+	# One frame so the camera is actually built from that yaw, then A FIXED POINT
+	# OUT ON THE LAKE, caught in WORLD space before the thumb lands. It is what
+	# lets the assertion further down ask where the world WENT rather than what a
+	# variable did.
+	main.advance(1.0 / 60.0)
+	var landmark: Vector3 = main._cam.transform * Vector3(0.0, 0.0, -30.0)
 
 	var press := InputEventScreenTouch.new()
 	press.pressed = true
@@ -2555,6 +2561,24 @@ func _check_the_stick_turns_the_view(main) -> void:
 		main.advance(1.0 / 60.0)
 	_t.lt(main._look_yaw_want, turned - 0.02,
 		"the view stops turning while the stick is held - it is behaving like a drag")
+
+	# AND WHERE THAT PUTS THE LAKE, which is the assertion this check did not have.
+	# `_look_yaw_want` is a number in the model, and every assertion above is
+	# satisfied by it moving the right way; what the player sees is the world
+	# swinging the OTHER way, and the two are joined by exactly one sign, in
+	# `Basis(Vector3.UP, PI + _look_yaw)` where the camera is built. Flip that and
+	# the stick is backwards with this whole check still green - which is the exact
+	# shape of the bug five games in this studio have shipped, every one of them
+	# with a suite that only ever asserted on the model.
+	#
+	# The camera's own space, where +X is screen right by definition: no viewport,
+	# no projection matrix, no frame to capture. `transform`, never
+	# `global_transform` - outside the tree the global one returns IDENTITY
+	# without erroring, which is a plausible wrong answer.
+	var on_screen: float = (main._cam.transform.affine_inverse() * landmark).x
+	_t.lt(on_screen, -1.0,
+		"the stick was held RIGHT for two seconds and a point that was straight ahead is at screen x %.1f - it did not swing LEFT across the frame, so the view turned the wrong way and the stick is inverted"
+			% on_screen)
 
 	var up := InputEventScreenTouch.new()
 	up.pressed = false
