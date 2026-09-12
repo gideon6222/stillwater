@@ -739,14 +739,25 @@ func test_a_kept_object_takes_room_a_fish_wanted(t: TestHarness) -> void:
 func test_an_offering_is_never_a_trade(t: TestHarness) -> void:
 	var s := Sim.new(1)
 	var before: int = int(s.econ.bait_left.get(Gear.OFFERING, 0))
-	s.lure_depth = 150.0
-	s.econ.bait = Gear.OFFERING
+	# A depth with an offering in its range. The first version of this test
+	# hooked at 150 m, where no offering row reaches, so it pulled up a boot
+	# every time, its assertions sat inside an `if` that was never true, and it
+	# passed for a day asserting nothing. The precondition is asserted now: no
+	# offering means the test FAILS as itself rather than as whatever it was
+	# meant to measure.
+	s.lure_depth = 125.0
+	var came_up := false
+	var hooks := 0
 	# Driven through the real hook so this fails if the path ever changes.
-	s._hook_object()
-	if s.last_object != "" and String(Objects.by_id(s.last_object)["kind"]) == Objects.OFFERING:
-		t.gt(int(s.econ.bait_left.get(Gear.OFFERING, 0)), before,
-			"an offering came up and did not go in the bait box")
-		t.eq(s.econ.held.size(), 0, "an offering took livewell room")
+	while hooks < 80 and not came_up:
+		hooks += 1
+		s._hook_object()
+		came_up = s.last_object != "" \
+			and String(Objects.by_id(s.last_object)["kind"]) == Objects.OFFERING
+	t.ok(came_up, "no offering came up in %d hooks at 125 m, so nothing below was checked" % hooks)
+	t.gt(int(s.econ.bait_left.get(Gear.OFFERING, 0)), before,
+		"an offering came up and did not go in the bait box")
+	t.eq(s.econ.held.size(), 0, "an offering took livewell room")
 
 
 

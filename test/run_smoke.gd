@@ -1468,6 +1468,10 @@ const MIN_ASSERTIONS := 390
 
 
 func _finish() -> void:
+	# Closes the last check, so an engine error raised inside it fails it like
+	# any other; `begin` closes every one before it. This is the exact half of
+	# the floor below: the floor says SOMETHING bailed, this says which.
+	_t.end()
 	print("")
 	if _t.checks < MIN_ASSERTIONS:
 		print("  smoke: %d assertions, but at least %d were expected - a check bailed" % [

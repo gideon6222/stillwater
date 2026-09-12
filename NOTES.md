@@ -638,6 +638,18 @@ Two more of the same family, both found this session:
   it was written for.** It allowed nine tenths of the bucket's width and the bug lands at two
   thirds. A containment check that passes with the bug in it is not a containment check.
 
+**Fixed 2026-09-12 (T5), in three layers, and the fix is in the template too.** The harness
+installs a `Logger` through `OS.add_logger` and counts every non-warning error the engine
+prints; `begin` closes the previous test and `end` the last, and a test whose body raised an
+error FAILS with the error's own text, file and line. Verified by reintroducing the bug: the
+runner now prints `Nonexistent function 'no_such_method'` and the line it was called on. A
+test that asserts nothing also fails (ported from the template), and the pure suite has a
+floor of 10,900 assertions with a nag when the live count outgrows it by 400. **The
+asserted-nothing rule found a real one on its first run**: `test_an_offering_is_never_a_trade`
+hooked at 150 m, where no offering row reaches, so its assertions sat inside an `if` that was
+never true and it had passed vacuously since the day it was written. It hooks at 125 m now,
+until an offering comes up, and fails as itself if one never does.
+
 ## Working agreement (2026-09-11)
 
 **Gideon reviews by screenshot.** He is frequently unable to run a build when the work lands
