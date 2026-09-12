@@ -44,10 +44,19 @@ extends RefCounted
 ## taught in the first five minutes at almost no cost - and the deep runs less
 ## often for very much more. Depth raises the stakes, never the tempo.
 ##
-## `run_power` has a hard ceiling that is arithmetic, not taste. A run left alone
-## settles at `RUN_PULL * power / TAP_DECAY`; at power 2.0 that is 0.78, exactly
-## the top of the safe band, and the fish is unlosable-by-playing-well. Nothing
-## in this table may exceed 1.75, and `test_tuning.gd` asserts it.
+## `run_power` has a ceiling that is arithmetic, not taste, and it does TWO jobs
+## now. It flavours the run, and squared it is also how hard the fish fights the
+## reel (`Tuning.resist`). Past about 1.9 of resistance a held reel settles so far
+## above the danger line that the only playable input is a tap shorter than a
+## reaction time - a dexterity wall. `RESIST_MAX` caps it and
+## `test_no_fish_is_a_reflex_test` asserts it. Nothing in this table may exceed
+## 1.75.
+##
+## One field, two jobs, and that is deliberate: difficulty has to climb with depth
+## either way, so paying for both from one stat is what stops the runs and the
+## resistance drifting apart. It also means a per-band multiplier on `run_power`
+## is the wrong lever - it was tried, and it broke
+## `test_runs_get_stronger_with_depth`. Move `RUN_GAIN` instead.
 ##
 ## Difficulty is the PRODUCT of these fields and no single one places a species.
 ## That caught us out once already: raising the bluegill's run chance while

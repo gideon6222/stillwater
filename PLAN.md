@@ -1275,26 +1275,42 @@ only here. A resuming session works from the first unticked box.
 
 ## Phase T — the seams (§9.5)
 
-- [ ] **T1 Travel, sleep, shed, landing and the line purchase all become moves rather than cuts.** Every one already has the tool: a sequence is a list of shots over the real scene
+- [ ] **T1 Travel, sleep, shed, landing and the line purchase all become moves rather than cuts.** Every one already has the tool: a sequence is a list of shots over the real scene. *Travel is done by P2, sleep by P5 and the shed by R4 — what is left is the LANDING (the fish coming over the gunwale into your hands, which G2 now gives a beat to hold) and the line purchase*
 - [x] **T2 No title after the first launch.** Continue IS the walk down. Starting again moved to the settings room behind a confirm, which is where a choice that destroys a season belongs
 - [x] **T3 The tackle box as a Room3D and real page turns** — both done, by R3 and R6
 - [x] **T4 First-run polish.** Orientation lock (already set), a real pause on backgrounding, and a launcher icon — the slots were empty, which ships the Godot logo
+- [ ] **T5 A test that errors must not be reported as passing.** A new test called a method that does not exist; GDScript threw, the body aborted at that line, and the runner printed "all passing" with every later assertion silently skipped — including the only one that could catch a real bug. Reintroducing the bug still passed. `run_smoke.gd` has `MIN_ASSERTIONS` for exactly this and `run_tests.gd` has no floor at all. Give the pure suite one, and make an aborted test body a FAILURE rather than a short one. **This is before any more balance work**: a suite that blesses a wrong number is worse than no suite
 
 ### Open, and not milestones
 
 - [x] **The lamp doing something.** Done with G4: the night is 18% of daylight without a lamp and 75% with one
 - [ ] **The sheer hairline remnant** on the near port rail at a low sun. Mechanism understood (NOTES.md); the fix is one number in two places
 
+### How the work is reviewed
+
+**Gideon reviews by screenshot, and often cannot run a build at all when the work
+lands.** So every check-in carries a picture of every change that has a visible
+result, and every picture is shot at the DEVICE aspect:
+
+```
+godot --path . --resolution 460x996 --script res://scripts/shot.gd -- <mode> ...
+```
+
+A desktop-window shot is nearly square and hides anything near an edge — that is
+how a rod a full viewport off the left of the phone's frame passed review. If a
+change only exists mid-animation, add a mode to `shot.gd` that stops the clock
+inside it rather than reporting that it cannot be captured.
+
 ### The order, and why
 
-**F and B are done. Then R, then W1, then P1.** Feel first because he raised it
-first and because everything else is judged through it. Then the rooms, because he
-has now asked for that pattern in every screen the game has and because R4's shed
-is also P3's bank - one build, two milestones. Then the water, because it is half
-the screen and the whole game looks unfinished until it is fixed. Then the
-landmarks, because they are one mesh each and they are what makes six spots six
-places.
+**Phases R and W are done. F5–F7 are next, and F7 is the gate.** The fifth fight,
+the foam, the reeling animation and both haptic levels have all been judged on a
+desk by someone who cannot feel a phone vibrate — and `permissions/vibrate` was
+missing from both export presets until 2026-09-11, so the haptics have never once
+fired on hardware. **Then T5**, before any more balance work.
 
-After that the phases interleave rather than run in order: P2 rowing wants W6 oars,
-G2 wants T1's landing transition, S1 wants G5's wrong-era objects. The dependencies
-are named in each line so a session can pick up any of them.
+After that the phases interleave rather than run in order: P3 and P4 are the first
+times the player leaves the boat, T1's landing wants G2's held fish (which it now
+has), S1 wants G5's wrong-era objects, and W3 waits on P3/P4 building the geometry
+its textures would go on. The dependencies are named in each line so a session can
+pick up any of them.

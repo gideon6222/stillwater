@@ -272,10 +272,12 @@ Two things had to be true for that to work:
   flip — because the spike alone decided the fight in one frame. Compressed, a
   strong fish means *hold this off for the whole run*, not *one instant decided
   it*. That is also simply the better mechanic.
-- **`run_power` has a hard ceiling of `SAFE_HI × TAP_DECAY / RUN_PULL ≈ 1.99`,**
-  where a run parks the needle above the safe band on its own and no play
-  survives it. `test_tuning.gd` asserts every row stays clear of it. The table
-  tops out at 1.48.
+- **`run_power` has a ceiling, and the fifth fight moved where it comes from.**
+  It used to be arithmetic on the safe band: above about 1.99 a run parked the
+  needle above the band on its own and no play survived it. The band is gone with
+  its needle. What a strong fish does now is resist the REEL, so the cap is
+  `RESIST_MAX` and the assertion is `test_no_fish_is_a_reflex_test`. The table
+  still tops out at 1.48.
 
 Difficulty response is still steep in places — a 0.04 change to four reed fish
 moved that band from 84% to 100% — so tune against `balance.gd` and do not chase
@@ -421,6 +423,235 @@ Two tools came out of that, both worth keeping:
   Godot renamed the second on `add_child`, and `SHOT_HIDE=Gunwale` then hid one rail, printed
   success, and sent a whole pass looking at the wrong side of the boat.
 
+## The FIFTH fight: distance is the score, tension is the danger (2026-09-11)
+
+Gideon, after playing the fourth: *"I think we are not showing a different between reeling
+speed and tension on the line... there should be a give and take, where you can keep reeling
+but risk losing the fish, but if you get in a good rythem and wear the fish out, you can reel
+while the fish is calm and stop when it starts pulling too hard."*
+
+**He named the fault in the MODEL and he was right.** One `tension` value was the throttle
+(holding raised it), the score (progress happened inside a band) and the danger (a run raised
+it) at once, so none of the three could be read. The fourth fight made that value a hold
+instead of a tap, which improved the control and left the conflation exactly where it was.
+
+Three quantities now, each answering a different question:
+
+| | what it is | where the player sees it |
+|---|---|---|
+| `fish_distance` | PROGRESS | the distance meter, top of screen |
+| `tension` | DANGER, and only danger | the ROD: bend, shake, the line going red |
+| `fish_stamina` | the resource that turns danger into progress | nowhere. It is FELT, in the reel |
+
+**The fish fights the reel, and a spent one does not.** A held reel settles at
+`HOLD_RISE * resist / TAP_DECAY`, and `resist = 1 + RESIST_GAIN * run_power² * stamina_left`,
+capped at `RESIST_MAX`. Squared, because a linear term could not separate the tutorial from
+the deep without making the tutorial tense. The settle tension against a FRESH fish of each
+band's mean power:
+
+| water | settle | what that means |
+|---|---|---|
+| The Reeds | 0.63 | hold the button down, nothing happens. Where it is learned |
+| The Channel | 0.75 | visibly bent, still safe |
+| The Drowned Road | 0.78 | exactly the danger line: hold it and strain creeps |
+| Old Town | 0.96 | real feathering. A held button parts the line |
+| The Quarry | 1.01 | feather hard |
+| The Spring | capped | the Old Fish cannot be held at all while fresh |
+
+That ladder is free: `run_power` already has to climb with depth by rule, so one species stat
+pays for the runs AND for the resistance and the two cannot drift. And because `stamina_left`
+multiplies it, **wearing a fish out is felt in the CONTROL** — the button that parted the line
+at the start of the fight can be held flat at the end of it.
+
+### The constants, and what each one was measured against
+
+| | value | why |
+|---|---|---|
+| `HOLD_RISE` / `TAP_DECAY` | 0.69 / 1.25 | ×2.5 on the fourth fight's pair. At 0.276/0.50 the time constant was 2 s, and a quantity that slow cannot carry a decision: a 0.30 s reaction lag reached 0.747 against a settle of 0.96 and never crossed the danger line. Feathering was free |
+| `RESIST_GAIN` | 0.45 | fits the six-band settle ladder above |
+| `RESIST_MAX` | 1.9 | uncapped, the Old Fish settled at 1.36. ANGLER landed 44% of them; HUMAN — the same policy with 0.30 s of lag — landed NONE and parted the line on three quarters. A gap that size between perfect and human play is a dexterity wall |
+| `PULL_RISE` | 1.05 × power² | squared, like `resist`. Linear, it made the TUTORIAL part a line: a reeds fish held through one run pinned and broke off in 1.2 s |
+| `RUN_GAIN` | 3.9 | swept: 3.4 gave 100/99/88/65/31/4 and the Channel was not a step up; 4.4 started losing fish to beginners in the Channel |
+| `RUN_HOLD` | 0.40 | holding on BRAKES a run rather than out-hauling it. As an additive reel term it bought back a third of a metre out of twelve, so "keep reeling and risk it" was never a real option |
+| `ESCAPE_MARGIN` | 18.0 | six metres was ONE run. A traced Longnose Gar ended at 4.2 s: its first run took it from 22 m to 28 m and it was gone, with the player's only decision worth a third of a metre |
+| `STRAIN_RECOVER` | 0.025 | at 0.12 a fight had no memory of mistakes, so nothing accumulated and "eventually snaps" was never true |
+| `TIRE_PRESSURE` | 0.10 | pressure tires the fish, so the greedy line is genuinely faster. Without it the player had no lever on the length of a fight at all — deep fish were slow rather than hard |
+
+### Landed by band, and what it means
+
+`human` bot: **100 / 100 / 100 / 99 / 72 / 56.** `blind`: **100 / 100 / 99 / 85 / 59 / 38.**
+`masher`, which never lets go: 91% in the reeds and nothing at all in the Quarry.
+
+**The first three waters are a reliable win for a competent player, and that is a property of
+the model rather than a tuning miss** — a weak fish cannot escape someone feathering well,
+whatever its stats say. `test_the_bands_form_a_difficulty_ladder` was rewritten to say that:
+never easier going deeper, a real total drop, and real steps in the deep half. It used to
+demand better than three points between EVERY pair, which this model cannot honour at the
+shallow end. **If that flatness is wrong, it is a design decision and not a bug** — the honest
+lever is giving easy water a loss mode a careful player can still hit.
+
+### Two probes that paid for themselves in one run each
+
+- **`scripts/probe_loss.gd`** splits losses by cause per bot per band. Its first run said *no
+  fish can be lost anywhere in the game* — which was a fact about a GDScript closure, not
+  about the game (see the lesson). A trace of one fight contradicted it in two minutes.
+- **`scripts/probe_rod.gd`** prints where each part of the rod lands as a fraction of the
+  viewport. The reel was **more than a full viewport width off the left edge** at the phone's
+  real 19.5:9, so the bend, the shake, the red line and the new reeling animation were all
+  invisible on the device. It looked fine in a screenshot taken at the wrong aspect.
+
+### What the player sees and feels, and its numbers
+
+- **The reel handle turns** while the button is held and stalls to `REEL_SPIN_STALL` (0.22)
+  while the fish takes line, so the handle is a second readout of the meter. The rod's pump is
+  keyed to the crank's own angle so the two cannot drift.
+- **The line reddens `LINE_WARN_FROM` (0.18) BEFORE the danger line**, not at it. A colour that
+  arrives once the damage has started is a verdict, not a warning.
+- **Two haptics, both discrete.** 22 ms at 0.35 when the fish goes; 55 ms at 0.9 repeating
+  every 0.17 s while over-bent. A pulse train, never a hum — Android's guidance is explicit
+  that continuous vibration costs battery, desensitises the hand in seconds and is an
+  accessibility problem. **`permissions/vibrate` was missing from both export presets**, so
+  every haptic this game had ever fired was silently discarded on the phone.
+- **The rod mount is `(-0.08, 0.96, 1.38)`**, measured in three sweeps. The reel lands at
+  x 0.47–0.61, y 0.78–0.82 of the frame across five seconds of swell.
+
+## Phases W, P, G and T, as numbers (2026-09-11)
+
+### W — the water and the art pass
+
+- **`boujie_water_shader` was deliberately NOT imported.** It brings its own waves, and this
+  game's wave sum is shared with the CPU — `_wave_offset` floats the bobber, heaves the hull
+  and hangs the line. Swapping the surface would break that agreement or mean re-deriving it,
+  to gain a look this shader already has. What W1 actually wanted was the boat sitting IN the
+  water, which is the foam.
+- **The foam is analytic**, because `DEPTH_TEXTURE` is corrupt on Forward Mobile with MSAA.
+  The surface is told the hull's pose every frame; `HULL_FOAM_MID` is 0.70 because the hull
+  runs z −0.85 to 2.25 and an ellipse on the origin rings the water astern of the transom.
+  Band width **0.80 m**: a third of a metre is right for a boat and about fifteen pixels from
+  the seat at a grazing angle. Found by widening it to 2.5 m in a diagnostic, which showed the
+  collar had been in exactly the right place the whole time and simply too thin.
+- **Overcast was 55% of the STORM panorama**, so the four non-clear weathers were one sky at
+  four strengths. `overcast_soil_puresky` is a second cloud layer laid UNDER the storm one — a
+  storm is towers standing on an overcast base. `SKY_PALL_FROM_DREAD` 0.46 flattens the sky as
+  you fish deeper, on a clear day as much as a wet one.
+- **The hull had a normal map and a roughness map and no albedo texture at all** — every plank
+  was a flat tint with relief lit across it. Moved onto the shed's plank set; the second wood
+  set it replaced is deleted.
+- **Five real hands in the logbook**, assigned chronologically: Crake in a 1680s English cut,
+  Vance in a slow upright penmanship hand, Moss and Alder fast and modern, the player the
+  roundest. The `size` in `Book3D.HANDS` is a MULTIPLIER, not a size — these faces have wildly
+  different x-heights and one number per face is what stops the book reading as five point
+  sizes rather than five people.
+- **`Manrope` is the project default font** so UI chrome can never be mistaken for the
+  logbook. The three `draw_string` sites needed doing by hand: `draw_string` takes a Font
+  directly and never consults the theme.
+- **The oar and the dawn chorus** are the only two sounds not generated. 9.6 MB of field
+  recording became 240 KB. `-ss` AFTER `-i` decoded these Vorbis files to SILENCE — right
+  durations, −91 dB levels — and a 6 KB file for 24 s of audio is itself the tell.
+- **W3 is deliberately unticked.** Those are textures for the drowned town's geometry, and
+  Phase P has only just started building it.
+
+### P — the lake as a place
+
+- **Six landmarks, none repeated**, at **78–118 m**. The first pass put them at 30–44 m and
+  every one filled the frame: a quarry face you cannot see the top of is a wall you are moored
+  against, not a place across the water.
+- **Rock is not masonry.** `_stone_mat` is a block wall, right for the steeple and the
+  boathouse because those are buildings; on the quarry it read as a forty-metre garden wall
+  standing in a lake. `_rock_mat` is the same map at an eighth the scale, pulled grey-green.
+- **Rowing swaps the water under `Sequence.ROWING_SWAP` (shot 2)**, which looks at open water
+  and nothing else — the only moment the swap can happen without something popping. A cut
+  crossing still arrives, and a refused one plays nothing.
+- **Sleeping turns the hour under `SLEEP_SWAP`** with nothing in frame but the sky it turns,
+  and the mood runs at ×4 while your eyes are shut. **It also fixed a hole R5 left: sleeping
+  lived on the old map screen, and when the dock went the hour could not be changed at all.**
+- **P6 reads the keeper's own book back.** `caught_at` is `spot -> {hour: count}`, and
+  `Sim.best_hour_at` needs two fish at one hour and no tie. **The restraint is the feature** —
+  reading `Species.TABLE` to print which fish bite at dusk would be the strategy guide in the
+  box.
+
+### G — the game underneath
+
+- **`HOUR_SECONDS` 360.** The note on `TIRE_RATE` has claimed since the fifth fight that
+  waiting a fish out "costs the clock, which is the one resource this game says is scarce".
+  That was false: the hour only changed when the player asked. Six minutes is chosen against
+  the FIGHT — a deep fish takes one to two minutes, so an hour holds three or four attempts.
+- **The lamp finally does something.** Night is `DARK_NIGHT_BITE` 0.18 of daylight without one
+  and `LAMP_NIGHT_BITE` 0.75 with. It does not hold the sun up; it buys hours that are already
+  dark, which is why it is last on the shed's shelf.
+- **The fish stays in your hands until you decide** (G2). No timer on the choice. What you
+  CAUGHT goes in the book either way; what you KEPT is the choice. A fish too big says
+  "Too big" rather than greying out with no reason.
+- **A boot takes livewell room** (G1). Junk used to pay out the instant it broke the surface,
+  which made the bottom of the lake a slot machine and the boat infinite. ONE list, because
+  two capacities would be two spaces and the decision would evaporate. Weights: junk 0.8,
+  story 2.2, offering 0.4. An offering is the exception and goes straight to the bait box.
+- **Bait is read on the float** (G3). `BAIT_TAKE_BONUS` 0.55 longer take on the right bait,
+  `BAIT_WRONG_TAKE` 0.72 shorter on the wrong one, and one extra tease. `take_window_now` is
+  the single source: the float's dip, the clock that runs the take and the judgement of a clean
+  set all read it.
+
+### T — the seams
+
+- **No title after the first launch.** A returning player walks straight down. Starting again
+  moved to the settings room behind a confirm — and the guard checks it is still REACHABLE,
+  because removing the only door to it is the whole risk.
+- **The app now pauses when backgrounded.** Android leaves a paused process alive, so the lake
+  ran on behind a phone call: the clock advancing, a hooked fish still pulling. `paused` is
+  deliberately separate from `frozen` — the first is the phone's switch, the second the test
+  harness's.
+- **Both export presets shipped the Godot logo.** The launcher icon slots were empty and Godot
+  does not rasterise the project SVG into them. There is a real icon now at 512/432/192,
+  drawn for a launcher: three shapes, one accent, and the red float is the only thing in it
+  that is not the game's palette. The launcher PNGs are excluded from the mipmap and VRAM
+  checks, with the reason written down.
+
+### Size
+
+**The APK is 43.71 MB** (budget `size-budget.json`). The shed took it to 64.58 MB and CI
+caught it at +81%; the local `size` step had PASSED because it measures whatever APK is
+sitting in `build/` and mine was stale. **Run `scripts\check.ps1 -Export` when assets
+change.** The cut was `process/size_limit`: 512 across the shed and 256 on the five props that
+are only ever background. VRAM-compressed textures are a fixed rate per pixel, so how well the
+source JPEG packs is irrelevant.
+
+## The harness can lie, and here is how (2026-09-11)
+
+**A test that throws half way through is reported as PASSING.** A new test called
+`sim._begin_tug()` — a method I had invented. GDScript threw, the test body aborted at that
+line, and the runner printed `107 tests, 10877 assertions, all passing`. Every assertion after
+it silently did not run, including the only one that could catch a real bug. **Then the
+verification step was fooled too:** reintroducing the bug still passed, because the check was
+unreachable.
+
+The only signal was the assertion COUNT moving by four when the new test had eight. The smoke
+suite has `MIN_ASSERTIONS := 390` for exactly this reason after a rename dropped fifteen
+checks; **the pure suite has no such floor.** That is the first thing worth fixing and it is
+now a milestone (T5).
+
+Two more of the same family, both found this session:
+
+- **A comparison that varies two things measures neither.** "The right bait means more teases"
+  compared a bluegill on worms against a CARP on worms — two species, two base tease counts,
+  two RNG draws. It reported 3 against 3 and would have reported something for any pair.
+- **`test_the_catch_is_in_the_livewell`'s containment bound was loose enough to admit the bug
+  it was written for.** It allowed nine tenths of the bucket's width and the bug lands at two
+  thirds. A containment check that passes with the bug in it is not a containment check.
+
+## Working agreement (2026-09-11)
+
+**Gideon reviews by screenshot.** He is frequently unable to run a build when the work lands
+("I can't test currently, but I can check screen shots"). So: **a screenshot of every change
+that has a visible result, at every check-in**, shot at the DEVICE aspect —
+`godot --path . --resolution 460x996 --script res://scripts/shot.gd -- <args>`. A desktop
+window shot is nearly square and hides anything near an edge; that is how a rod a full
+viewport off the left edge passed review. For a change that only exists mid-animation, add a
+shot mode that stops the clock inside it rather than reporting that it is hard to capture.
+
+`scripts/shot.gd` grew modes for this: `turn` (mid page-turn), `inshed`, `hull` (the waterline
+over the side), `stow` (the port side), `chart`, `well`, and a sixth argument that names the
+spot so each landmark can be photographed.
+
 ## Open
 
 **The list moved to `PLAN.md` section 12**, which is now the milestone checklist the
@@ -429,9 +660,19 @@ drifted, which is the whole argument for one of them: `PLAN.md` §12 was still c
 logbook "next" months after it shipped. What stays here is only what a milestone cannot
 carry — the reasoning behind a fix, and the numbers.
 
-The first unticked boxes are the tackle box as a Room3D, the shed as a place rather than a
-room, and real page turns. The one that is not a milestone and matters most is whether the
-fight feels good **on the phone**: `/playtest phone` answers it and "it looks fine" does not.
+**As of 2026-09-12 the unticked boxes are F5–F7, B7–B8, W3, P3–P4, G5, S1–S5, T1 and T5.**
+Phases R and W are complete; P, G and T are part-done. The next milestone is **F7 — judge the
+fight on the phone** (`/playtest phone`), and it is first for a reason: the fifth fight, the
+foam, the reeling animation, the haptics and the two-level buzz have ALL been judged on a
+desk, against screenshots, by someone who cannot feel a phone vibrate. Nothing in this
+session's feel work has been felt. `permissions/vibrate` was missing until this session, so
+the haptics have literally never fired on hardware.
+
+After that, **T5 (the harness gap)** before any more balance work — a suite that reports an
+aborted test as passing is a suite that can bless a wrong number.
+
+The heavy remaining work is Phase S (the three act turns, the radio, the Act III inversion,
+the ending, NG+) and P3/P4, which are the first places the player leaves the boat.
 
 The sheer-hairline remnant on the near port rail is understood rather than fixed — see the
 diagnosis above. The fix is a lip whose upstand and a rail whose depth are one number in two
@@ -440,6 +681,33 @@ places; the remnant is the case where perspective makes the sliver subtend more 
 ## Invariants specific to this game
 
 - **`src/sim/` may not reference a Node, a Viewport, an input event or a real frame.**
+- **Every openable thing is built SHUT.** State entered in a builder has no natural exit:
+  `_build_chart` called `open()` and nothing ever closed it, so an unshaded map glowed on the
+  thwart through every hour of the game. A builder that opens something is a `new` with no
+  matching `free`.
+- **A hit box does not have to be the whole object.** `AIM_NODE` takes a list of node names.
+  An oar is over a metre long, so lying down its box spans half the boat and crowds everything
+  else out of its twelve degrees — which is why the oars stood absurdly on end for one build.
+  The boat has SEVEN interactables and has run out of angles: the next thing that wants one
+  should go on the chart, not on the sole.
+- **`rotation.y = x` destroys the rest of the basis.** It is the Euler decomposition of the
+  whole thing, so writing one component rebuilds the basis from `(0, y, 0)`. Compose onto a
+  stored rest transform. The page-turn leaf stood bolt upright in the middle of the boat.
+- **`render_priority` orders TRANSPARENT materials only.** Opaque geometry sorts by depth and
+  ignores it — with `no_depth_test` on both a page and the leaf turning over it, the draw
+  order was undefined and the page won.
+- **Anything the player holds up hangs off the CAMERA, not off a world point.** The held fish
+  was at a fixed world position chosen when the hold lasted 2.4 s; once G2 let the player hold
+  one indefinitely it was measured at 0.27 m from the lens and 0.40 m below the view axis — 56
+  degrees down against a 37 degree half-angle. How far out is computed from the fish's MEASURED
+  length (`d = 2.57 × L`), because a carp is three times a bluegill and one distance frames
+  neither.
+- **Scale every item in a group from its own measured bounds, never per-object by hand.** The
+  shed's counter had a crate three times the reel beside it; one line — scale so the largest
+  dimension is `SHED_ITEM_SIZE` — fixed it for props not added yet.
+- **`global_transform` is IDENTITY and `get_viewport()` is null in the hand-stepped headless
+  harness.** Multiply local transforms up the parent chain and project by hand. Doing it by
+  hand is BETTER than the engine call here: it tests the phone's aspect and it runs in CI.
 - **An object the player is meant to notice must be asserted to be IN SHOT, not merely in the
   scene.** The logbook was in the boat, above the floorboards, with a working page and a passing
   test for every one of those - and it sat 27 degrees below a view axis in a frame that reaches
@@ -467,10 +735,14 @@ places; the remnant is the case where perspective makes the sliver subtend more 
 - **The cast STOPS above horizontal.** It lifts back, flings forward past rest, and settles -
   it never swings the tip into the water. `CAST_THROW_TO` is an absolute angle so that is a
   number you can read rather than the result of an arithmetic.
-- **`TAP_KICK` and `TAP_DECAY` are coupled, and so are `RUN_PULL` and `TAP_DECAY`.** Taps per
-  second is `TAP_DECAY * tension / TAP_KICK`, and a run left alone settles at
-  `RUN_PULL / TAP_DECAY`. Halving the decay alone doubled the tapping rate AND moved the run
-  settle point into the band; all four move together or none do.
+- **`HOLD_RISE` and `TAP_DECAY` are one ratio, and `PULL_RISE` rides on the same decay.**
+  A held reel settles at `HOLD_RISE * resist / TAP_DECAY`, so scaling the pair leaves every
+  settle point alone and changes only how FAST tension gets there. Both were multiplied by 2.5
+  together for exactly that reason — see the fifth fight below. `PULL_RISE` had to move with
+  them or runs would have quietly weakened.
+  *(This invariant used to name `TAP_KICK` and `RUN_PULL`. Neither exists: the fifth fight
+  replaced the tap with a hold and deleted them. A stale invariant is worse than none — it
+  sends the next session looking for a constant that was removed three fights ago.)*
 - **The gauges live in the top third and the tap target is everything.** `run_smoke.gd` asserts
   the separation, because it is the settlement of two separate playtest notes and neither should
   come back.
