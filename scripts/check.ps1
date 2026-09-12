@@ -45,7 +45,7 @@ try {
         Out-File -FilePath $log -Encoding utf8
     } finally { $ErrorActionPreference = $prev }
     $code = $LASTEXITCODE
-    $errs = Select-String -Path $log -Pattern '^(SCRIPT )?ERROR' | Measure-Object | Select-Object -ExpandProperty Count
+    $errs = Select-String -Path $log -Pattern '^(SCRIPT |USER )?ERROR' | Measure-Object | Select-Object -ExpandProperty Count
     $ok = ($code -eq 0 -and $errs -eq 0) -or $AllowFail
     Write-Host ("{0,-14} {1}  {2:N1}s  exit {3}  errors {4}" -f $label, ($(if ($ok) { 'ok  ' } else { 'FAIL' })), $t.Elapsed.TotalSeconds, $code, $errs)
     if (-not $ok) {
