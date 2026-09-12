@@ -736,6 +736,23 @@ first version measured 0.031 m of "hands not home" that was the flight, not the 
 because the third argument is the hour, and `-- 1.3 cast throw` photographed a day whose
 time of day was "throw".
 
+**Filmed (desk, 2026-09-12, `movie.ps1 -UserArgs policy=angler,record=...`, frames 340-386
+at one tile per 1/30 s).** Does it read? Yes: the lift takes nine tiles with the grip coming
+down and right toward the eye, the reversal spans three tiles instead of one, and the rod
+holds the throw pose while the float sails out with the line drawn to it. Anything wrong?
+At full charge the grip fills the bottom-right corner and the reel foot touches the Cast
+button - readable, but the one thing to ask him about on the phone. The caption swaps to
+"Reel in" on the release frame, which is right. Nothing snaps, nothing pops, the boat's own
+roll is visible under the rod throughout. Not judged: the feel of the reversal under a thumb
+(F7, phone).
+
+**`test/replays/first-cast.json` was stale and filmed nobody playing.** Recorded on
+2026-09-09 when touching the water cast; the water no longer casts, so its touches landed on
+the water and the sheet was 36 tiles of a rod at rest with the caption still reading "Cast".
+It is now GENERATED from the bot (`-UserArgs policy=angler,record=test/replays/first-cast.json`
+writes the bot's real touches out as a replay), so it cannot be typed against an old layout
+again. Regenerate it the same way whenever the buttons move.
+
 ## Open
 
 **The list moved to `PLAN.md` section 12**, which is now the milestone checklist the

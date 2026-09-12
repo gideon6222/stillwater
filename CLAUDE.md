@@ -32,8 +32,10 @@ scripts\check.ps1                     # the whole local gate (~15 s)
 scripts\check.ps1 -Export             # ...and export the APK, then check its size
 
 scripts\movie.ps1 -Seconds 10 -Name idle                      # film the attract state
-scripts\movie.ps1 -Replay test\replays\first-cast.json -Seconds 20   # film a scripted run
+scripts\movie.ps1 -Replay test\replays\first-cast.json -Seconds 20   # film a scripted run (generated from the bot, see below)
 scripts\movie.ps1 -Seconds 30 -Name policy-angler -UserArgs policy=angler   # film a bot playing through the real buttons
+# Regenerate a replay from the bot whenever a button moves - a recorded one films nobody once it is stale.
+# Through -Command, so the comma makes an array: powershell -Command "& scripts/movie.ps1 -Seconds 12 -UserArgs policy=angler,record=test/replays/first-cast.json"
 godot --path . --resolution 460x996 -- record=test/replays/<name>.json touch   # record one
 
 scripts\device.ps1 install | launch | log | shot | record 30 | perf   # the phone, over adb
