@@ -1261,7 +1261,7 @@ only here. A resuming session works from the first unticked box.
 
 - [x] **G1 The livewell is a space you pack.** Junk no longer pays out on the way up: it is in your hands like a fish, it takes room a fish could have had, and it is sold by the piece rather than the kilo. One list, because two capacities would be no decision at all
 - [x] **G2 A second beat after the fight.** The fish is in your hands and stays there until you decide: keep it, or put it back. No timer on the choice, and a fish too big for the livewell says so
-- [ ] **G3 Bait that visibly matters** — more teases and a longer take, read in the minigame the player is already watching
+- [x] **G3 Bait that visibly matters** — the right bait stretches the take window by half again and adds a tease, so it is read in the nibble the player is already watching rather than only in how long they waited
 - [x] **G4 Daylight as a squeeze.** An hour runs down while you fish and turns on its own, so waiting a fish out finally costs something. The lamp buys the dark rather than more hours
 - [ ] **G5 Objects from the wrong era for their depth**, in Act III. The player's own logbook is what contradicts itself
 

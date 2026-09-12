@@ -53,6 +53,18 @@ const LIVEWELL_PRICE := 180
 
 ## Bait. `reusable` never runs out but bites less often, which is the economic
 ## decision the bait system exists to create.
+## Whether this bait is one the species is written down as favouring.
+##
+## One function, used by the bite draw AND by the nibble, so "the right bait" can
+## only ever mean one thing. Two copies of this test is two definitions of right.
+static func favours(bait_id: String, species_id: String) -> bool:
+	var b := bait_by_id(bait_id)
+	if b.is_empty():
+		return false
+	var list = b.get("favours", [])
+	return list is Array and species_id in list
+
+
 const BAIT := [
 	{
 		"id": "worm",

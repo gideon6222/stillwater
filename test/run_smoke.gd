@@ -787,10 +787,26 @@ func _check_the_cast_is_a_swing_not_a_bend(main) -> void:
 	# difference: take the bend early in the pull and again at full charge, with
 	# the boat moving the same amount either way, and the charge must not have
 	# added to it.
+	# MEASURED AT ONE INSTANT, with the charge as the only thing that moves.
+	#
+	# The difference was taken half a second apart, and the rod TRAILS THE BOAT -
+	# so the swell moved between the two samples and went into the answer. That is
+	# the same fault this check had when it measured an absolute: it failed at
+	# 1.54 degrees the next time an unrelated change shifted how many frames the
+	# earlier checks took, with nothing wrong with the rod.
+	#
+	# Setting the charge and re-syncing takes no time at all, so the hull is in
+	# exactly the same place for both readings and the only difference left is the
+	# one the check is about.
+	var was_charge: float = main.sim.charge
+	main.sim.charge = 0.05
+	main._sync()
 	var bend_early: float = main.rod_bend_degrees()
-	main.advance(0.5)
-	_t.gt(main.sim.charge, 0.8, "the charge did not reach the top")
+	main.sim.charge = 1.0
+	main._sync()
 	var bend_full: float = main.rod_bend_degrees()
+	main.sim.charge = was_charge
+	main._sync()
 	_t.lt(absf(bend_full - bend_early), 1.2,
 		"pulling the rod further back BENT it by %.2f degrees - a cast is a swing, not a load" % absf(bend_full - bend_early))
 

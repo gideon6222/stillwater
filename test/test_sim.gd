@@ -561,6 +561,81 @@ func test_playing_it_properly_lands_the_fish(t: TestHarness) -> void:
 	t.ok(landed, "playing both minigames correctly never lands anything")
 	t.gt(s.total_weight, 0.0, "a fish was counted but weighs nothing")
 
+## G3: BAIT IS READ IN THE MINIGAME, not in the waiting.
+##
+## It moved the BITE RATE and nothing else, so the right bait meant a shorter wait
+## and no difference at all once something was on. The wait is the one part of
+## this game the player is not watching closely, which made the whole bait economy
+## invisible: you bought sweetcorn, something bit sooner, and you never saw why it
+## was better.
+func test_the_right_bait_is_felt_on_the_float(t: TestHarness) -> void:
+	# Worms favour bluegill and do not favour carp - straight off the table, so
+	# this fails if the content changes under it rather than asserting a guess.
+	t.ok(Gear.favours("worm", "bluegill"), "worms no longer favour bluegill")
+	t.ok(not Gear.favours("worm", "carp"), "worms now favour carp")
+
+	var row := Species.by_id("bluegill")
+	var right := Sim.new(1)
+	right.econ.bait = "worm"
+	right.fish_id = "bluegill"
+	var wrong := Sim.new(1)
+	wrong.econ.bait = "worm"
+	wrong.fish_id = "carp"
+
+	t.gt(right.take_window_now(row), float(row["take_window"]),
+		"the right bait does not lengthen the take")
+	t.lt(wrong.take_window_now(Species.by_id("carp")),
+		float(Species.by_id("carp")["take_window"]),
+		"the wrong bait does not shorten the take")
+
+	# AND IT IS ONE NUMBER. The float's dip, the clock that runs the take and the
+	# judgement of a clean set all read this - scoring against the species' raw
+	# window while the float drew the adjusted one would grade the player on a
+	# window they never saw.
+
+	# ...AND THE JUDGEMENT USES IT TOO, which is the half a timer check cannot
+	# see. A strike is "clean" if it lands in the first 45% of the take, so pick
+	# the one moment the two windows DISAGREE about: with a bluegill's 0.85 s
+	# stretched to 1.32 by worms, a strike with 0.60 s left is late (0.60 is under
+	# 55% of 1.32) but would read as clean against the raw window (0.60 is over
+	# 55% of 0.85). Scoring against a window the float never drew is exactly the
+	# bug, and only a case the two disagree about will catch it.
+	var judged := Sim.new(1)
+	judged.econ.bait = "worm"
+	judged.fish_id = "bluegill"
+	judged.fish_weight = 0.2
+	judged.cast_distance = 10.0
+	judged.state = Sim.NIBBLING
+	judged.taking = true
+	judged.in_tug = true
+	judged.takes_left = 1
+	judged.tug_timer = 0.60
+	judged._strike()
+	t.lt(judged.tension, Tuning.SAFE_LO + 0.0001,
+		"a late strike was graded clean against a window the player never saw")
+
+	# MORE TEASES BEFORE IT COMMITS, so the right bait is a richer read rather
+	# than merely an easier one.
+	# THE SAME FISH AND THE SAME SEED, with the bait as the only difference.
+	#
+	# The first version compared a bluegill on worms against a CARP on worms and
+	# asserted the first teased more. That is two species with two base tease
+	# counts and two RNG draws: it compared everything except the thing it was
+	# about, and it duly reported 3 against 3.
+	var teasy := Sim.new(7)
+	teasy.econ.bait = "worm"          ## favours bluegill
+	teasy.fish_id = "bluegill"
+	teasy._start_nibble()
+	var plain := Sim.new(7)
+	plain.econ.bait = "corn"          ## does not
+	plain.fish_id = "bluegill"
+	plain._start_nibble()
+	t.ok(not Gear.favours("corn", "bluegill"),
+		"sweetcorn now favours bluegill, so this comparison tests nothing")
+	t.gt(teasy.teases_left, plain.teases_left,
+		"a fish that wants what you are offering does not play with it any longer")
+
+
 
 ## G2: THE FISH IS IN YOUR HANDS UNTIL YOU DECIDE.
 ##

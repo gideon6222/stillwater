@@ -512,6 +512,25 @@ func _arm_bite() -> void:
 	var u := clampf(_rng.next(), 0.0001, 0.9999)
 	bite_in = -log(u) / rate
 
+## HOW LONG THE TAKE LASTS, with the bait on the hook accounted for.
+##
+## G3. The species' own `take_window` is the baseline; the right bait stretches it
+## by half again and the wrong bait shortens it. That is the whole of "bait that
+## visibly matters": the window is the thing the player is timing their strike
+## against, so this is felt on every single fish rather than read off a number.
+##
+## Public and pure, because the renderer draws the float's dip from the same
+## number the rules score the strike against - one source, so the float cannot
+## show a window the game is not honouring.
+func take_window_now(s: Dictionary) -> float:
+	var base := float(s.get("take_window", 0.5))
+	if fish_id == "":
+		return base
+	if Gear.favours(econ.bait, fish_id):
+		return base * (1.0 + Tuning.BAIT_TAKE_BONUS)
+	return base * Tuning.BAIT_WRONG_TAKE
+
+
 
 ## MINIGAME 1 begins. The fish is on the bait but has not committed.
 ##
@@ -524,6 +543,11 @@ func _start_nibble() -> void:
 		_enter(WAITING)
 		return
 	teases_left = Species.tease_count(s, _rng.next())
+	# G3: A FISH THAT WANTS WHAT YOU ARE OFFERING PLAYS WITH IT FIRST. One more
+	# tug before it commits, which is a longer read and more chances to get it
+	# wrong - the right bait makes the nibble richer rather than merely easier.
+	if Gear.favours(econ.bait, fish_id):
+		teases_left += int(Tuning.BAIT_TEASE_BONUS)
 	# The prize fish of each band give ONE take and no second chance; everything
 	# else gives two. Written as a species field rather than a constant so the
 	# forgiveness is content, and the hardest fish can be genuinely unforgiving
@@ -552,7 +576,7 @@ func _nibble(dt: float) -> void:
 	tug_timer -= dt
 
 	if in_tug:
-		var span: float = float(s["take_window"]) if taking else Tuning.TEASE_TIME
+		var span: float = take_window_now(s) if taking else Tuning.TEASE_TIME
 		var depth: float = Tuning.TAKE_DEPTH if taking else Tuning.TEASE_DEPTH
 		# A quick pull under and a slower recovery, which is what a float does.
 		var k := 1.0 - clampf(tug_timer / maxf(0.001, span), 0.0, 1.0)
@@ -595,7 +619,7 @@ func _nibble(dt: float) -> void:
 	in_tug = true
 	taking = teases_left <= 0
 	teases_left -= 1
-	tug_timer = float(s["take_window"]) if taking else Tuning.TEASE_TIME
+	tug_timer = take_window_now(s) if taking else Tuning.TEASE_TIME
 
 
 ## The strike. The first tap, and the whole of minigame 1.
@@ -615,7 +639,11 @@ func _strike() -> void:
 	# Striking early in the take is a clean set, and it is worth something the
 	# player FEELS rather than reads: the fight opens with the needle already in
 	# the band instead of below it.
-	var span: float = maxf(0.001, float(s["take_window"]))
+	# THE SAME WINDOW THE TIMER RAN AND THE FLOAT DREW. Reading the species' raw
+	# `take_window` here while the other two used the bait-adjusted one would score
+	# a clean set against a window the player never saw - the drawn dip, the clock
+	# and the judgement have to be one number.
+	var span: float = maxf(0.001, take_window_now(s))
 	var into := 1.0 - clampf(tug_timer / span, 0.0, 1.0)
 	var perfect := into <= Tuning.HOOK_PERFECT
 

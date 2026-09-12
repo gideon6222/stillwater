@@ -73,6 +73,23 @@ const TEASE_DEPTH := 0.34         ## how far, relative to a real take
 const TUG_GAP_MIN := 0.42         ## still water between tugs
 const TUG_GAP_MAX := 0.95
 const TAKE_DEPTH := 1.0
+## G3: WHAT THE RIGHT BAIT IS WORTH, and it is worth it where the player is
+## already looking.
+##
+## Bait moved the BITE RATE and nothing else, so the right bait meant a shorter
+## wait and no difference at all once something was on. The wait is the one part
+## of this game the player is not watching closely, which made the whole bait
+## economy invisible: you bought sweetcorn, something bit sooner, and you never
+## saw why it was better.
+##
+## It moves the NIBBLE now - the take is longer and there are more teases before
+## it - so the right bait is read in the minigame the player is already staring
+## at. A fish that wants what you are offering plays with it first and then takes
+## it properly, which is also what actually happens.
+const BAIT_TAKE_BONUS := 0.55     ## longer take window, as a fraction, on the right bait
+const BAIT_TEASE_BONUS := 1.0     ## and about one more tease before it commits
+const BAIT_WRONG_TAKE := 0.72     ## ...and a shorter one on bait it does not want
+
 const HOOK_PERFECT := 0.45        ## fraction of the take window that is a clean set
 const HOOK_PERFECT_BONUS := 0.22  ## tension the fight starts with, on a clean set
 
