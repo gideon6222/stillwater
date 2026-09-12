@@ -652,6 +652,38 @@ shot mode that stops the clock inside it rather than reporting that it is hard t
 over the side), `stow` (the port side), `chart`, `well`, and a sixth argument that names the
 spot so each landmark can be photographed.
 
+## The bot that holds a thumb (2026-09-12)
+
+**`scripts\movie.ps1 -Seconds 30 -Name policy-angler -UserArgs policy=angler` films any
+build being PLAYED, through the real buttons.** The template's policy driver could only
+drag, and this game is played entirely by pressing and holding one button, so the template
+grew a second, optional contract and this game was the first to pay it: `bot_touch_pixels`
+returns where the thumb is down (or `Vector2.INF` for up) and the driver turns the edges into
+real touches on finger 1. What it taught:
+
+- **`Policies.act` is now `apply(wants(...))`.** The filmed bot reads the verb and presses
+  the button that calls the sim; the balance bots read the same verb and call the sim. One
+  decision, two seams, and the gate asserts asking never changes `state_snapshot()`.
+- **A one-frame press needs an explicit lift frame.** Strike and Keep are presses; the reel
+  that follows a strike is a hold on the SAME button. Without `bot_lift` in `mem` the thumb
+  never came up, no second `button_down` fired, and the fish was never reeled - the film
+  showed a caption reading Reel over a thumb that was already there.
+- **The bot reads the caption.** At "No room" or "Too big" the sim's `keep_fish` would put
+  the object down but the button refuses, so the bot takes the other door, like a player.
+- **The front door is pressed, not bypassed.** `TitleScreen.entry_button()` is Continue when
+  there is a save and New game when there is not.
+- **Off-tree, a container's children have no size and anchored controls report offsets.**
+  The pure suite boots `main.tscn` without a tree (1.3 s) and `has_point` against the title's
+  button failed on a zero-size rect at `(150, -760)`. The test asserts WHICH button the bot
+  reached for; whether a press lands inside it is the film's job.
+- **The pure suite is 15 s, not the "~1 s" `CLAUDE.md` claimed.** Measured per file:
+  `test_golden.gd` 10.3 s, `test_replay_policy.gd` 2.7 s, everything else under 0.6 s
+  together. The seam run stops at the first landed fish for that reason.
+- **The intro's "look around" beat stalls a filmed bot on a fresh save.** No policy looks,
+  and the stick is the only way to look, so the hint stays up. Harmless to the film and
+  noted rather than fixed: a bot that wiggles a stick to satisfy a tutorial is a bot lying
+  about the player.
+
 ## Open
 
 **The list moved to `PLAN.md` section 12**, which is now the milestone checklist the

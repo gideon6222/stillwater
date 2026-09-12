@@ -23,6 +23,7 @@ const WARM := Color(0.88, 0.72, 0.40)
 
 var _root: Control
 var _continue: Button
+var _new: Button
 var _fade := 1.0
 var _dismissing := false
 
@@ -38,6 +39,16 @@ func setup(has_save: bool) -> void:
 
 func is_up() -> bool:
 	return _root != null and _root.visible
+
+
+## The button a player presses to go out: Continue when there is a game to
+## continue, New game when there is not. The filmed bot crosses the front door
+## through this, with a press, because a scenario that bypassed the title would
+## be a film of a game nobody launched.
+func entry_button() -> Button:
+	if _continue != null and not _continue.disabled:
+		return _continue
+	return _new
 
 
 ## Fade the layer out rather than switching it off, so the game does not begin
@@ -135,9 +146,9 @@ func _build() -> void:
 	_continue.pressed.connect(func() -> void: start_continue.emit())
 	col.add_child(_continue)
 
-	var fresh := _button("New game", false)
-	fresh.pressed.connect(func() -> void: start_new.emit())
-	col.add_child(fresh)
+	_new = _button("New game", false)
+	_new.pressed.connect(func() -> void: start_new.emit())
+	col.add_child(_new)
 
 	var settings := _button("Settings", false)
 	settings.pressed.connect(func() -> void: open_settings.emit())

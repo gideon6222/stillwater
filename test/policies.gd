@@ -99,6 +99,27 @@ const CHARGE_HOLD := 0.55
 ## The default stays only so the memoryless policies remain callable in
 ## isolation. If you are stepping a session, hold a dict.
 static func act(name: String, s: Sim, dt: float, mem: Dictionary = {}) -> void:
+	apply(wants(name, s, dt, mem), s)
+
+
+## THE DECISION, SEPARATE FROM THE ACT. What the named policy would do this
+## frame, as a verb, and the simulation is not touched to find out.
+##
+## `act` is `apply(wants(...))`, so the bots the suite measures and the bot that
+## holds a thumb on a filmed run (`Main.bot_touch_pixels`) cannot disagree: one
+## reads the verb and calls the sim, the other reads the same verb and presses
+## the button that calls the sim. A filmed bot that asked by ACTING would take
+## the shortcut and film it, which is the one thing the seam exists to stop.
+const HOLD := "hold"            ## press the cast button and keep it down
+const RELEASE := "release"      ## let the cast button go: the throw
+const STRIKE := "strike"        ## one press: set the hook
+const REEL := "reel"            ## hold the button: reel
+const SLACK := "slack"          ## thumb off: let the fish run
+const KEEP := "keep"            ## one press: into the livewell
+const PUT_BACK := "put_back"    ## one press on the other button
+const NOTHING := ""
+
+static func wants(name: String, s: Sim, dt: float, mem: Dictionary) -> String:
 	match s.state:
 		Sim.HOLDING:
 			# G2: THE FISH IS IN YOUR HANDS AND SOMEBODY HAS TO DECIDE.
@@ -115,22 +136,44 @@ static func act(name: String, s: Sim, dt: float, mem: Dictionary = {}) -> void:
 			# An object is not a decision - `keep_fish` puts it down. A fish that
 			# will not fit has to go back.
 			if s.fish_id == "" or s.econ.can_keep(s.fish_weight):
-				s.keep_fish()
-			else:
-				s.return_fish()
+				return KEEP
+			return PUT_BACK
 		Sim.IDLE, Sim.LOST:
-			s.hold_cast()
+			return HOLD
 		Sim.CHARGING:
 			if s.state_time >= CHARGE_HOLD:
-				s.release_cast()
+				return RELEASE
+			return NOTHING
 		Sim.NIBBLING:
 			if _should_strike(name, s, mem):
-				s.tap()
+				return STRIKE
+			return NOTHING
 		Sim.FIGHTING:
 			# HOLD, rather than tap. The bots are the model of a player, so when
 			# the control changed they had to change with it - a bot still
 			# tapping would have measured a game nobody can play any more.
-			s.set_reeling(_should_reel(name, s, dt, mem))
+			return REEL if _should_reel(name, s, dt, mem) else SLACK
+		_:
+			return NOTHING
+
+
+## The verb, done to the sim through the same seam a thumb uses.
+static func apply(verb: String, s: Sim) -> void:
+	match verb:
+		HOLD:
+			s.hold_cast()
+		RELEASE:
+			s.release_cast()
+		STRIKE:
+			s.tap()
+		REEL:
+			s.set_reeling(true)
+		SLACK:
+			s.set_reeling(false)
+		KEEP:
+			s.keep_fish()
+		PUT_BACK:
+			s.return_fish()
 		_:
 			pass
 

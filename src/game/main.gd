@@ -2544,6 +2544,103 @@ func play(name: String, seconds: float, step: float = 1.0 / 60.0) -> void:
 		_tick(step)
 
 
+# --- the bot that holds a thumb --------------------------------------------
+
+## THE FILMED-POLICY SEAM. `scripts/replay_player.gd policy=<name>` asks these
+## every physics frame and pushes REAL input events at the viewport, so a film of
+## a bot playing is evidence about the buttons and not only about `Sim`. `play`
+## above drives the sim through `Policies.act`; this drives the picture through
+## the cast button, and the two must land the same fish or a button has come
+## unplugged (`test/test_replay_policy.gd`).
+##
+## This game is played by pressing and holding, not by dragging: the cast button
+## loads and throws, the same button strikes and reels, and a second button puts
+## a fish back. So the drag seam is honest about having nothing to say, and the
+## touch seam is where the play is.
+##
+## Nothing here may move the simulation. `Policies.wants` is the read-only half
+## of `Policies.act` for exactly that reason.
+
+## Nobody in `Policies` looks around, so no policy ever wants a drag. Loud on a
+## bad span all the same, so a driver with an unresolved viewport says so rather
+## than filming a run that quietly never started.
+func bot_drag_pixels(_policy: String, _mem: Dictionary, span: float) -> Vector2:
+	if span <= 0.0:
+		push_error("bot_drag_pixels was given a screen width of %f - the viewport is not resolved" % span)
+	if sim == null:
+		push_error("bot_drag_pixels was called before the sim existed - call freeze() or let _ready run first")
+	return Vector2.ZERO
+
+
+## Where the thumb is DOWN this frame, in viewport pixels, or `Vector2.INF` for
+## up. The driver turns the edges into presses and releases.
+##
+## A one-frame press is a point now and INF next frame - `bot_lift` in `mem` -
+## so the button sees a down AND an up, and the press that follows it on the
+## same button (a strike, then the hold that reels) is a new press rather than a
+## thumb that never lifted.
+func bot_touch_pixels(policy: String, mem: Dictionary, _size: Vector2) -> Vector2:
+	if sim == null:
+		push_error("bot_touch_pixels was called before the sim existed - call freeze() or let _ready run first")
+		return Vector2.INF
+	if bool(mem.get("bot_lift", false)):
+		mem["bot_lift"] = false
+		return Vector2.INF
+	# THE FRONT DOOR, crossed like a player: the title's own button, once.
+	if _title != null and _title.is_up():
+		return _bot_press_once(_title.entry_button(), mem)
+	# 1/60 is the physics step the driver calls at, and what the policies'
+	# reaction latches count in.
+	var verb := Policies.wants(policy, sim, 1.0 / 60.0, mem)
+	match verb:
+		Policies.HOLD:
+			# The button says Select over a thing in the boat, and pressing it
+			# would open a room. A bot waits for the water, as a player would
+			# look back at it.
+			if not _over_water_shown:
+				return Vector2.INF
+			return _bot_centre(_action)
+		Policies.REEL:
+			return _bot_centre(_action)
+		Policies.STRIKE:
+			return _bot_press_once(_action, mem)
+		Policies.KEEP:
+			# THE CAPTION IS READ. The sim's `keep_fish` puts an object down that
+			# the button refuses, so a bot that pressed Keep at "No room" would
+			# hold the state open forever - it takes the other door, like a
+			# player reading the wall.
+			var says := _action_for_state()
+			if says == "No room" or says == "Too big":
+				return _bot_press_once(_back, mem)
+			return _bot_press_once(_action, mem)
+		Policies.PUT_BACK:
+			return _bot_press_once(_back, mem)
+		Policies.RELEASE, Policies.SLACK:
+			return Vector2.INF
+		_:
+			# Nothing to decide - except that a loaded rod is HELD, and letting
+			# go of it is the throw.
+			if sim.state == Sim.CHARGING:
+				return _bot_centre(_action)
+			return Vector2.INF
+
+
+## True while a bot may drive. Off during a sequence (any touch would cut it),
+## inside a room (the buttons mean other things there) and while backgrounded.
+func bot_can_drive() -> bool:
+	return sim != null and not paused and not _in_sequence \
+		and not _reading and not _at_box and not _at_chart and not _in_shed
+
+
+func _bot_centre(c: Control) -> Vector2:
+	return c.get_global_rect().get_center()
+
+
+func _bot_press_once(c: Control, mem: Dictionary) -> Vector2:
+	mem["bot_lift"] = true
+	return _bot_centre(c)
+
+
 # --- drawing --------------------------------------------------------------
 
 func _sync() -> void:

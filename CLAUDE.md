@@ -33,6 +33,7 @@ scripts\check.ps1 -Export             # ...and export the APK, then check its si
 
 scripts\movie.ps1 -Seconds 10 -Name idle                      # film the attract state
 scripts\movie.ps1 -Replay test\replays\first-cast.json -Seconds 20   # film a scripted run
+scripts\movie.ps1 -Seconds 30 -Name policy-angler -UserArgs policy=angler   # film a bot playing through the real buttons
 godot --path . --resolution 460x996 -- record=test/replays/<name>.json touch   # record one
 
 scripts\device.ps1 install | launch | log | shot | record 30 | perf   # the phone, over adb
@@ -42,7 +43,7 @@ scripts\device.ps1 install | launch | log | shot | record 30 | perf   # the phon
 $godot = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\GodotEngine.GodotEngine_Microsoft.Winget.Source_8wekyb3d8bbwe\Godot_v4.7.2-stable_win64_console.exe"
 
 & $godot --headless --path . --import                                   # after adding files
-& $godot --headless --path . --script res://test/run_tests.gd           # pure tests, ~1s
+& $godot --headless --path . --script res://test/run_tests.gd           # pure tests, ~15 s (the golden is 10 s of it)
 & $godot --headless --path . --script res://test/run_smoke.gd           # boots the real scene
 & $godot --headless --path . --export-debug "Android" build/stillwater.apk
 & $godot --headless --path . --script res://scripts/check_size.gd       # size guard
@@ -88,7 +89,8 @@ something to read.
 | `scripts/check.ps1` | **The local gate.** Everything that runs on the desk, fastest failure first |
 | `scripts/movie.ps1` | Films a deterministic run into a contact sheet. Movie Maker mode, fixed fps |
 | `scripts/device.ps1` | The phone over adb: install, launch, log, shot, record, perf, poke |
-| `scripts/replay_player.gd` | The `ReplayPlayer` autoload. Records and replays touches by physics frame |
+| `scripts/replay_player.gd` | The `ReplayPlayer` autoload. Records and replays touches by physics frame, and `policy=<name>` drives a bot through `Main.bot_touch_pixels` |
+| `test/test_replay_policy.gd` | Gates the bot seam: a fish lands through the real buttons, and asking never moves the sim |
 | `scripts/probe_prop.gd` | Prints an imported prop's mesh names and real bounds in metres |
 | `test/replays/` | Recorded touch scenarios for `movie.ps1`. `idle.json` is empty on purpose |
 
