@@ -50,7 +50,7 @@ const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", 
 ## which was quietly resetting a page turn between setting it up and
 ## photographing it. Three separate real bugs were chased before the tool turned
 ## out to be one of them.
-const MID_ACTION := ["turn", "inshed", "hull", "stow", "chart"]
+const MID_ACTION := ["turn", "inshed", "hull", "stow", "chart", "cast", "throw"]
 
 
 func _initialize() -> void:
@@ -204,6 +204,29 @@ func _initialize() -> void:
 		while t < _seconds and _main._in_sequence:
 			_main.advance(1.0 / 60.0, 1.0 / 60.0)
 			t += 1.0 / 60.0
+	elif _until == "cast" or _until == "throw":
+		# MID-CAST. The rod loaded is a state a screenshot cannot otherwise catch
+		# (a bot releases at 0.55 s), and it is the whole of B8 - the hands back
+		# past the shoulder. `-- 1.3 cast` is full charge; `-- 0.55 cast` is a
+		# playing hold; `-- 1.3 throw` stops 0.08 s into the release, at the
+		# whip. Two MODES rather than a third argument, because the third
+		# argument is the HOUR and "throw" became the time of day. The generic
+		# play loop below is skipped, or HUMAN would throw the cast before the
+		# shutter.
+		if _main._title != null:
+			_main._title.skip()
+		_main.sim.hold_cast()
+		var ct := 0.0
+		while ct < _seconds:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+			ct += 1.0 / 60.0
+		if _until == "throw":
+			_main.sim.release_cast()
+			for i in 5:
+				_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		print("cast: state %s  charge %.2f  butt at %s  pitch %.1f" % [
+			_main.sim.state, _main.sim.charge, _main._rod.position, _main._rod.rotation_degrees.x])
+		_seconds = 0.0
 	elif _until == "title":
 		if _main._title != null:
 			_main._title.show_again()

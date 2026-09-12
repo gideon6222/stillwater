@@ -1217,7 +1217,7 @@ only here. A resuming session works from the first unticked box.
 - [x] **B5 The stick is the only way to turn.** Swiping no longer looks. The charge-cancel survives, so a brushed thumb cannot fire a cast
 - [x] **B6 A seated person can look down.** The pitch limit is asymmetric: 57° down, 23° up
 - [ ] **B7 Hands.** There is a rod and no one holding it. Two low-poly hands on the grip, and the near one leaves to tap
-- [ ] **B8 The cast is a body movement.** The rod comes back past the shoulder, so the butt moves and not only the tip
+- [x] **B8 The cast is a body movement.** The rod comes back past the shoulder, so the butt moves and not only the tip. *Done 2026-09-12: the hands travel with the same spring that swings the rod - 0.25 m back and 0.10 m up at full charge, a little the other way on the throw - so the two cannot disagree. `run_smoke.gd` asserts the butt's position at rest, at full charge and after the landing; `shot.gd -- 1.3 cast` and `-- 1.3 throw` photograph it*
 
 ## Phase R — the rooms as objects (§9.4, §9.6). *"You actually pick up and view the log book"*
 

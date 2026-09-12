@@ -723,6 +723,19 @@ under 150, the peak over 200 and the tip under 0 - so raising the cap past the s
 threshold, or damping the whip away, both go red. `_ease_out` had no other caller and is
 gone. Still owed: F6 and F7 need the phone, which was not attached this session.
 
+**B8 rides on the same spring.** The butt's position is `ROD_MOUNT + CAST_HAND_TRAVEL *
+(swing / CAST_BACK)`: 0.25 m back and 0.10 m up at full lift, 3 cm forward on the throw. One
+state drives the rotation and the translation, so the hands cannot lead or trail the rod. At
+full charge the grip fills the bottom-right corner and the reel foot touches the Cast
+button's edge - photographed with `shot.gd -- 1.3 cast`; if that reads as crowded on the
+phone, `CAST_HAND_TRAVEL.z` is the one number. The smoke check waits for the LANDING before
+timing the settle: a full cast flies for 1.3 s with the hands held at the throw, and the
+first version measured 0.031 m of "hands not home" that was the flight, not the hands.
+
+`shot.gd` grew `cast` and `throw` modes for this. They are modes and not a third argument
+because the third argument is the hour, and `-- 1.3 cast throw` photographed a day whose
+time of day was "throw".
+
 ## Open
 
 **The list moved to `PLAN.md` section 12**, which is now the milestone checklist the

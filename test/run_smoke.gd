@@ -54,6 +54,7 @@ func _initialize() -> void:
 	_check_the_float_is_the_nibble_minigame(main)
 	_check_the_cast_is_a_swing_not_a_bend(main)
 	_check_the_cast_is_one_motion(main)
+	_check_the_cast_is_a_body_movement(main)
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
@@ -892,6 +893,44 @@ func _check_the_cast_is_one_motion(main) -> void:
 		"the throw peaks at only %.0f deg/s - the smoothing turned the whip into a lever" % peak)
 	_t.lt(highest, 0.0,
 		"the tip went through horizontal (%.1f degrees) during the cast, overshoot included" % highest)
+
+
+## B8: THE CAST IS A BODY MOVEMENT.
+##
+## "So it doesn't look like a person is actually sitting in it." A rod that only
+## pivoted about a fixed butt was a hinge bolted to the boat. A held rod moves at
+## both ends: loading a cast brings the hands back past the shoulder and up, and
+## the throw carries them forward again. Asserted on the butt's POSITION, which
+## nothing else in the suite reads - the rotation checks above would pass with the
+## hands nailed to the thwart.
+func _check_the_cast_is_a_body_movement(main) -> void:
+	_t.begin("smoke > loading a cast brings the hands back, and the throw brings them home")
+	main.freeze(1)
+	var butt: Node3D = main._rod
+	var rest: Vector3 = main.ROD_MOUNT
+	_t.lt(butt.position.distance_to(rest), 0.01,
+		"at rest the hands are %s, not at the mount %s" % [butt.position, rest])
+	main.sim.hold_cast()
+	main.advance(1.3)
+	_t.eq(main.sim.state, Sim.CHARGING, "the rod is not loaded")
+	var loaded: Vector3 = butt.position
+	_t.lt(loaded.z, rest.z - 0.15,
+		"at full charge the hands came back only %.2f m - the butt is still bolted to the boat" % (rest.z - loaded.z))
+	_t.gt(loaded.y, rest.y + 0.05,
+		"at full charge the hands rose only %.2f m" % (loaded.y - rest.y))
+	main.sim.release_cast()
+	# The hands hold the throw until the lure LANDS - a full cast flies for
+	# 1.3 s - and only then drift home, so wait for the landing before timing
+	# the settle. Measured at CAST_SWING_TIME + CAST_SETTLE_TIME + 0.6 from the
+	# release, this reported 0.031 m and it was the flight, not the hands.
+	var guard := 0
+	while main.sim.state == Sim.FLYING and guard < 240:
+		main.advance(1.0 / 60.0)
+		guard += 1
+	_t.ok(main.sim.state != Sim.FLYING, "the cast never landed, so the settle was never timed")
+	main.advance(main.CAST_SETTLE_TIME + 0.6)
+	_t.lt(butt.position.distance_to(rest), 0.015,
+		"after the throw the hands settled %.3f m from the mount instead of coming home" % butt.position.distance_to(rest))
 
 
 ## THE THREE THINGS GIDEON ASKED TO SEE AND FEEL.

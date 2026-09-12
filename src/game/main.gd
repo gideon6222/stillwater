@@ -271,6 +271,15 @@ const SWING_DAMPING := 0.8     ## a touch under-damped: a rod tip overshoots, th
 ## bounds the reversal to a ramp. 7200 is 120 deg/s per frame at 60 Hz.
 const SWING_ACCEL_MAX := 7200.0
 
+## THE CAST IS A BODY MOVEMENT (B8). The rod is held, and a hand loading a
+## cast comes back past the shoulder, so the BUTT moves and not only the tip.
+## `ROD_MOUNT` is where the hands rest (measured, see _build_rod), and
+## `CAST_HAND_TRAVEL` is how far they go at full lift: back toward the chest
+## and up, in boat metres. The throw carries them a little the other way,
+## because the same swing drives both - one state, so they cannot disagree.
+const ROD_MOUNT := Vector3(-0.08, 0.96, 1.38)
+const CAST_HAND_TRAVEL := Vector3(0.0, 0.10, -0.25)
+
 ## How much taller than life the sounder draws whatever is standing on the bed.
 ## See the note in `_draw_sounder`: a real sounder exaggerates for exactly this
 ## reason, and the steeple has to be a STEEPLE on a phone screen.
@@ -1068,7 +1077,7 @@ func _build_rod() -> void:
 			# the middle distance, the reel sits just inside the Reel button where
 			# the thumb already is, and the water stays clear. `run_smoke.gd`
 			# guards the whole rod staying in frame.
-			seg.position = Vector3(-0.08, 0.96, 1.38)
+			seg.position = ROD_MOUNT
 			seg.rotation_degrees = Vector3(ROD_REST, 0, 9)
 			_rod = seg
 			seg.name = "Rod"
@@ -3062,6 +3071,10 @@ func _sync_rod() -> void:
 			# are down-positive, and `back` is a lift, so it subtracts.
 			_rod_chain[i].rotation_degrees = Vector3(
 				ROD_REST - back + share + lag_share, whip_share + _rod_yaw, 9.0)
+			# AND THE HANDS COME BACK WITH IT (B8). A rod that only pivoted about
+			# a fixed butt was a hinge bolted to the boat; a held rod moves at
+			# both ends, and the hands travel with the same swing.
+			_rod_chain[i].position = ROD_MOUNT + CAST_HAND_TRAVEL * (back / CAST_BACK)
 		else:
 			_rod_chain[i].rotation_degrees = Vector3(share + lag_share, whip_share, 0.0)
 	_update_rod_tip()
