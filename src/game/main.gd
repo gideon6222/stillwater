@@ -99,6 +99,7 @@ var _slide_raw := 0.0
 var _slide_pos := 0.0
 var _slide_vel := 0.0
 var _slide_fade := 0.0   ## 0 is the Cast button, 1 is the slide
+var _slide_caption := "Reel" ## the slide's own word. Only a fight writes it
 var _slide_spoke := false ## the slide has set the reel and owes it a zero on lift
 var _stick_held := false
 var _stick_from := Vector2.ZERO
@@ -2077,13 +2078,21 @@ func _sync_bars() -> void:
 		_action.add_theme_color_override("font_color", tint)
 		_action.disabled = dead_select or (sim.state == Sim.HOLDING
 			and label == "Too big") or (sim.state == Sim.HOLDING and label == "No room")
-		_action.text = label
 		# THE BUTTON BECOMES THE SLIDE FOR THE FIGHT, and back. The R10 cross-fade,
 		# in the same corner, so the thumb never has to look for it: both are
 		# drawn through the fade and only the ends of it show one alone. The
 		# fade runs on the frame clock, so a harness that steps `_sync_bars`
 		# with no frame between sees the button until it steps.
 		var want_slide := sim.state == Sim.FIGHTING and not in_room
+		# ONE WORD PER CONTROL. The film of F2.6 showed the ghost of the button
+		# and the new slide both saying "Reel" for six frames after the strike,
+		# and a second faint "Cast" under the button at the landing: both ends
+		# of the fade were computing their caption from the state. The control
+		# that is leaving keeps the word it left with.
+		if want_slide:
+			_slide_caption = label
+		else:
+			_action.text = label
 		var k := 1.0 - exp(-_boat_dt / maxf(0.01, SLIDE_FADE))
 		_slide_fade = lerpf(_slide_fade, 1.0 if want_slide else 0.0, k)
 		if absf(_slide_fade - (1.0 if want_slide else 0.0)) < 0.01:
@@ -2744,7 +2753,7 @@ func _draw_slide() -> void:
 	# The caption on the knob, which is the telegraph: Reel, or Ease when the
 	# fish is about to pull, in the warm-going-cold tint the button used.
 	var tint := Color(0.99, 0.80, 0.44) if pulling else Color(0.96, 0.90, 0.76)
-	_slide.draw_string(font, Vector2(0.0, knob.y + half * 0.78), _action_for_state(),
+	_slide.draw_string(font, Vector2(0.0, knob.y + half * 0.78), _slide_caption,
 		HORIZONTAL_ALIGNMENT_CENTER, w, 30, tint)
 
 

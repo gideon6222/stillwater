@@ -965,6 +965,32 @@ func _check_the_slide_is_the_reel(main) -> void:
 	_t.ok(not slide.visible, "the slide is still up with nothing on the line")
 	_t.ok(main._action.visible, "the Cast button did not come back after the fight")
 
+	# F2.6, FROM THE FILM: A FADING CONTROL KEEPS ITS LAST WORD. Both ends of the
+	# cross-fade computed their caption from the state, so for six frames after
+	# the strike the ghost of the button and the new slide BOTH said "Reel", and
+	# at the landing a second faint "Cast" hung under the button. One word per
+	# control: the button's word is written only while the button is the
+	# control, the slide's only while the slide is.
+	main.sim.state = Sim.NIBBLING
+	for i in 60:
+		main._sync_bars()
+	_t.eq(main._action.text, "Strike", "the bite does not offer Strike")
+	main.sim.state = Sim.FIGHTING
+	main._sync_bars()
+	_t.gt(main._action.modulate.a, 0.05, "the button is gone the frame the fight starts, so nothing cross-fades")
+	_t.eq(main._action.text, "Strike",
+		"the fading button says '%s': two controls say the fight's word at once" % main._action.text)
+	_t.eq(main._slide_caption, "Reel", "the slide does not take the fight's word as it fades in")
+	for i in 60:
+		main._sync_bars()
+	main.sim.state = Sim.IDLE
+	main._sync_bars()
+	_t.eq(main._action.text, "Cast", "the returning button does not take the lake's word")
+	_t.eq(main._slide_caption, "Reel",
+		"the fading slide says '%s': two controls say the lake's word at once" % main._slide_caption)
+	for i in 60:
+		main._sync_bars()
+
 	# Anchored to the bottom-right, where the thumb is, and never past the
 	# gesture bar: the control's bottom edge is at or above SAFE_BOTTOM, and the
 	# knob at full give - rest minus SLIDE_DOWN, plus a radius - clears it too.

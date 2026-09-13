@@ -904,6 +904,48 @@ Tolerances that had to be measured rather than typed: the drag's "silent" is und
 under a millionth, because the crank's exponential tail sits at a quarter of a percent two
 thirds of a second after the thumb lifts and no ear hears that.
 
+## The face of it, filmed (F2.6, 2026-09-12)
+
+The bot (`policy=angler`) filmed through a whole fight at 30 fps, 45 s, and read at tile
+spacings of 4 frames (0.13 s) round the strike, the run and the landing, with the slide and
+the gauge cropped out at full size. `build/movie/policy-fight` is the first film,
+`policy-fight-2` the one after the fix. The six questions, and what changed:
+
+1. **Feedback in the same frame.** The knob's handle turns between every 4-frame tile while
+   the thumb is up (frames 600 to 628: about 45 degrees a tile, a steady crank), turns the
+   other way slowly while it is down (632 to 676), and the gauge's fill follows the tension
+   with no lag the eye can find: 80 % at frame 630, 60 % at 640, 35 % at 650, empty at 660
+   while the bot eases through the run, 80 % again at 670 and the fill gone pink and full at
+   690 as it cranks back into the danger band. Yes.
+2. **Speed and coasting.** The bot's thumb is a step function, so the knob jumps from the top
+   of the slot to the bottom between frames 628 and 632. That is the bot, not the control:
+   `SLIDE_ACCEL_MAX` caps the return spring, not a held thumb, and a human thumb moves at
+   thumb speed. Left alone, and noted so the next reader does not chase it.
+3. **Pop-in and layering. Found and fixed.** The cross-fade at the strike (frames 382 to 398)
+   showed the ghost of the outgoing button AND the incoming slide both captioned "Reel" for
+   six frames, and at the landing (frame 934) a second faint "Cast" hung under the button
+   while the slide faded out. Both ends of the fade computed their caption from the state.
+   Now each control's word is written only while it is the live control (`_slide_caption`
+   for the slide, `_action.text` for the button) and the one leaving keeps the word it left
+   with. Asserted in the smoke suite one frame into each fade; reintroducing the bug fails
+   both claims.
+4. **The short states.** "watch the float" at frame 360 with the Strike button up, then
+   "slide up to reel - ease down when it pulls" through the fight, "it is running - hold on
+   if the rod can take it" at the run (frame 660) with the knob captioned Ease in the warm
+   tint, and "Back it goes." after the landing. Every state names its verb.
+5. **The first-minute win and the next goal.** Hooked at 12.6 s from the title, landed at
+   about 31 s, "Back it goes" (undersize) and the Cast button returned with the aim hint.
+   The counter at the top reads as a small measurement over the sky and the gauge is the
+   thing the eye lands on: the hierarchy he asked for.
+6. **A frame where the player would not know what to do.** None in this run. The nearest is
+   the empty gauge at frame 660 while the fish runs: the bot has eased fully and the fill has
+   gone to nothing, which is the model doing what "giving line is always safe" promises. A
+   human would ease less and keep some fill; the caption says Ease and the pull says why.
+
+The 1/60 s tiles the plan asked for became 1/30 s: the film is 30 fps because the movie
+writer's cost is per frame and a 45 s fight at 60 fps is an hour on this PC. Nothing in the
+morph is shorter than two of those frames.
+
 ## Playtest 2026-09-12 (phone, Galaxy S26 Ultra, desk-exported APK)
 
 **Driven from the desk over adb** (`device.ps1 install / launch / perf / record 30 / tap /
