@@ -241,10 +241,12 @@ static func resist(power: float, stamina_left: float) -> float:
 	return minf(RESIST_MAX, 1.0 + RESIST_GAIN * power * power * clampf(stamina_left, 0.0, 1.0))
 
 
-## Where a held reel settles against a given fish. `HOLD_RISE * resist` is pushed
-## against a decay proportional to the tension itself, so this is the fixed point.
-static func hold_settle(power: float, stamina_left: float) -> float:
-	return HOLD_RISE * resist(power, stamina_left) / TAP_DECAY
+## Where the crank settles against a given fish, at a given speed. `HOLD_RISE *
+## resist * reel` is pushed against a decay proportional to the tension itself,
+## so this is the fixed point - and it scales with the crank, which is what makes
+## the dial a dial: half speed is half the settle.
+static func crank_settle(power: float, stamina_left: float, reel: float = 1.0) -> float:
+	return HOLD_RISE * resist(power, stamina_left) * clampf(reel, 0.0, 1.0) / TAP_DECAY
 
 ## What a running fish adds while you keep reeling into it. This is the give and
 ## take, and the number is measured rather than chosen: at 1.25 it crossed DANGER
@@ -290,7 +292,31 @@ const SAFE_HI := DANGER
 
 const TENSION_MAX := 1.0
 
-const REEL_RATE := 1.55           ## m/s gained while reeling in calm water
+const REEL_RATE := 1.55           ## m/s gained while reeling in calm water at full crank
+
+## THE SIXTH FIGHT: THE REEL IS A DIAL.
+##
+## Gideon, after holding the fifth: "Slide up and you reel in fast, hold in the
+## middle and you stop reeling while you fight the fish, slide down and you start
+## letting the fish back out. It should be a full progressive scale so you can
+## let in or out slowly to match what the fish is doing."
+##
+## `Sim.reel` is in [-1, 1] and its sign is the zone. Above zero the line winds
+## in and everything the fifth fight said about reeling scales with it: the
+## settle point is `crank_settle(power, stamina, reel)`, so a fish that cannot be
+## held at full crank can be worked at half. At zero the line is HELD: nothing
+## winds, nothing pays out, and a running fish pulls against it - holding is
+## fighting, and it brakes the run and tires the fish exactly as cranking into it
+## did. Below zero line PAYS OUT: tension falls fast, the run is not braked and
+## the pull does not load the line, and every metre given is a metre to win back.
+## Between the ends everything is proportional, which is the whole point.
+##
+## The crank has inertia, in the SIM rather than in the picture, so the golden
+## and the phone agree about it: a real reel does not stop dead, and a control
+## with no mass reads as a switch however fine its scale.
+const REEL_INERTIA := 0.12        ## seconds for the crank to follow the thumb
+const GIVE_RATE := 1.20           ## m/s of line paid out at full give
+const GIVE_RELIEF := 3.0          ## extra tension decay per second at full give, proportional
 
 ## HOLDING ON SLOWS THE RUN ITSELF. This is the gamble, and it had to stop being
 ## an additive reel term to become one.
@@ -315,7 +341,14 @@ const RUN_HOLD := 0.40            ## fraction of a run's gain cancelled by holdi
 ## on through runs parts the line eventually even if no single run does it. That
 ## is the sentence he actually wrote: "then eventually snaps, if you dont stop
 ## reeling."
-const STRAIN_RECOVER := 0.025
+## SLOWER AGAIN FOR THE SIXTH FIGHT, and measured (scripts/probe_dial.gd). With
+## a valve on the slide every bot surfs the danger line during a run; the one
+## that reads the water sits at strain 0.02-0.14 and the one that reads only the
+## rod carries 0.62-0.72 for the whole fight - and at 0.025 a second that washed
+## out between runs, so the blind player buzzed at the edge for two minutes and
+## landed the fish anyway. At 0.012 the strain a late thumb takes on each run
+## outlasts the calm between them, and "eventually" means this fight.
+const STRAIN_RECOVER := 0.012
 
 ## Runs. The needle climbs ON ITS OWN, so the correct answer is to STOP TAPPING -
 ## which is legible on a gauge in a way that no amount of instruction would be.

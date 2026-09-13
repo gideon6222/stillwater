@@ -2329,7 +2329,8 @@ func _cast_pressed() -> void:
 			# cast reels the fish, because they are the same gesture - press and
 			# hold, let go when you have enough - and one button that means "do
 			# the thing this moment wants" is the rule the caption already follows.
-			sim.set_reeling(true)
+			# F2.1: the button is the top of the slide until F2.3 builds the slide.
+			sim.set_reel(1.0)
 		_:
 			# Anything else: the button is a "reel in", and that happens on
 			# release so the press can still show as a press.
@@ -2338,7 +2339,7 @@ func _cast_pressed() -> void:
 
 func _cast_released() -> void:
 	if sim.state == Sim.FIGHTING:
-		sim.set_reeling(false)
+		sim.set_reel(0.0)
 		return
 	if _charging:
 		_charging = false
@@ -2648,8 +2649,12 @@ func bot_touch_pixels(policy: String, mem: Dictionary, _size: Vector2) -> Vector
 			if not _over_water_shown:
 				return Vector2.INF
 			return _bot_centre(_action)
-		Policies.REEL:
-			return _bot_centre(_action)
+		Policies.WORK:
+			# F2.1: the button is crank-or-hold until F2.3 builds the slide; a bot
+			# that wants to give line holds instead, and the film shows it.
+			if float(mem.get("reel", 0.0)) > 0.0:
+				return _bot_centre(_action)
+			return Vector2.INF
 		Policies.STRIKE:
 			return _bot_press_once(_action, mem)
 		Policies.KEEP:
@@ -2663,7 +2668,7 @@ func bot_touch_pixels(policy: String, mem: Dictionary, _size: Vector2) -> Vector
 			return _bot_press_once(_action, mem)
 		Policies.PUT_BACK:
 			return _bot_press_once(_back, mem)
-		Policies.RELEASE, Policies.SLACK:
+		Policies.RELEASE:
 			return Vector2.INF
 		_:
 			# Nothing to decide - except that a loaded rod is HELD, and letting
@@ -2845,10 +2850,12 @@ func _sync_play_camera(out: Vector3) -> void:
 func _sync_reel(dt: float) -> void:
 	if _reel_crank == null:
 		return
-	var turning := sim.state == Sim.FIGHTING and sim.reeling
-	if turning:
-		var rate := REEL_SPIN_RATE
-		if sim.running:
+	# SIGNED, and proportional: the handle turns forward as fast as the crank is
+	# worked and backward as line is given, so the reel says which way the line
+	# is going before the distance readout does.
+	if sim.state == Sim.FIGHTING and absf(sim.reel) > 0.001:
+		var rate := REEL_SPIN_RATE * sim.reel
+		if sim.running and sim.reel > 0.0:
 			rate *= REEL_SPIN_STALL
 		_reel_spin += rate * dt
 	_reel_crank.rotation.x = _reel_spin
@@ -3007,8 +3014,8 @@ func _sync_rod() -> void:
 			# clock of its own, so the tip and the handle cannot drift out of step
 			# - one turn of the handle is one pump, which is what makes the two
 			# read as the same action instead of two animations playing at once.
-			if sim.reeling:
-				bend += sin(_reel_spin) * REEL_PUMP
+			if sim.reel > 0.0:
+				bend += sin(_reel_spin) * REEL_PUMP * sim.reel
 		_:
 			pass
 

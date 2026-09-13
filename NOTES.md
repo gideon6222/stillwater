@@ -753,6 +753,60 @@ It is now GENERATED from the bot (`-UserArgs policy=angler,record=test/replays/f
 writes the bot's real touches out as a replay), so it cannot be typed against an old layout
 again. Regenerate it the same way whenever the buttons move.
 
+## The sixth fight: the model and the bots (F2.1, F2.2, 2026-09-12)
+
+**The model** (`Sim.reel` in [-1, 1], `Tuning.REEL_INERTIA` 0.12 s, `GIVE_RATE` 1.2 m/s,
+`GIVE_RELIEF` 3.0/s) is §4.3d of the plan, with one correction that was MEASURED rather
+than reasoned: the first cut loaded a held line during a run with the pull term only
+(`PULL_RISE * power²`), and with deep fish at run power 1.3-1.8 that is nothing - nobody
+ever broke a line, every deep loss was an escape, and the middle of the slide was free. A
+held line now carries the fish's whole resistance (`HOLD_RISE * resist * max(crank,
+held)`) plus the pull, which is exactly what "reeling into a run" cost in the fifth fight.
+The run's kick lands in proportion to how much line is held, so giving during the tell
+turns it into line rather than tension.
+
+**The instrument that set the bots is `scripts/probe_dial.gd`**: one deep fish, twelve
+seeds per bot, and per bot the outcomes, the fight length, peak tension, peak strain, metres
+given, metres the fish took, and the share of the fight spent over the danger line. Three
+things it caught that the land-rate table could not:
+
+- **With a valve, every bot surfs the danger line during a run**, so the one that reads the
+  water and the one that reads only the rod tied on fish. What separated them was STRAIN:
+  0.02-0.14 for the water-reader against 0.62-0.72 for the rod-reader - and at
+  `STRAIN_RECOVER` 0.025/s that washed out between runs, so a player who lived over the red
+  with the heavy buzz going landed the fish anyway. **0.012/s now**, so a late thumb's strain
+  outlasts the calm and "eventually snaps" means this fight.
+- **ANGLER gave line through the warning** and paid out a metre per tell for a fish that was
+  not yet pulling, then escaped a quarter of the Old Fish - the perfect player losing to
+  caution. It HOLDS at the tell now (the crank's tension decays off, the kick lands slack),
+  and its valve aims at `DANGER - 0.02` with a 0.06 span: the least line that keeps the rod
+  under the red, which is the most brake and the most tiring a run can be made to pay.
+- **HUMAN's hands were perfect.** With the valve reading the live tension, HUMAN tied ANGLER
+  (strain 0.14 against 0.10). Its slide now eases against a tension felt `HAND_LAG` 0.15 s
+  ago and shoves rather than trims (`HUMAN_SPAN` 0.06), so it over-corrects and pays in
+  ground. A first cut lagged the felt tension by the whole `REACTION` 0.3 s, and against a
+  run that pins the line in a third of a second that broke eleven sturgeon in twelve - worse
+  than the bot that never reads the water, which the rule in `policies.gd` forbids.
+
+**Every bot fails for its own reason, measured on the Old Fish / White Sturgeon / Longnose
+Gar (landed of 12):** GIVER 6 / 0 / 11, all by escape; BLIND 6 / 4 / 7, all by breaking;
+HUMAN 8 / 10 / 12, three broke and one escaped on the Old Fish; ANGLER 9 / 10 / 12, three
+Old Fish escaped and nothing ever broke.
+
+**The ladder, `human` bot, by band: 100 / 100 / 100 / 99 / 76 / 58** against the fifth
+fight's 100 / 100 / 100 / 99 / 72 / 56. `blind` 100 / 98 / 93 / 78 / 58 / 56 (was 100 /
+100 / 99 / 85 / 59 / 38); `giver` 100 / 99 / 95 / 86 / 56 / 44; `masher` 86 / 28 / 13 / 11 /
+0 / 0; `slowpoke` 60 / 22 / 1 / 3 / 0 / 0; `angler` 100 / 100 / 100 / 100 / 78 / 75. The
+Road is landable by a player who reads only the rod now; Old Town is where ignoring the
+water starts to part lines (23%), and the two golden claims about the tell moved there and
+are measured in LOST fish over four-minute sessions - the rod-reader lands as many per hour
+as the careful player (37 against 36) because its greedy fights are shorter, which is the
+risk dial doing its job, not the tell failing.
+
+**Golden re-recorded and the diff read**: the same fish land in every session; what moved is
+the fight state at the sixty-second mark (distance, stamina, tension), the draw count by
+two, and the new `reel` key. The pure suite's floor is unchanged at 10,900 (11,063 live).
+
 ## Playtest 2026-09-12 (phone, Galaxy S26 Ultra, desk-exported APK)
 
 **Driven from the desk over adb** (`device.ps1 install / launch / perf / record 30 / tap /

@@ -35,18 +35,19 @@ const GOLDEN := [
 			"caught": 2,
 			"draws": 48,
 			"fighting": 31.500000,
-			"fish_distance": 0.615000,
+			"fish_distance": 5.705000,
 			"fish_id": "shiner",
-			"fish_stamina": 0.000000,
+			"fish_stamina": 0.101000,
 			"lost": 0,
 			"lure_depth": 2.330000,
+			"reel": 1.000000,
 			"running": false,
 			"seconds": 60.000000,
 			"state": "fighting",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.548000,
+			"tension": 0.539000,
 			"total_weight": 10.852000,
 			"tug": 0.000000,
 		},
@@ -61,18 +62,19 @@ const GOLDEN := [
 			"caught": 2,
 			"draws": 48,
 			"fighting": 31.067000,
-			"fish_distance": 2.642000,
+			"fish_distance": 7.187000,
 			"fish_id": "shiner",
-			"fish_stamina": 0.018000,
+			"fish_stamina": 0.141000,
 			"lost": 0,
 			"lure_depth": 2.330000,
+			"reel": 0.783000,
 			"running": false,
 			"seconds": 60.000000,
 			"state": "fighting",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.558000,
+			"tension": 0.415000,
 			"total_weight": 10.852000,
 			"tug": 0.000000,
 		},
@@ -85,13 +87,14 @@ const GOLDEN := [
 			"cast_distance": 12.609000,
 			"casts": 4,
 			"caught": 3,
-			"draws": 50,
-			"fighting": 21.000000,
+			"draws": 48,
+			"fighting": 22.600000,
 			"fish_distance": 12.609000,
 			"fish_id": "perch",
 			"fish_stamina": 1.000000,
 			"lost": 0,
 			"lure_depth": 2.330000,
+			"reel": 0.000000,
 			"running": false,
 			"seconds": 60.000000,
 			"state": "nibbling",
@@ -113,11 +116,12 @@ const GOLDEN := [
 			"caught": 2,
 			"draws": 48,
 			"fighting": 31.500000,
-			"fish_distance": 1.690000,
+			"fish_distance": 1.885000,
 			"fish_id": "shiner",
 			"fish_stamina": 0.000000,
 			"lost": 0,
 			"lure_depth": 2.330000,
+			"reel": 1.000000,
 			"running": false,
 			"seconds": 60.000000,
 			"state": "fighting",
@@ -144,6 +148,7 @@ const GOLDEN := [
 			"fish_stamina": 1.000000,
 			"lost": 8,
 			"lure_depth": 0.709000,
+			"reel": 0.000000,
 			"running": false,
 			"seconds": 60.000000,
 			"state": "sinking",
@@ -170,6 +175,7 @@ const GOLDEN := [
 			"fish_stamina": 1.000000,
 			"lost": 4,
 			"lure_depth": 2.330000,
+			"reel": 0.000000,
 			"running": false,
 			"seconds": 60.000000,
 			"state": "nibbling",
@@ -191,18 +197,19 @@ const GOLDEN := [
 			"caught": 0,
 			"draws": 43,
 			"fighting": 52.783000,
-			"fish_distance": 12.236000,
+			"fish_distance": 9.750000,
 			"fish_id": "carp",
-			"fish_stamina": 0.225000,
+			"fish_stamina": 0.198000,
 			"lost": 0,
 			"lure_depth": 2.330000,
+			"reel": 0.200000,
 			"running": false,
 			"seconds": 60.000000,
 			"state": "fighting",
 			"strain": 0.000000,
 			"taking": false,
 			"taps": 0,
-			"tension": 0.236000,
+			"tension": 0.124000,
 			"total_weight": 0.000000,
 			"tug": 0.000000,
 		},
@@ -289,12 +296,24 @@ func test_the_two_real_failures_catch_nothing(t: TestHarness) -> void:
 ## So it moved down to The Steeple, in Old Town, which is the first water where
 ## eating a jolt at a reeling tension actually pins the rod. There the same pair
 ## reads 100% against 85%, and the difference is parted lines.
+##
+## And a FIFTH time, for the sixth fight. With a valve on the slide a player
+## who reads only the rod can ease a run off late and still land it; what the
+## water buys is landing the kick on a slack line, and the cost of not reading
+## it is STRAIN that now outlasts the calm between runs (Tuning.STRAIN_RECOVER).
+## In ninety-second sessions at the Steeple that cost showed once in six seeds -
+## not a signal, because a Steeple fight is fifty seconds and a ninety-second
+## session holds one. `probe_loss.gd` reads BLIND parting 23% there against
+## ANGLER 0% over whole fights, so the sessions are four minutes now: three
+## fights each, eighteen in all, and a one-in-four break is a signal. (Not the
+## Quarry: ordinary bait catches nothing there, which `test_tuning.gd` asserts,
+## so a Quarry session lands zero for everyone and measures nothing.)
 func test_watching_the_water_is_worth_something(t: TestHarness) -> void:
 	var watched := 0
 	var blind := 0
 	for seed_value in [1, 2, 3, 4, 5, 6]:
-		watched += int(Policies.play(Policies.ANGLER, 90.0, seed_value, "steeple", 3)["lost"])
-		blind += int(Policies.play(Policies.BLIND, 90.0, seed_value, "steeple", 3)["lost"])
+		watched += int(Policies.play(Policies.ANGLER, 240.0, seed_value, "steeple", 3)["lost"])
+		blind += int(Policies.play(Policies.BLIND, 240.0, seed_value, "steeple", 3)["lost"])
 	t.lt(float(watched), float(blind),
 		"ignoring the run warning costs nothing, so the warning is decoration")
 	t.gt(float(blind), 0.0, "the blind player loses nothing, so nothing was measured")
@@ -330,25 +349,16 @@ func test_the_reeds_charge_for_a_missed_tell_in_time_not_fish(t: TestHarness) ->
 	t.eq(blind_lost, 0,
 		"the reeds take %d fish off a beginner for missing a tell they are still learning" % blind_lost)
 
-	# On the DROWNED ROAD the claim is the opposite one, and it is the reason the
-	# reeds are allowed to be gentle: ignoring the tell has to cost something
-	# somewhere, or the tell is decoration everywhere.
-	#
-	# Measured in fish rather than in seconds, and that changed when the fight
-	# became a hold. Letting go on the tell now decays the needle to about 0.47
-	# and the jolt lands it near the TOP of the band - where the greed dial hauls
-	# hardest - so reacting correctly is not merely safe, it is briefly faster,
-	# and "who spent longer fighting" stopped separating the bots at all: 218.8 s
-	# against 216.7 s, one per cent on six seeds, well inside the noise NOTES.md
-	# warns about.
-	var deep_watch := 0
-	var deep_blind := 0
-	for seed_value in [1, 2, 3, 4, 5, 6]:
-		deep_watch += int(Policies.play(Policies.ANGLER, 120.0, seed_value, "road", 3)["caught"])
-		deep_blind += int(Policies.play(Policies.BLIND, 120.0, seed_value, "road", 3)["caught"])
-	t.lt(deep_blind, deep_watch,
-		"on the Drowned Road a beginner who ignores the tell lands just as much (%d vs %d), so the tell is decoration" % [
-			deep_blind, deep_watch])
+	# The other half of this claim - that ignoring the tell has to cost something
+	# SOMEWHERE, or the tell is decoration everywhere - is
+	# `test_watching_the_water_is_worth_something`, measured in parted lines at
+	# the Steeple. It used to be measured here too, in fish LANDED on the Drowned
+	# Road, and the sixth fight made that the wrong instrument: a player who
+	# reads only the rod fights greedily - high pressure, short fights, more
+	# casts - and lands as many fish per hour as the careful one (37 against 36
+	# in four-minute sessions) while parting more lines. That is the risk dial
+	# doing what it was built to do, not the tell failing, so the count that
+	# means something is the losses, and one test carries it.
 
 
 ## THE test that answers Gideon's note about the first fight.

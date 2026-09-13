@@ -28,7 +28,7 @@ func _init() -> void:
 		if s.state != Sim.FIGHTING:
 			print("ended at %.1fs" % [float(j) * step])
 			break
-		s.set_reeling(not s.running and s.tell <= 0.0 and s.tension < Tuning.DANGER - 0.07)
+		s.set_reel(1.0 if not s.running and s.tell <= 0.0 and s.tension < Tuning.DANGER - 0.07 else 0.0)
 		s.advance(step)
 		if j % 30 == 0:
 			print("%5.1fs  dist %5.1f  tens %.2f  strain %.2f  stam %.2f  %s" % [

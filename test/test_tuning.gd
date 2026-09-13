@@ -121,11 +121,13 @@ func test_holding_on_through_a_run_is_worth_considering(t: TestHarness) -> void:
 	t.lt(Tuning.RUN_HOLD, 0.75,
 		"holding on stops the run outright, so there is nothing to weigh")
 
-	# And it has to COST, or it would not be a gamble. Reeling straight through an
-	# ordinary fish's run has to settle past the danger line.
+	# And it has to COST, or it would not be a gamble. HOLDING an ordinary fish's
+	# run on a held line - the centre of the slide, no crank - has to settle past
+	# the danger line, or the middle of the slide is a free answer to every run.
+	# A held line during a run carries the fish's whole resistance plus its pull.
 	var settle_in_run := (Tuning.HOLD_RISE * Tuning.resist(1.0, 1.0) + Tuning.PULL_RISE) / Tuning.TAP_DECAY
 	t.gt(settle_in_run, Tuning.DANGER,
-		"reeling right through an average fish's run settles at %.2f, below the danger line, so there is no risk in it at all" % settle_in_run)
+		"holding through an average fish's run settles at %.2f, below the danger line, so there is no risk in it at all" % settle_in_run)
 
 	# And against the strongest fish in the lake, holding on must still LOSE
 	# ground. A brake that turned a run into progress would make the gamble the
@@ -138,13 +140,15 @@ func test_holding_on_through_a_run_is_worth_considering(t: TestHarness) -> void:
 		"holding on through the hardest run in the game stops the fish dead, so a run is not a setback")
 
 
-## LETTING GO IS ALWAYS SAFE. That is the promise the whole fifth fight rests on,
-## and it is the one thing a player must be able to rely on without being told.
-func test_letting_go_is_always_safe(t: TestHarness) -> void:
-	# Nothing raises tension unless the reel is held: a run adds its jolt once and
-	# its sustained pull only while reeling. A released thumb means the needle can
-	# only ever fall.
-	t.gt(Tuning.TAP_DECAY, 0.0, "tension does not fall when the reel is released")
+## GIVING LINE IS ALWAYS SAFE. That is the promise the whole fight rests on, and
+## it is the one thing a player must be able to rely on without being told: the
+## bottom of the slide can never part a line.
+func test_giving_line_is_always_safe(t: TestHarness) -> void:
+	# Nothing raises tension on a free spool: the pull loads a line in proportion
+	# to how much of it is held, and at full give that is none. Tension can only
+	# fall there, and faster than it does on a held line.
+	t.gt(Tuning.TAP_DECAY, 0.0, "tension does not fall when the reel is held still")
+	t.gt(Tuning.GIVE_RELIEF, 0.0, "giving line relieves nothing beyond what holding does")
 
 	# And no jolt may part a line ON ITS OWN. Being caught mid-reel when the fish
 	# goes is allowed to pin the rod at the top - that is what the tell is there to
@@ -167,7 +171,7 @@ func test_letting_go_is_always_safe(t: TestHarness) -> void:
 
 ## NO FISH MAY BE SO STRONG THAT THE REEL BECOMES A REFLEX TEST.
 ##
-## Arithmetic, not taste. A held reel settles at `hold_settle`, and once that is
+## Arithmetic, not taste. A full crank settles at `crank_settle`, and once that is
 ## far enough above the danger line the tension pins at the top before a person
 ## can react - so the only playable input is a tap shorter than a reaction time.
 ## That is a dexterity wall, and this game is about watching.
@@ -179,7 +183,7 @@ func test_letting_go_is_always_safe(t: TestHarness) -> void:
 func test_no_fish_is_a_reflex_test(t: TestHarness) -> void:
 	for row in Species.TABLE:
 		var power := float(row["run_power"])
-		var settle := Tuning.hold_settle(power, 1.0)
+		var settle := Tuning.crank_settle(power, 1.0)
 		# Half a second of holding, from the tension a fresh hook starts at, must
 		# not reach the top of the scale. That is the margin a person needs.
 		var after_half := settle + (Tuning.SAFE_LO - settle) * exp(-Tuning.TAP_DECAY * 0.5)
@@ -193,8 +197,8 @@ func test_no_fish_is_a_reflex_test(t: TestHarness) -> void:
 func test_wearing_a_fish_out_is_felt_in_the_reel(t: TestHarness) -> void:
 	for row in Species.TABLE:
 		var power := float(row["run_power"])
-		var fresh := Tuning.hold_settle(power, 1.0)
-		var spent := Tuning.hold_settle(power, 0.0)
+		var fresh := Tuning.crank_settle(power, 1.0)
+		var spent := Tuning.crank_settle(power, 0.0)
 		t.lt(spent, fresh + 0.0001,
 			"%s fights the reel just as hard when it is spent" % row["name"])
 		t.lt(spent, Tuning.DANGER,
@@ -205,9 +209,165 @@ func test_wearing_a_fish_out_is_felt_in_the_reel(t: TestHarness) -> void:
 	var deepest := 0.0
 	for row in Species.TABLE:
 		deepest = maxf(deepest, float(row["run_power"]))
-	var gap := Tuning.hold_settle(deepest, 1.0) - Tuning.hold_settle(deepest, 0.0)
+	var gap := Tuning.crank_settle(deepest, 1.0) - Tuning.crank_settle(deepest, 0.0)
 	t.gt(gap, 0.20,
 		"wearing out the hardest fish in the lake changes the reel by only %.2f, which nobody would notice" % gap)
+
+
+## THE SIXTH FIGHT'S FOUR PROMISES (F2.1), each a claim about the dial rather
+## than about a number. Gideon: "a full progressive scale so you can let in or
+## out slowly to match what the fish is doing."
+
+## 1. The crank's settle point SCALES with the crank. Half speed is half the
+## settle, which is what lets a fish that cannot be held flat out be worked at
+## half - the whole reason the button became a slide.
+func test_the_crank_settle_scales_with_the_crank(t: TestHarness) -> void:
+	for row in Species.TABLE:
+		var power := float(row["run_power"])
+		var full := Tuning.crank_settle(power, 1.0, 1.0)
+		var half := Tuning.crank_settle(power, 1.0, 0.5)
+		t.approx(half, full * 0.5, 1e-6,
+			"%s: half a crank settles at %.2f against %.2f flat out - the dial is not proportional" % [
+				row["name"], half, full])
+		t.approx(Tuning.crank_settle(power, 1.0, 0.0), 0.0, 1e-6,
+			"%s: a held reel (no crank) still has a crank settle point" % row["name"])
+	# And every fish in the lake can be worked SOMEWHERE on the dial: a crank speed
+	# exists whose settle is under the danger line, even fresh.
+	for row in Species.TABLE:
+		var power := float(row["run_power"])
+		var full := Tuning.crank_settle(power, 1.0, 1.0)
+		var speed := clampf((Tuning.DANGER - 0.07) / maxf(0.0001, full), 0.0, 1.0)
+		t.gt(speed, 0.15,
+			"%s can only be worked at %.0f%% of the crank, which is a dial with one notch" % [
+				row["name"], speed * 100.0])
+
+
+## 2. A HELD line is a fighting line: the run loads it. A FREE spool is not.
+## Driven through the real sim so the claim is about the fight, not about a
+## formula the test could restate.
+func test_holding_a_run_loads_the_line_and_giving_does_not(t: TestHarness) -> void:
+	var held := _running_fish()
+	var given := _running_fish()
+	t.ok(held != null and given != null, "a running deep fish can be set up")
+	if held == null or given == null:
+		return
+	held.set_reel(0.0)
+	given.set_reel(-1.0)
+	var step := 1.0 / 60.0
+	for i in int(round(1.0 / step)):
+		held.running = true
+		given.running = true
+		held.advance(step)
+		given.advance(step)
+	t.gt(held.tension, Tuning.SAFE_LO,
+		"a held line during a run carries only %.2f - holding is not fighting" % held.tension)
+	t.lt(given.tension, held.tension * 0.5,
+		"a free spool during a run carries %.2f against %.2f held - giving line relieves nothing" % [
+			given.tension, held.tension])
+
+
+## 3. Giving line drops tension FASTER than holding does, and it COSTS ground.
+## Both halves, because a safe answer that is free is not a decision.
+func test_giving_line_relieves_faster_and_costs_ground(t: TestHarness) -> void:
+	var held := _calm_fish()
+	var given := _calm_fish()
+	t.ok(held != null and given != null, "a calm deep fish can be set up")
+	if held == null or given == null:
+		return
+	held.tension = 0.7
+	given.tension = 0.7
+	held.set_reel(0.0)
+	given.set_reel(-1.0)
+	var start: float = given.fish_distance
+	var step := 1.0 / 60.0
+	for i in int(round(0.5 / step)):
+		held.running = false
+		given.running = false
+		held.tell = 0.0
+		given.tell = 0.0
+		held.advance(step)
+		given.advance(step)
+	t.lt(given.tension, held.tension,
+		"giving line left %.2f on the line against %.2f held - the bottom of the slide relieves nothing" % [
+			given.tension, held.tension])
+	t.gt(given.fish_distance, start + 0.3,
+		"half a second of full give paid out only %.2f m - giving line is free" % (given.fish_distance - start))
+	t.approx(held.fish_distance, start, 1e-6, "a held line in calm water moved the fish")
+
+
+## 4. Pressure tires the fish whenever the line CARRIES it, cranked or held.
+## Only a free spool takes nothing out of the fish.
+func test_pressure_tires_the_fish_on_a_held_line(t: TestHarness) -> void:
+	var held := _calm_fish()
+	var given := _calm_fish()
+	t.ok(held != null and given != null, "a calm deep fish can be set up")
+	if held == null or given == null:
+		return
+	held.set_reel(0.0)
+	given.set_reel(-1.0)
+	var step := 1.0 / 60.0
+	for i in int(round(2.0 / step)):
+		# Pin the tension so the ONLY difference is whether the line is held.
+		held.tension = 0.7
+		given.tension = 0.7
+		held.running = false
+		given.running = false
+		held.tell = 0.0
+		given.tell = 0.0
+		held.advance(step)
+		given.advance(step)
+	t.lt(held.fish_stamina, 1.0 - 0.02,
+		"two seconds of pressure on a held line tired the fish by only %.3f - holding is not fighting" % (1.0 - held.fish_stamina))
+	t.gt(given.fish_stamina, held.fish_stamina,
+		"a free spool tires the fish as much as a held line does")
+
+
+## 5. The crank has inertia, in the sim: a thumb slammed to the top does not put
+## the reel there in one frame, and it is most of the way there well inside a
+## reaction time - weight, not lag.
+func test_the_crank_follows_the_thumb_with_weight(t: TestHarness) -> void:
+	var s := _calm_fish()
+	t.ok(s != null, "a calm deep fish can be set up")
+	if s == null:
+		return
+	s.set_reel(1.0)
+	s.advance(1.0 / 60.0)
+	t.gt(s.reel, 0.0, "the crank did not move on the frame the thumb did")
+	t.lt(s.reel, 0.5, "the crank was at %.2f one frame after the thumb - it has no weight at all" % s.reel)
+	var step := 1.0 / 60.0
+	for i in int(round(0.3 / step)):
+		s.running = false
+		s.tell = 0.0
+		s.advance(step)
+	t.gt(s.reel, 0.9, "the crank is only at %.2f a third of a second after the thumb - that is lag, not weight" % s.reel)
+
+
+## A deep fish, calm, set up directly - the water where the dial matters.
+func _calm_fish() -> Sim:
+	var s := Sim.new(1)
+	var row := Species.by_id("trout")
+	if row.is_empty():
+		return null
+	s.cast_distance = Tuning.CAST_MAX
+	s.fish_id = str(row["id"])
+	s.fish_weight = float(row["weight_lo"])
+	s.fish_distance = Tuning.CAST_MAX * 0.5
+	s.fish_stamina = 1.0
+	s.tension = Tuning.SAFE_LO
+	s.running = false
+	s.tell = 0.0
+	s.phase_time = 30.0
+	s.state = Sim.FIGHTING
+	return s
+
+
+func _running_fish() -> Sim:
+	var s := _calm_fish()
+	if s == null:
+		return null
+	s.running = true
+	s.phase_time = 5.0
+	return s
 
 
 ## The warning has to be longer than a person's reaction, because this is a game
@@ -421,7 +581,7 @@ func test_the_reel_gets_harder_to_hold_with_depth(t: TestHarness) -> void:
 		for row in Species.TABLE:
 			if row["band"] != band["id"]:
 				continue
-			total += Tuning.hold_settle(float(row["run_power"]), 1.0)
+			total += Tuning.crank_settle(float(row["run_power"]), 1.0)
 			n += 1
 		if n > 0:
 			settles[band["id"]] = total / float(n)

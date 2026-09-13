@@ -178,13 +178,13 @@ func _check_the_line_always_comes_back(main) -> void:
 		# to forgive exactly this: a beginner who holds on through a run in the
 		# tutorial keeps the fish, by design.
 		#
-		# So it holds the reel flat, through `set_reeling`, in water deep enough
+		# So it holds the reel flat, through `set_reel(1.0)`, in water deep enough
 		# that doing so parts the line.
 		var step := 1.0 / 60.0
 		for i in int(round(25.0 / step)):
 			if main.sim.state != Sim.FIGHTING:
 				break
-			main.sim.set_reeling(true)
+			main.sim.set_reel(1.0)
 			main.advance(step, step)
 		_t.eq(main.sim.state, Sim.LOST, "holding the reel flat out never ends the fight")
 		main.advance(Tuning.HOLD_TIME + 0.5)
@@ -951,13 +951,13 @@ func _check_the_fight_is_visible_and_felt(main) -> void:
 		return
 
 	# 1. THE HANDLE TURNS WHILE THE REEL IS HELD, AND ONLY THEN.
-	main.sim.set_reeling(false)
+	main.sim.set_reel(0.0)
 	var still_a: float = main.reel_turned()
 	main.advance(0.4)
 	_t.eq(main.reel_turned(), still_a,
 		"the reel handle turns with nobody holding the reel")
 
-	main.sim.set_reeling(true)
+	main.sim.set_reel(1.0)
 	var before: float = main.reel_turned()
 	main.advance(0.4)
 	_t.gt(main.reel_turned(), before,
@@ -2034,21 +2034,34 @@ func _check_every_action_answers_within_two_frames(main) -> void:
 		# sitting AT its settle point, where one frame of holding changes the
 		# tension by less than a float can represent. The claim is about latency,
 		# so the measurement has to start somewhere the input has room to show.
-		main.sim.set_reeling(false)
+		main.sim.set_reel(0.0)
 		main.advance(0.6)
 		var before: float = main.sim.tension
-		main.sim.set_reeling(true)
+		var reel_before: float = main.sim.reel
+		main.sim.set_reel(1.0)
 		main.sim.advance(step)
+		# THE CRANK ANSWERS ON THE NEXT FRAME; the tension follows it. The reel
+		# has inertia by design (Tuning.REEL_INERTIA), so the number that must
+		# move within a frame is the crank the player is looking at, and the
+		# tension within a fifth of a second - a first version asserted the
+		# tension on the next frame and measured the inertia, not the latency.
+		_t.gt(main.sim.reel, reel_before,
+			"pushing the slide up during a fight does not turn the crank on the next frame")
+		main.advance(0.2)
 		_t.gt(main.sim.tension, before,
-			"holding REEL during a fight does not move the tension on the next frame")
+			"pushing the slide up during a fight does not move the tension within a fifth of a second")
 		# ...and letting go is answered just as fast, which is the half that
 		# matters during a run: a control that is slow to STOP is a control the
 		# player cannot use to avoid anything.
-		main.sim.set_reeling(false)
+		main.sim.set_reel(0.0)
+		var reel_high: float = main.sim.reel
 		var high: float = main.sim.tension
 		main.sim.advance(step)
+		_t.lt(main.sim.reel, reel_high,
+			"letting the slide go does not slow the crank on the next frame")
+		main.advance(0.2)
 		_t.lt(main.sim.tension, high,
-			"letting go of REEL does not lower the tension on the next frame")
+			"letting the slide go does not lower the tension within a fifth of a second")
 
 	# And the gauge the player is reading redraws with it, rather than a frame
 	# behind - a needle that lags its own input is the classic mushy control.

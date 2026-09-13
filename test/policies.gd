@@ -12,12 +12,13 @@ extends RefCounted
 ##
 ## **One policy per way of failing:**
 ##
-##   IDLE_HANDS  never taps               - both minigames are mechanics
-##   MASHER      taps as fast as it can   - the band has a top
-##   SLOWPOKE    taps too slowly          - the band has a bottom
-##   BLIND       plays well, ignores runs - the warning is the game
-##   ANGLER      plays it correctly       - it is winnable
-##   HUMAN       ANGLER with human faults - **the only one balance is read off**
+##   IDLE_HANDS  never strikes, never cranks    - both minigames are mechanics
+##   MASHER      cranks flat out, never gives   - the line has a top
+##   SLOWPOKE    cranks at a fifth, never gives - the crank has a bottom
+##   GIVER       gives line at every tell       - giving is not free: fish escape
+##   BLIND       eases by the rod alone, late   - the warning is the game
+##   ANGLER      plays it correctly             - it is winnable
+##   HUMAN       ANGLER with human faults       - **the only one balance is read off**
 ##
 ## **Every policy must fail for a DIFFERENT reason.** When two of them score the
 ## same, one is not testing anything - and if the one that watches the water ever
@@ -37,11 +38,12 @@ extends RefCounted
 const IDLE_HANDS := "idle_hands"
 const MASHER := "masher"
 const SLOWPOKE := "slowpoke"
+const GIVER := "giver"
 const BLIND := "blind"
 const ANGLER := "angler"
 const HUMAN := "human"
 
-const ALL := [IDLE_HANDS, MASHER, SLOWPOKE, BLIND, ANGLER, HUMAN]
+const ALL := [IDLE_HANDS, MASHER, SLOWPOKE, GIVER, BLIND, ANGLER, HUMAN]
 
 ## HUMAN's faults, and why it is the only policy worth reading.
 ##
@@ -80,6 +82,31 @@ const GAIN := 0.55
 ## anyone trying to win. The margin is for the jolt at the start of a run: a
 ## player who is already at 0.78 when the fish goes has no room at all.
 const REEL_CEILING := Tuning.DANGER - 0.07
+## How far over the ceiling maps to full give: at the ceiling nothing is given,
+## GIVE_SPAN above it the spool is free. A person eases the slide down as the
+## rod comes up, and this is the slope of that.
+const GIVE_SPAN := 0.15
+## SLOWPOKE's whole idea of a crank.
+const SLOW_CRANK := 0.2
+## THE PERFECT VALVE aims just under the danger line with a tight span: it gives
+## the least line that keeps the rod under the red, which is the most brake and
+## the most tiring a run can be made to pay. A first cut aimed at the crank's
+## ceiling with the wide span, gave the whole spool at 0.86, and escaped a
+## quarter of the Old Fish - the perfect player losing to caution.
+const PERFECT_VALVE := Tuning.DANGER - 0.02
+const PERFECT_SPAN := 0.06
+## A PERSON'S HANDS. The slide is eased against a tension felt HAND_LAG ago, and
+## when the rod slams over the hand shoves the slide down hard rather than
+## trimming it: a narrower span than the perfect valve, so HUMAN over-corrects
+## and pays in ground where ANGLER pays nothing. A first cut lagged the felt
+## tension by the whole REACTION and trimmed proportionally, and against a run
+## that pins the line in a third of a second that broke eleven sturgeon in
+## twelve - worse than a bot that never reads the water, which the rule at the
+## top of this file forbids.
+const HAND_LAG := 0.15
+const HUMAN_SPAN := 0.06
+## HUMAN's thumb is not a lathe: the slide is read in fifths.
+const HUMAN_STEPS := 5.0
 
 ## How long every bot holds the cast. Fixed, so all six fish the same water at
 ## the same distance and the only variable left is the fight.
@@ -99,7 +126,7 @@ const CHARGE_HOLD := 0.55
 ## The default stays only so the memoryless policies remain callable in
 ## isolation. If you are stepping a session, hold a dict.
 static func act(name: String, s: Sim, dt: float, mem: Dictionary = {}) -> void:
-	apply(wants(name, s, dt, mem), s)
+	apply(wants(name, s, dt, mem), s, mem)
 
 
 ## THE DECISION, SEPARATE FROM THE ACT. What the named policy would do this
@@ -113,8 +140,7 @@ static func act(name: String, s: Sim, dt: float, mem: Dictionary = {}) -> void:
 const HOLD := "hold"            ## press the cast button and keep it down
 const RELEASE := "release"      ## let the cast button go: the throw
 const STRIKE := "strike"        ## one press: set the hook
-const REEL := "reel"            ## hold the button: reel
-const SLACK := "slack"          ## thumb off: let the fish run
+const WORK := "work"            ## the reel slide: the amount is in mem["reel"], [-1, 1]
 const KEEP := "keep"            ## one press: into the livewell
 const PUT_BACK := "put_back"    ## one press on the other button
 const NOTHING := ""
@@ -149,16 +175,19 @@ static func wants(name: String, s: Sim, dt: float, mem: Dictionary) -> String:
 				return STRIKE
 			return NOTHING
 		Sim.FIGHTING:
-			# HOLD, rather than tap. The bots are the model of a player, so when
+			# A DIAL, not a button. The bots are the model of a player, so when
 			# the control changed they had to change with it - a bot still
-			# tapping would have measured a game nobody can play any more.
-			return REEL if _should_reel(name, s, dt, mem) else SLACK
+			# holding a button would have measured a game nobody can play any
+			# more. The amount rides in `mem` because a verb is a word and the
+			# slide is a number.
+			mem["reel"] = _reel_amount(name, s, dt, mem)
+			return WORK
 		_:
 			return NOTHING
 
 
 ## The verb, done to the sim through the same seam a thumb uses.
-static func apply(verb: String, s: Sim) -> void:
+static func apply(verb: String, s: Sim, mem: Dictionary = {}) -> void:
 	match verb:
 		HOLD:
 			s.hold_cast()
@@ -166,10 +195,8 @@ static func apply(verb: String, s: Sim) -> void:
 			s.release_cast()
 		STRIKE:
 			s.tap()
-		REEL:
-			s.set_reeling(true)
-		SLACK:
-			s.set_reeling(false)
+		WORK:
+			s.set_reel(float(mem.get("reel", 0.0)))
 		KEEP:
 			s.keep_fish()
 		PUT_BACK:
@@ -212,67 +239,105 @@ static func _should_strike(name: String, s: Sim, mem: Dictionary) -> bool:
 		_:
 			# Perfect information: strikes the instant the take begins.
 			return s.can_hook()
-## WHEN TO REEL, IN THE FIFTH FIGHT.
+## HOW HARD TO WORK THE REEL, IN THE SIXTH FIGHT. In [-1, 1]: crank, hold, give.
 ##
-## The decision got much simpler when the model did, and that is the strongest
-## evidence the model is better: the bots used to be duty-cycle controllers aiming
-## at a point on a needle, because that is what a conflated value forces. Now the
-## question is the one a player actually asks - "is the fish pulling?" - and the
-## whole difference between the policies is whether they can tell, and how late.
-##
-## `watches` is whether it reads the TELL at all; `delay` is how long it takes to
-## notice. Those two arguments are the only difference between BLIND, ANGLER and
-## HUMAN, so the gaps between them are claims about the game rather than about the
-## bots.
-static func _should_reel(name: String, s: Sim, dt: float, mem: Dictionary) -> bool:
+## The question a player asks is still "is the fish pulling?", and the answer is
+## now a position rather than a bit: in calm water, crank as fast as the rod will
+## stand; while it pulls, HOLD - the held line brakes the run and tires the fish
+## - and give exactly what keeps the rod under the line, no more, because every
+## metre given is a metre to win back. The whole difference between BLIND, ANGLER
+## and HUMAN is whether they read the water and how late; GIVER is the bot that
+## takes the safe end of the slide every time, and it exists so that "giving is
+## not free" is measured rather than hoped.
+static func _reel_amount(name: String, s: Sim, dt: float, mem: Dictionary) -> float:
 	match name:
 		IDLE_HANDS:
-			return false
+			return 0.0
 		MASHER:
-			# Never lets go. Parts the line on anything that fights back.
-			return true
+			# Flat out, always. Parts the line on anything that fights back.
+			return 1.0
 		SLOWPOKE:
-			# Frightened of the rod. Reels only when the line is almost slack, so
-			# it never breaks anything and never gets a fish to the boat either.
-			return s.tension < Tuning.SAFE_LO * 0.55
+			# Frightened of the rod. A fifth of a crank and never more, so it never
+			# breaks anything and a deep fish walks it back out.
+			return SLOW_CRANK
+		GIVER:
+			# The safe end of the slide at every tell and through every run, and
+			# the feathered crank in between - so the ONLY thing wrong with it is
+			# that it gives everything the moment the water moves. It loses fish
+			# to the escape margin, which is the failure the down direction has
+			# to have. (Cranking flat out between runs made it break lines in
+			# calm water, which is MASHER's failure wearing a different hat.)
+			if s.tell > 0.0 or s.running:
+				return -1.0
+			return _crank_for(s, REEL_CEILING)
 		BLIND:
-			# Feathers the rod - it can feel that much - but never reads the water,
-			# so every run's jolt lands on top of whatever tension it happened to
-			# be carrying. It does not release EARLY, it releases LATE, and the
-			# overshoot is what it pays.
-			return not _believes_bent(s, dt, mem, REACTION)
+			# Feathers by the rod alone - it can feel that much - but never reads
+			# the water, so a run's kick lands on whatever it was carrying and it
+			# eases the slide down LATE, once the rod is already over. The
+			# overshoot is what it pays. (A first cut held instead of easing,
+			# and a held line in this fight relieves nothing: BLIND then broke
+			# reeds fish over five runs, which is a claim about the bot, not the
+			# tutorial.)
+			if _believes_bent(s, dt, mem, REACTION):
+				return -clampf((s.tension - REEL_CEILING) / GIVE_SPAN, 0.0, 1.0)
+			return _crank_for(s, REEL_CEILING)
 		ANGLER:
-			# The same player, plus the one thing: it reads the tell and sheds
-			# tension before the jolt arrives. That is the only difference between
-			# these two, so the gap between them is a claim about the game.
-			#
-			# And it sheds only what it has to. An earlier version let go for the
-			# whole of the warning, every time, and measured WORSE than BLIND -
-			# obeying the tell cost it two thirds of a second of reeling per run
-			# and bought it nothing. That was the bot being wrong rather than the
-			# game: the warning is worth acting on only when the jolt would
-			# actually put the rod over, and a perfect player knows when that is.
-			return not _believes_bent(s, dt, mem, 0.0) 				and not (_believes_tell(s, dt, mem, 0.0) and _jolt_would_hurt(s, 0.0))
+			return _work(s, dt, mem, 0.0, false, PERFECT_VALVE, PERFECT_SPAN, 0.0)
 		HUMAN:
-			# The same judgement with a person's information: no idea what this
-			# particular fish's kick is worth, so it leaves a flat margin and is
-			# sometimes wrong in both directions.
-			return not _believes_bent(s, dt, mem, REACTION) 				and not (_believes_tell(s, dt, mem, REACTION) and _jolt_would_hurt(s, 0.06))
+			# The same judgement with a person's information: a reaction lag on
+			# what it reads, hands that feel the rod a moment late and shove
+			# rather than trim, and a thumb that reads the slide in fifths.
+			return _work(s, dt, mem, REACTION, true, REEL_CEILING, HUMAN_SPAN, HAND_LAG)
 		_:
-			return false
+			return 0.0
 
 
-## Whether letting the run start from HERE would put the rod over the line.
-##
-## ANGLER reads the fish's actual kick, which is what "perfect information" means.
-## HUMAN gets the same question with a flat guess and a margin, because a person
-## knows a strong fish kicks harder without knowing the number.
-static func _jolt_would_hurt(s: Sim, margin: float) -> bool:
+## The competent player's answer, with perfect or human information.
+static func _work(s: Sim, dt: float, mem: Dictionary, delay: float, coarse: bool,
+		valve_at: float, valve_span: float, hand_lag: float) -> float:
+	var out := 0.0
+	var tell := _believes_tell(s, dt, mem, delay)
+	var pulling := _believes_pulling(s, dt, mem, true, delay)
+	# THE HAND ON THE SLIDE READS A FELT TENSION, NOT THE NUMBER. A person eases
+	# the slide against what the rod was doing a moment ago, so the valve lags
+	# too, not only the decision to stop cranking - and that lag is where the
+	# overshoot comes from. With the valve reading the live tension, HUMAN tied
+	# ANGLER to the fish (strain 0.14 against 0.10), which is a bot with perfect
+	# hands wearing a slow head.
+	var felt: float = s.tension
+	if hand_lag > 0.0:
+		if not mem.has("felt"):
+			mem["felt"] = s.tension
+		mem["felt"] = float(mem["felt"]) + (s.tension - float(mem["felt"])) * (1.0 - exp(-dt / hand_lag))
+		felt = float(mem["felt"])
+	if pulling or tell:
+		# The fish is going, or about to. HOLD: a held line brakes the run and
+		# tires the fish, and the crank's tension decays off it while the fish
+		# winds up, so the kick lands on a slack line instead of a loaded one.
+		# That is what reading the water buys, and it costs no ground - a first
+		# cut GAVE line through the warning and paid out a metre per tell for a
+		# fish that was not yet pulling, then escaped more than a bot that never
+		# read the water at all. Give only what keeps the rod under the line.
+		var over := felt - valve_at
+		if over > 0.0:
+			out = -clampf(over / valve_span, 0.0, 1.0)
+	else:
+		out = _crank_for(s, REEL_CEILING)
+	if coarse:
+		out = round(out * HUMAN_STEPS) / HUMAN_STEPS
+	return out
+
+
+## The fastest crank whose settle point stays under the ceiling. A spent fish
+## settles low, so this is flat out; a fresh deep one has to be worked slowly.
+static func _crank_for(s: Sim, ceiling: float) -> float:
 	var row := Species.by_id(s.fish_id)
 	if row.is_empty():
-		return true
-	var jolt := Tuning.RUN_JOLT * Tuning.jolt_scale(float(row["run_power"]))
-	return s.tension + jolt + margin > Tuning.DANGER
+		return 1.0
+	var full := Tuning.crank_settle(float(row["run_power"]), s.fish_stamina, 1.0)
+	if full <= 0.0001:
+		return 1.0
+	return clampf(ceiling / full, 0.0, 1.0)
 
 
 ## Whether this policy has NOTICED THE WARNING, which is a different reading from

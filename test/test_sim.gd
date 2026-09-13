@@ -300,7 +300,7 @@ func test_reeling_in_calm_water_never_breaks_anything(t: TestHarness) -> void:
 	var step := 1.0 / 60.0
 	var peak := 0.0
 	var reeled := 0.0
-	s.set_reeling(true)
+	s.set_reel(1.0)
 	for i in int(round(30.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
@@ -326,11 +326,11 @@ func test_holding_raises_the_needle_and_it_falls_when_let_go(t: TestHarness) -> 
 	# most of the way to where reeling settles.
 	s.tension = 0.05
 	var before := s.tension
-	s.set_reeling(true)
+	s.set_reel(1.0)
 	_step(s, 0.5)
 	t.gt(s.tension, before, "holding REEL does not raise the tension")
 	var peak := s.tension
-	s.set_reeling(false)
+	s.set_reel(0.0)
 	_step(s, 1.2)
 	t.lt(s.tension, peak, "the tension does not fall when the button is let go")
 
@@ -340,14 +340,14 @@ func test_holding_raises_the_needle_and_it_falls_when_let_go(t: TestHarness) -> 
 	# ending the fight for real rather than by calling `reel_in`, which does
 	# nothing at all during a fight - the first version of this test called it and
 	# was asserting against a no-op.
-	s.set_reeling(true)
+	s.set_reel(1.0)
 	var step2 := 1.0 / 60.0
 	for i in int(round(30.0 / step2)):
 		if s.state != Sim.FIGHTING:
 			break
 		s.advance(step2)
 	t.ok(s.state != Sim.FIGHTING, "holding the button forever never ends the fight")
-	t.ok(not s.reeling, "the fight ended with the reel button still held down")
+	t.approx(s.reel_want, 0.0, 1e-6, "the fight ended with the reel slide still pushed")
 
 
 ## The fault that killed the FIRST fight, asserted directly: there must be no
@@ -404,7 +404,7 @@ func test_holding_the_needle_in_the_band_brings_the_fish_in(t: TestHarness) -> v
 	for i in int(round(3.0 / step)):
 		if s.state != Sim.FIGHTING or s.running or s.tell > 0.0:
 			break
-		s.set_reeling(s.tension < (Tuning.SAFE_LO + Tuning.SAFE_HI) * 0.5)
+		s.set_reel(1.0 if s.tension < (Tuning.SAFE_LO + Tuning.SAFE_HI) * 0.5 else 0.0)
 		s.advance(step)
 	t.lt(s.fish_distance, start, "keeping the needle in the band gained no line")
 
@@ -425,7 +425,7 @@ func test_fishing_near_the_red_wears_a_fish_out_faster(t: TestHarness) -> void:
 				break
 			# Feather against this ceiling, and never reel into a run, so the only
 			# thing separating the two runs is how hard the rod is worked.
-			s.set_reeling(not s.running and s.tension < ceiling)
+			s.set_reel(1.0 if not s.running and s.tension < ceiling else 0.0)
 			s.advance(step)
 		spent[ceiling] = 1.0 - s.fish_stamina
 
@@ -465,7 +465,7 @@ func test_holding_through_a_strong_fish_parts_the_line(t: TestHarness) -> void:
 	if s == null:
 		return
 	var step := 1.0 / 60.0
-	s.set_reeling(true)
+	s.set_reel(1.0)
 	for i in int(round(20.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
@@ -538,7 +538,7 @@ func test_a_reeds_fish_forgives_holding_through_one_run(t: TestHarness) -> void:
 	if s == null:
 		return
 	var step := 1.0 / 60.0
-	s.set_reeling(true)
+	s.set_reel(1.0)
 	for i in int(round(8.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
@@ -946,7 +946,7 @@ func _play_fight_at_duty(duty: float) -> String:
 		if s.state != Sim.FIGHTING:
 			break
 		phase = fmod(phase + step, cycle)
-		s.set_reeling(phase < cycle * duty)
+		s.set_reel(1.0 if phase < cycle * duty else 0.0)
 		s.advance(step)
 	return s.state
 
@@ -965,7 +965,7 @@ func _play_fight_at_duty_timed(duty: float) -> Dictionary:
 		if s.state != Sim.FIGHTING:
 			break
 		phase = fmod(phase + step, cycle)
-		s.set_reeling(phase < cycle * duty)
+		s.set_reel(1.0 if phase < cycle * duty else 0.0)
 		s.advance(step)
 		elapsed += step
 	return {"state": s.state, "seconds": elapsed}

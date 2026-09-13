@@ -132,8 +132,11 @@ var fish_weight: float = 0.0
 var fish_distance: float = 0.0    ## metres from the boat
 var fish_stamina: float = 1.0     ## [0, 1], falls as it tires
 var fight_time: float = 0.0       ## seconds this fish has been on
-## THE REEL BUTTON, held or not. See `set_reeling` and Tuning.HOLD_RISE.
-var reeling := false
+## THE REEL, AS A DIAL. `reel_want` is where the thumb is, in [-1, 1]: above
+## zero cranks, zero holds, below zero gives line. `reel` is where the crank
+## actually is, following the thumb with Tuning.REEL_INERTIA. See `set_reel`.
+var reel := 0.0
+var reel_want := 0.0
 
 # --- MINIGAME 1: the nibble -----------------------------------------------
 ## The fish teases the bait a few times - short shallow tugs that pop straight
@@ -249,7 +252,7 @@ func tap() -> void:
 		NIBBLING:
 			_strike()
 		FIGHTING:
-			# NOTHING. The fight is held, not tapped - see `set_reeling`. The
+			# NOTHING. The fight is a slide, not a tap - see `set_reel`. The
 			# stand-in is deleted in the same commit as the real thing, so there
 			# is no second way to add tension that could drift from the first.
 			pass
@@ -375,6 +378,7 @@ func state_snapshot() -> Dictionary:
 		"tension": snappedf(tension, 0.001),
 		"strain": snappedf(strain, 0.001),
 		"running": running,
+		"reel": snappedf(reel, 0.001),
 		"taps": taps,
 		"draws": _rng.draws(),
 	}
@@ -402,11 +406,12 @@ func danger() -> float:
 func _enter(next: String) -> void:
 	state = next
 	state_time = 0.0
-	# A HELD BUTTON MUST NOT LEAK OUT OF THE FIGHT. The thumb can still be down
-	# when the fish lands or the line parts, and a `reeling` left true would then
-	# be pulling on the next cast before it was made.
+	# A HELD REEL MUST NOT LEAK OUT OF THE FIGHT. The thumb can still be on the
+	# slide when the fish lands or the line parts, and a `reel` left cranking
+	# would then be pulling on the next cast before it was made.
 	if next != FIGHTING:
-		reeling = false
+		reel = 0.0
+		reel_want = 0.0
 
 
 func _clear_fish() -> void:
@@ -696,15 +701,35 @@ func _fight(dt: float) -> void:
 	# to feather; a fish worn down to nothing settles well below it, so the same
 	# button can be held flat. Nothing tells the player this happened - the rod
 	# stops bending as far, and they feel it.
-	if reeling:
-		var resist := Tuning.resist(power, fish_stamina)
-		tension = clampf(tension + Tuning.HOLD_RISE * resist * dt, 0.0, Tuning.TENSION_MAX)
-		if running:
-			# Squared, like `resist`, so the tutorial's fish can be held through a
-			# run and nothing deeper can. One relationship rather than two.
-			tension = clampf(tension + Tuning.PULL_RISE * power * power * dt,
-				0.0, Tuning.TENSION_MAX)
-	tension = maxf(0.0, tension - Tuning.TAP_DECAY * tension * dt)
+	# THE SIXTH FIGHT: THE REEL IS A DIAL. `reel` follows the thumb with the
+	# crank's own inertia, and its sign is the zone: above zero the line winds
+	# in, at zero it is HELD, below zero it PAYS OUT. See Tuning.REEL_INERTIA.
+	reel += (reel_want - reel) * (1.0 - exp(-dt / Tuning.REEL_INERTIA))
+	var crank := maxf(0.0, reel)
+	var give := maxf(0.0, -reel)
+	# How much of the fish's pull the line carries: all of it held or cranking,
+	# none of it at full give. A free spool cannot be loaded, and between the
+	# two it is proportional - which is what "let out slowly to match what the
+	# fish is doing" means as arithmetic.
+	var loaded := 1.0 - give
+
+	# The fish's resistance loads the line whenever the line WORKS against it:
+	# in calm water that is the crank, and during a run it is however much of
+	# the line is held - a locked spool against a running fish is under the
+	# fish's whole resistance, crank or no crank. Measured before this was
+	# written that way: with only the pull term on a held line, run_power
+	# squared at 0.4 was nothing, nobody ever broke a line, and every loss in
+	# the deep was an escape - the middle of the slide was free.
+	var resist := Tuning.resist(power, fish_stamina)
+	var working := maxf(crank, loaded) if running else crank
+	if working > 0.0:
+		tension = clampf(tension + Tuning.HOLD_RISE * resist * working * dt, 0.0, Tuning.TENSION_MAX)
+	if running and loaded > 0.0:
+		# Squared, like `resist`, so the tutorial's fish can be held through a
+		# run and nothing deeper can. One relationship rather than two.
+		tension = clampf(tension + Tuning.PULL_RISE * power * power * loaded * dt,
+			0.0, Tuning.TENSION_MAX)
+	tension = maxf(0.0, tension - (Tuning.TAP_DECAY + Tuning.GIVE_RELIEF * give) * tension * dt)
 
 	# THE ROD IS OVER-BENT. Strain accrues, and at full overshoot the line has
 	# SNAP_SECONDS before it parts - long enough that the red line and the heavy
@@ -729,24 +754,33 @@ func _fight(dt: float) -> void:
 		# never beat a strong fish's own pull, which is what made the gamble a
 		# non-choice; a brake on the run's own gain is a decision worth making and
 		# worth paying tension for.
-		var brake := (1.0 - Tuning.RUN_HOLD) if reeling else 1.0
+		# A LOADED line brakes the run, held or cranked alike; a free spool does
+		# not, and between the two the brake scales with how much line is held.
+		var brake := 1.0 - Tuning.RUN_HOLD * loaded
 		fish_distance += Tuning.RUN_GAIN * power * brake * dt
 		# AND A RUNNING FISH TIRES ITSELF. Not the reeling - the running. So
 		# waiting a run out is a real strategy and its cost is the clock, which is
 		# the one resource this game says is scarce.
 		fish_stamina = maxf(0.0, fish_stamina - (Tuning.TIRE_RATE / stam) * dt)
-	elif reeling:
-		# Calm water, and the thumb down. This is where the ground is made.
-		fish_distance = maxf(0.0, fish_distance - Tuning.REEL_RATE * haul * dt)
+	elif crank > 0.0:
+		# Calm water, and the thumb up. This is where the ground is made, at the
+		# crank's own speed.
+		fish_distance = maxf(0.0, fish_distance - Tuning.REEL_RATE * haul * crank * dt)
+	# LINE GIVEN IS GROUND GIVEN, run or no run. That is the cost of the safe
+	# answer, and without it giving line would be free and the dial would have
+	# one correct end.
+	if give > 0.0:
+		fish_distance += Tuning.GIVE_RATE * give * dt
 
 	# AND PRESSURE TIRES IT TOO, which is the reward half of the risk.
 	#
 	# Held near the red a fish gives up roughly twice as fast as one played
 	# gently, so the greedy line really is the quick way home and really is the
 	# one that parts lines. Without this the player had no lever on the length of
-	# a fight at all and a deep fish was slow rather than hard.
-	if reeling:
-		fish_stamina = maxf(0.0, fish_stamina - (Tuning.TIRE_PRESSURE * tension / stam) * dt)
+	# a fight at all and a deep fish was slow rather than hard. Pressure is
+	# pressure whether the line is cranked or merely held; only a free spool
+	# takes nothing out of the fish.
+	fish_stamina = maxf(0.0, fish_stamina - (Tuning.TIRE_PRESSURE * tension * loaded / stam) * dt)
 
 	if fish_distance >= cast_distance + Tuning.ESCAPE_MARGIN:
 		lost_count += 1
@@ -780,7 +814,10 @@ func _advance_phase(s: Dictionary, dt: float) -> void:
 			# moment you either survived or did not. Strong fish should mean
 			# "fight this the whole way", never "one instant decided it".
 			var jolt: float = Tuning.RUN_JOLT * Tuning.jolt_scale(float(s["run_power"]))
-			tension = clampf(tension + jolt, 0.0, Tuning.TENSION_MAX)
+			# The kick lands on the line in proportion to how much of it is HELD:
+			# a spool already paying out takes it as line, not as tension. That
+			# is what giving during the tell buys, and why it costs ground.
+			tension = clampf(tension + jolt * (1.0 - maxf(0.0, -reel)), 0.0, Tuning.TENSION_MAX)
 			phase_time = Species.run_seconds(_rng.next(), fish_stamina)
 			run_started.emit()
 		return
@@ -1024,13 +1061,15 @@ func sell() -> int:
 	return econ.sell_all()
 
 
-## HOLD TO REEL. The renderer calls this on press and on release.
+## THE REEL SLIDE. The renderer calls this every frame the thumb is on it, and
+## once with zero when it comes off: up is crank (positive), centre is hold
+## (zero), down is give (negative), and the crank follows with REEL_INERTIA.
 ##
 ## Separate from `tap()`, which stays for the STRIKE - the one place a discrete
 ## press is still the right verb, because striking is an instant, not a duration.
 ## Two names for two genuinely different actions rather than one overloaded one.
-func set_reeling(on: bool) -> void:
+func set_reel(r: float) -> void:
 	if state != FIGHTING:
-		reeling = false
+		reel_want = 0.0
 		return
-	reeling = on
+	reel_want = clampf(r, -1.0, 1.0)

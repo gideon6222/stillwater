@@ -95,6 +95,7 @@ something to read.
 | `test/test_replay_policy.gd` | Gates the bot seam: a fish lands through the real buttons, and asking never moves the sim |
 | `scripts/probe_prop.gd` | Prints an imported prop's mesh names and real bounds in metres |
 | `scripts/probe_cast.gd` | Measures the cast: the rod's speed step at each state boundary and its peak. `-- <hold seconds>` |
+| `scripts/probe_dial.gd` | What each bot does with the reel slide on one deep fish: outcomes, peak tension, strain, line given and taken. `-- <species_id> [seeds]` |
 | `test/replays/` | Recorded touch scenarios for `movie.ps1`. `idle.json` is empty on purpose |
 
 ## Invariants

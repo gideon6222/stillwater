@@ -42,13 +42,11 @@ func _fight(id: String, seed_i: int, policy: String) -> String:
 	for j in int(round(120.0 / step)):
 		if s.state != Sim.FIGHTING:
 			break
-		if policy == "perfect":
-			# Reel in calm water only, and feather the rod on the exact frame it
-			# reaches the ceiling. No person can do either - that is the point of
-			# the measurement.
-			s.set_reeling(s.tell <= 0.0 and s.tension < Tuning.DANGER - 0.07)
-		else:
-			Policies.act(policy, s, step, mem)
+		# Every column is a committed policy now. The hand-written "perfect"
+		# column that used to sit here reeled in calm water and let go at the
+		# tell - which in the sixth fight is GIVER, and GIVER lives in
+		# policies.gd where the golden can see it.
+		Policies.act(policy, s, step, mem)
 		s.advance(step)
 	if s.state == Sim.HOLDING:
 		return "landed"
@@ -58,8 +56,8 @@ func _fight(id: String, seed_i: int, policy: String) -> String:
 
 func _init() -> void:
 	var tries := 16
-	var names := [Policies.MASHER, Policies.SLOWPOKE, Policies.BLIND,
-		Policies.ANGLER, Policies.HUMAN, "perfect"]
+	var names := [Policies.MASHER, Policies.SLOWPOKE, Policies.GIVER, Policies.BLIND,
+		Policies.ANGLER, Policies.HUMAN]
 	var head := "%-18s" % ""
 	for n in names:
 		head += "  %-26s" % n
