@@ -50,7 +50,7 @@ const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", 
 ## which was quietly resetting a page turn between setting it up and
 ## photographing it. Three separate real bugs were chased before the tool turned
 ## out to be one of them.
-const MID_ACTION := ["turn", "inshed", "hull", "stow", "chart", "cast", "throw"]
+const MID_ACTION := ["turn", "inshed", "hull", "stow", "chart", "cast", "throw", "fight"]
 
 
 func _initialize() -> void:
@@ -226,6 +226,39 @@ func _initialize() -> void:
 				_main.advance(1.0 / 60.0, 1.0 / 60.0)
 		print("cast: state %s  charge %.2f  butt at %s  pitch %.1f" % [
 			_main.sim.state, _main.sim.charge, _main._rod.position, _main._rod.rotation_degrees.x])
+		_seconds = 0.0
+	elif _until == "fight":
+		# MID-FIGHT, WITH THE SLIDE PUSHED. `-- 0.7 fight` is a fish on and the
+		# thumb 70% of the way up the slide; `-- -0.6 fight` is line being given.
+		# The number is the SLIDE POSITION here, not seconds, because the thing
+		# worth photographing is the control under the thumb (F2.6).
+		if _main._title != null:
+			_main._title.skip()
+		var pos := clampf(_seconds, -1.0, 1.0)
+		var mem := {}
+		var ft := 0.0
+		while ft < 180.0 and _main.sim.state != Sim.FIGHTING:
+			Policies.act(Policies.ANGLER, _main.sim, 1.0 / 60.0, mem)
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+			ft += 1.0 / 60.0
+		# A second in so the button has faded to the slide, then the thumb.
+		for i in 60:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		var land: Vector2 = _main.slide_rest()
+		var press := InputEventScreenTouch.new()
+		press.index = 1
+		press.position = land
+		press.pressed = true
+		_main._slide_input(press)
+		var drag := InputEventScreenDrag.new()
+		drag.index = 1
+		drag.position = land + Vector2(0.0, -pos * (_main.SLIDE_UP if pos >= 0.0 else _main.SLIDE_DOWN))
+		drag.relative = drag.position - land
+		_main._slide_input(drag)
+		for i in 20:
+			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		print("fight: state %s  slide %.2f  reel %.2f  tension %.2f  running %s" % [
+			_main.sim.state, _main._slide_pos, _main.sim.reel, _main.sim.tension, _main.sim.running])
 		_seconds = 0.0
 	elif _until == "title":
 		if _main._title != null:

@@ -55,6 +55,7 @@ func _initialize() -> void:
 	_check_the_cast_is_a_swing_not_a_bend(main)
 	_check_the_cast_is_one_motion(main)
 	_check_the_cast_is_a_body_movement(main)
+	_check_the_slide_is_the_reel(main)
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
@@ -931,6 +932,51 @@ func _check_the_cast_is_a_body_movement(main) -> void:
 	main.advance(main.CAST_SETTLE_TIME + 0.6)
 	_t.lt(butt.position.distance_to(rest), 0.015,
 		"after the throw the hands settled %.3f m from the mount instead of coming home" % butt.position.distance_to(rest))
+
+
+## F2.3: THE SLIDE IS THE REEL, and it lives where the thumb is.
+##
+## Gideon: "turning cast button into a reeling animation with an analog stick...
+## Slide up and you reel in fast, hold in the middle and you stop reeling while
+## you fight the fish, slide down and you start letting the fish back out."
+## `test_controls.gd` proves the handler; this proves the CONTROL is on screen
+## in a fight and nowhere else, in the right-hand thumb zone, and that a knob
+## pulled fully down never enters the gesture bar - the geometry the travel was
+## cut to fit, asserted as the inequality rather than as the number.
+func _check_the_slide_is_the_reel(main) -> void:
+	_t.begin("smoke > the slide is the reel, and it is where the thumb is")
+	main.freeze(1)
+	var slide: Control = main._slide
+	_t.ok(slide != null, "there is no reel slide")
+	if slide == null:
+		return
+	# In a fight, and only in a fight, once the fade has settled.
+	main.sim.state = Sim.FIGHTING
+	for i in 60:
+		main._sync_bars()
+	_t.ok(slide.visible, "the slide is not up during a fight")
+	_t.ok(not main._action.visible, "the Cast button is still up under the slide during a fight")
+	main.sim.state = Sim.IDLE
+	for i in 60:
+		main._sync_bars()
+	_t.ok(not slide.visible, "the slide is still up with nothing on the line")
+	_t.ok(main._action.visible, "the Cast button did not come back after the fight")
+
+	# Anchored to the bottom-right, where the thumb is, and never past the
+	# gesture bar: the control's bottom edge is at or above SAFE_BOTTOM, and the
+	# knob at full give - rest minus SLIDE_DOWN, plus a radius - clears it too.
+	_t.eq(slide.anchor_bottom, 1.0, "the slide is not anchored to the bottom")
+	_t.eq(slide.anchor_right, 1.0, "the slide is not anchored to the right")
+	_t.lt(slide.offset_bottom, -float(main.SAFE_BOTTOM) + 0.5,
+		"the slide reaches %.0f px past the safe bottom, into the gesture bar" % (slide.offset_bottom + float(main.SAFE_BOTTOM)))
+	var rest_above_bottom := 150.0 + float(main.SAFE_BOTTOM) + float(main.ACTION_SIZE) * 0.5
+	var knob_bottom_at_full_give := rest_above_bottom - float(main.SLIDE_DOWN) - float(main.ACTION_SIZE) * 0.5
+	_t.gt(knob_bottom_at_full_give, float(main.SAFE_BOTTOM) - 0.5,
+		"a knob pulled fully down reaches %.0f px above the bottom edge, inside the gesture bar" % knob_bottom_at_full_give)
+	_t.gt(float(main.SLIDE_UP), float(main.SLIDE_DOWN),
+		"the slide gives more room toward the edge of the glass than away from it")
+	_t.eq(slide.mouse_filter, Control.MOUSE_FILTER_STOP,
+		"the slide does not consume its touches, so a drag on it leaks to the water")
 
 
 ## THE THREE THINGS GIDEON ASKED TO SEE AND FEEL.
@@ -1975,7 +2021,18 @@ func _check_every_state_offers_a_visible_action(main) -> void:
 		main._sync_bars()
 		var label: String = main._action_for_state()
 		_t.ok(label != "", "state '%s' names no action at all" % state)
+		if state == Sim.FIGHTING:
+			# The fight's visible action is the slide, faded in over the button.
+			# Step the fade to its end so the claim is about the settled state.
+			for i in 60:
+				main._sync_bars()
+			_t.ok(main._slide.visible, "a fight hides the reel slide")
+			_t.ok(not main._action.visible, "a fight leaves the Cast button up under the slide")
+			continue
+		for i in 60:
+			main._sync_bars()
 		_t.ok(main._action.visible, "state '%s' hides the action button" % state)
+		_t.ok(not main._slide.visible, "state '%s' leaves the reel slide up" % state)
 		_t.ok(main._action.text == label,
 			"the action button says '%s' in state '%s' but would do '%s'" % [
 				main._action.text, state, label])

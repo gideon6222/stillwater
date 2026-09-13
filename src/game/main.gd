@@ -89,6 +89,17 @@ var _drag_from := Vector2.ZERO
 var _drag_moved := 0.0
 var _touching := false
 var _stick: Control
+## The reel slide and its thumb. `_slide_raw` is where the thumb is relative to
+## where it landed, in travels; `_slide_pos` is where the KNOB is drawn, which
+## follows the thumb while held and springs home when it is not.
+var _slide: Control
+var _slide_held := false
+var _slide_from := Vector2.ZERO
+var _slide_raw := 0.0
+var _slide_pos := 0.0
+var _slide_vel := 0.0
+var _slide_fade := 0.0   ## 0 is the Cast button, 1 is the slide
+var _slide_spoke := false ## the slide has set the reel and owes it a zero on lift
 var _stick_held := false
 var _stick_from := Vector2.ZERO
 var _stick_to := Vector2.ZERO
@@ -119,17 +130,31 @@ var _swing := 0.0
 var _swing_vel := 0.0
 
 
-## Drive the swing toward `target` as a damped spring that should arrive in
-## about `seconds`. The envelope of a damped spring is exp(-zeta * omega * t),
-## so "arrived" (5%) is three time constants: omega = 3 / (zeta * seconds).
+## ONE SPRING FOR EVERYTHING THAT SETTLES. A damped spring step toward `target`
+## that should arrive in about `seconds`: the envelope of a damped spring is
+## exp(-zeta * omega * t), so "arrived" (5%) is three time constants, omega = 3
+## / (zeta * seconds). The acceleration is capped so the first frame is a ramp
+## and not a step - a stiff spring's first frame IS a step otherwise (F5).
 ## Semi-implicit Euler, which is stable at omega * dt = 0.3 and keeps the
-## velocity as real state rather than something re-derived each frame.
-func _spring_swing(target: float, seconds: float, dt: float) -> void:
+## velocity as real state rather than something re-derived each frame. Returns
+## (position, velocity). The cast's swing and the slide's return both use it,
+## so the two cannot settle on different curves.
+static func _spring_step(pos: float, vel: float, target: float, seconds: float,
+		dt: float, accel_max: float) -> Vector2:
 	var omega := 3.0 / (SWING_DAMPING * maxf(0.05, seconds))
-	var accel := omega * omega * (target - _swing) - 2.0 * SWING_DAMPING * omega * _swing_vel
-	accel = clampf(accel, -SWING_ACCEL_MAX, SWING_ACCEL_MAX)
-	_swing_vel += accel * dt
-	_swing += _swing_vel * dt
+	var accel := omega * omega * (target - pos) - 2.0 * SWING_DAMPING * omega * vel
+	accel = clampf(accel, -accel_max, accel_max)
+	vel += accel * dt
+	pos += vel * dt
+	return Vector2(pos, vel)
+
+
+## Drive the swing toward `target` as a damped spring that should arrive in
+## about `seconds`.
+func _spring_swing(target: float, seconds: float, dt: float) -> void:
+	var s := _spring_step(_swing, _swing_vel, target, seconds, dt, SWING_ACCEL_MAX)
+	_swing = s.x
+	_swing_vel = s.y
 var _grade: ColorRect
 var _rain: GPUParticles3D
 var _mist: GPUParticles3D
@@ -1827,6 +1852,7 @@ func _build_hud() -> void:
 	_charge_ring.name = "ChargeRing"
 	_charge_ring.draw.connect(_draw_charge_ring)
 	_ui.add_child(_charge_ring)
+	_build_slide()
 
 	# USE, above the action and only when there is something to use. Same corner,
 	# same thumb, deliberately smaller and cooler - it is the second verb, not a
@@ -2007,6 +2033,22 @@ func _sync_bars() -> void:
 		_action.disabled = dead_select or (sim.state == Sim.HOLDING
 			and label == "Too big") or (sim.state == Sim.HOLDING and label == "No room")
 		_action.text = label
+		# THE BUTTON BECOMES THE SLIDE FOR THE FIGHT, and back. The R10 cross-fade,
+		# in the same corner, so the thumb never has to look for it: both are
+		# drawn through the fade and only the ends of it show one alone. The
+		# fade runs on the frame clock, so a harness that steps `_sync_bars`
+		# with no frame between sees the button until it steps.
+		var want_slide := sim.state == Sim.FIGHTING and not in_room
+		var k := 1.0 - exp(-_boat_dt / maxf(0.01, SLIDE_FADE))
+		_slide_fade = lerpf(_slide_fade, 1.0 if want_slide else 0.0, k)
+		if absf(_slide_fade - (1.0 if want_slide else 0.0)) < 0.01:
+			_slide_fade = 1.0 if want_slide else 0.0
+		_action.modulate.a = 1.0 - _slide_fade
+		_action.visible = _action.visible and _slide_fade < 0.999
+		if _slide != null:
+			_slide.modulate.a = _slide_fade
+			_slide.visible = _slide_fade > 0.001
+			_slide.queue_redraw()
 	if _back != null:
 		# Beside the primary for exactly as long as there is a fish to decide
 		# about, and never in a room.
@@ -2118,6 +2160,29 @@ const STICK_RADIUS := 118.0
 const LOOK_RATE := 0.62
 const STICK_DEAD := 0.14   ## a thumb resting on the stick is not an instruction
 const STICK_CURVE := 1.7   ## response exponent. Fine at the bottom, fast at the top
+
+## THE REEL SLIDE (F2.3, PLAN.md 4.3d). During a fight the Cast button becomes a
+## vertical slide in the same corner: the thumb lands anywhere on it and slides
+## UP to crank, rests at the CENTRE to hold, slides DOWN to give line - fully
+## progressive, and it springs home to hold on release, because "hold in the
+## middle while you fight" only means something if the middle is where the thumb
+## rests. One axis, not a free stick: the fight has one degree of freedom.
+##
+## The landing point is the zero, as on the look stick, so nothing has to be hit
+## exactly; the knob is drawn from the track's centre regardless. The travel is
+## ASYMMETRIC, 260 px up and 150 down, rather than the plan's 280 each way: the
+## knob at rest is where the Cast button is, 334 px above the bottom edge, and a
+## knob pulled fully down must not enter the gesture bar (SAFE_BOTTOM) - 150 is
+## the most the geometry allows, and `run_smoke.gd` asserts the inequality. A
+## thumb pulling toward the edge of the glass runs out of room before one
+## pushing away from it anyway, and the give end is worked in small moves.
+const SLIDE_UP := 260.0
+const SLIDE_DOWN := 150.0
+const SLIDE_DEAD := 0.12         ## of the travel, scaled: a resting thumb is not an instruction
+const SLIDE_CURVE := STICK_CURVE ## the same fine low end as the look stick
+const SLIDE_RETURN := 0.10       ## seconds for the knob to spring home
+const SLIDE_ACCEL_MAX := 600.0   ## knob units per s². 10 per frame: a return, not a snap
+const SLIDE_FADE := 0.20         ## seconds of cross-fade between the button and the slide
 ## HOW FAR THE FISH IS FROM THE BOAT, and nothing else.
 ##
 ## Gideon: "I think we are not showing a different between reeling speed and
@@ -2325,12 +2390,10 @@ func _cast_pressed() -> void:
 		Sim.NIBBLING:
 			sim.tap()
 		Sim.FIGHTING:
-			# HELD, and that is the whole change. The same button that charges a
-			# cast reels the fish, because they are the same gesture - press and
-			# hold, let go when you have enough - and one button that means "do
-			# the thing this moment wants" is the rule the caption already follows.
-			# F2.1: the button is the top of the slide until F2.3 builds the slide.
-			sim.set_reel(1.0)
+			# THE SLIDE OWNS THE FIGHT. The button is faded out and the slide is
+			# under the thumb in its place (F2.3); a press that reaches here is
+			# the tail of the cross-fade and means nothing.
+			pass
 		_:
 			# Anything else: the button is a "reel in", and that happens on
 			# release so the press can still show as a press.
@@ -2339,7 +2402,6 @@ func _cast_pressed() -> void:
 
 func _cast_released() -> void:
 	if sim.state == Sim.FIGHTING:
-		sim.set_reel(0.0)
 		return
 	if _charging:
 		_charging = false
@@ -2392,6 +2454,164 @@ func _stick_input(event: InputEvent) -> void:
 		_stick_vec = Vector2.ZERO
 	if _stick != null:
 		_stick.queue_redraw()
+
+
+## THE REEL SLIDE. The same corner and width as the Cast button, extended a
+## travel above and below it; the fight fades the button out and this in.
+func _build_slide() -> void:
+	_slide = Control.new()
+	_slide.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_slide.offset_left = -ACTION_SIZE - 46
+	_slide.offset_right = -46
+	_slide.offset_top = -ACTION_SIZE - 150 - SAFE_BOTTOM - SLIDE_UP
+	_slide.offset_bottom = -150 - SAFE_BOTTOM + SLIDE_DOWN
+	_slide.mouse_filter = Control.MOUSE_FILTER_STOP
+	_slide.name = "ReelSlide"
+	_slide.visible = false
+	_slide.modulate.a = 0.0
+	_slide.gui_input.connect(_slide_input)
+	_slide.draw.connect(_draw_slide)
+	_ui.add_child(_slide)
+
+
+## Where the thumb is on the slide, from where it landed. Up is positive, in
+## travels, so the sign is the zone and the magnitude is how far into it.
+func _slide_input(event: InputEvent) -> void:
+	var pressed := false
+	var at := Vector2.ZERO
+	var moved := false
+	if event is InputEventScreenTouch:
+		pressed = (event as InputEventScreenTouch).pressed
+		at = (event as InputEventScreenTouch).position
+	elif event is InputEventMouseButton:
+		pressed = (event as InputEventMouseButton).pressed
+		at = (event as InputEventMouseButton).position
+	elif event is InputEventScreenDrag:
+		at = (event as InputEventScreenDrag).position
+		moved = true
+	elif event is InputEventMouseMotion:
+		at = (event as InputEventMouseMotion).position
+		moved = _slide_held
+	else:
+		return
+	if moved:
+		if _slide_held:
+			var dy := _slide_from.y - at.y
+			_slide_raw = clampf(dy / (SLIDE_UP if dy >= 0.0 else SLIDE_DOWN), -1.0, 1.0)
+	elif pressed:
+		_slide_held = true
+		_slide_from = at
+		_slide_raw = 0.0
+	else:
+		_slide_held = false
+		_slide_raw = 0.0
+	_slide.accept_event()
+	_slide.queue_redraw()
+
+
+## Turn the thumb's offset into the reel, once a frame, and spring the knob
+## home when the thumb is off. The dead zone is SCALED, as the look stick's is,
+## so the crank starts from nothing wherever the thumb picks it up, and the
+## curve gives a long fine low end - which is where "let out slowly to match
+## the fish" lives.
+func _sync_slide(dt: float) -> void:
+	var want := 0.0
+	if _slide_held:
+		var mag := absf(_slide_raw)
+		if mag > SLIDE_DEAD:
+			var throw := (mag - SLIDE_DEAD) / (1.0 - SLIDE_DEAD)
+			want = signf(_slide_raw) * pow(throw, SLIDE_CURVE)
+		_slide_pos = _slide_raw
+		_slide_vel = 0.0
+	else:
+		var s := _spring_step(_slide_pos, _slide_vel, 0.0, SLIDE_RETURN, dt, SLIDE_ACCEL_MAX)
+		_slide_pos = s.x
+		_slide_vel = s.y
+	# THE SLIDE SPEAKS ONLY WHILE A THUMB IS ON IT, and once as it lifts. A first
+	# cut sent `want` every frame, thumb or no thumb - so anything that drives
+	# the sim directly (the bots in `play`, the harness, the film's policy seam
+	# before its thumb lands) was overwritten with zero sixty times a second and
+	# "two minutes of correct play landed nothing".
+	if sim.state == Sim.FIGHTING:
+		if _slide_held:
+			sim.set_reel(want)
+			_slide_spoke = true
+		elif _slide_spoke:
+			sim.set_reel(0.0)
+			_slide_spoke = false
+	elif _slide_held:
+		# A thumb still on the slide when the fight ends is a thumb on nothing;
+		# it lifts with the fade.
+		_slide_held = false
+		_slide_raw = 0.0
+		_slide_spoke = false
+
+
+## The slide is a brass slot with three marks and a knob that is a reel handle.
+## The knob turns with `_reel_spin` - the same number the rod's crank turns by
+## - forward when cranking, back when giving, so the thumb sees the line going
+## the way it is sending it before the counter says so.
+func _draw_slide() -> void:
+	var w := _slide.size.x
+	var half := ACTION_SIZE * 0.5
+	# The knob's rest is the Cast button's centre: SLIDE_UP below the top of
+	# this control, not its middle, because the travel is asymmetric.
+	var mid := Vector2(w * 0.5, SLIDE_UP + half)
+	var slot_w := w * 0.34
+	var slot := Rect2(mid.x - slot_w * 0.5, mid.y - SLIDE_UP - half * 0.5,
+		slot_w, SLIDE_UP + SLIDE_DOWN + half)
+	var case := StyleBoxFlat.new()
+	case.bg_color = Color(0.055, 0.070, 0.078, 0.78)
+	case.border_color = Color(0.72, 0.58, 0.32, 0.70)
+	case.set_border_width_all(3)
+	case.set_corner_radius_all(int(slot_w * 0.5))
+	case.shadow_color = Color(0, 0, 0, 0.40)
+	case.shadow_size = 8
+	case.shadow_offset = Vector2(0, 4)
+	_slide.draw_style_box(case, slot)
+
+	# Three marks: IN at the top, a hairline at HOLD, OUT at the bottom. Words,
+	# because every control in this game is labelled with a word that says what
+	# the moment is (R10, W5), and the marks are the slide's own captions.
+	var font := _slide.get_theme_default_font()
+	var ink := Color(0.93, 0.90, 0.82, 0.62)
+	# INSIDE the slot's ends, not beyond them: the slot's bottom is already as
+	# low as the gesture bar allows, and a word under it sat in the bar.
+	_slide.draw_string(font, Vector2(0.0, slot.position.y + 34.0), "IN",
+		HORIZONTAL_ALIGNMENT_CENTER, w, 26, ink)
+	_slide.draw_string(font, Vector2(0.0, slot.end.y - 16.0), "OUT",
+		HORIZONTAL_ALIGNMENT_CENTER, w, 26, ink)
+	_slide.draw_line(Vector2(mid.x - slot_w * 0.5 - 14.0, mid.y),
+		Vector2(mid.x - slot_w * 0.5 - 2.0, mid.y), ink, 2.0)
+	_slide.draw_line(Vector2(mid.x + slot_w * 0.5 + 2.0, mid.y),
+		Vector2(mid.x + slot_w * 0.5 + 14.0, mid.y), ink, 2.0)
+
+	# The knob: the Cast button's own face, so the morph reads as the same
+	# control changing job rather than a new one arriving.
+	var knob := mid + Vector2(0.0, -_slide_pos * (SLIDE_UP if _slide_pos >= 0.0 else SLIDE_DOWN))
+	var pulling := sim.state == Sim.FIGHTING and (sim.running or sim.tell > 0.0)
+	var face := Color(0.135, 0.098, 0.062, 0.94)
+	var rim := Color(0.86, 0.68, 0.36, 0.60)
+	if _slide_held:
+		face = Color(0.30, 0.22, 0.12, 0.97)
+		rim = Color(1.0, 0.90, 0.62, 0.95)
+	_slide.draw_circle(knob + Vector2(0, 5), half + 2.0, Color(0, 0, 0, 0.35))
+	_slide.draw_circle(knob, half, face)
+	_slide.draw_arc(knob, half - 1.5, 0.0, TAU, 64, rim, 3.0)
+
+	# The reel handle on the knob: an arm and a grip, turned by the crank's own
+	# angle. Cranking spins it one way, giving line the other, holding stills it.
+	var arm := Vector2.RIGHT.rotated(-_reel_spin) * (half * 0.52)
+	_slide.draw_line(knob, knob + arm, Color(0.62, 0.63, 0.64, 0.9), 6.0)
+	_slide.draw_circle(knob, half * 0.14, Color(0.62, 0.63, 0.64, 0.95))
+	_slide.draw_circle(knob + arm, half * 0.16, Color(0.68, 0.55, 0.36, 1.0))
+	_slide.draw_arc(knob + arm, half * 0.16, 0.0, TAU, 24, Color(0.96, 0.90, 0.76, 0.7), 2.0)
+
+	# The caption on the knob, which is the telegraph: Reel, or Ease when the
+	# fish is about to pull, in the warm-going-cold tint the button used.
+	var tint := Color(0.99, 0.80, 0.44) if pulling else Color(0.96, 0.90, 0.76)
+	_slide.draw_string(font, Vector2(0.0, knob.y + half * 0.78), _action_for_state(),
+		HORIZONTAL_ALIGNMENT_CENTER, w, 30, tint)
 
 
 ## Turn the stick's offset into a look rate, once a frame.
@@ -2498,6 +2718,7 @@ func _tick(dt: float) -> void:
 		_sync_mood(dt * (SLEEP_LIGHT_RATE - 1.0))
 	_sync_intro(dt)
 	_sync_stick(dt)
+	_sync_slide(dt)
 	_sync_needle(dt)
 	var lk := 1.0 - exp(-LOOK_FOLLOW * dt)
 	_look_yaw = lerpf(_look_yaw, _look_yaw_want, lk)
@@ -2574,6 +2795,12 @@ func freeze(seed_value: int = 1) -> void:
 	# purpose, so a known state has to put it down explicitly.
 	_swing = 0.0
 	_swing_vel = 0.0
+	# And the thumb off the slide, the knob home, the button showing.
+	_slide_held = false
+	_slide_raw = 0.0
+	_slide_pos = 0.0
+	_slide_vel = 0.0
+	_slide_fade = 0.0
 	sim.restart(seed_value)
 	_sync()
 
@@ -2650,11 +2877,15 @@ func bot_touch_pixels(policy: String, mem: Dictionary, _size: Vector2) -> Vector
 				return Vector2.INF
 			return _bot_centre(_action)
 		Policies.WORK:
-			# F2.1: the button is crank-or-hold until F2.3 builds the slide; a bot
-			# that wants to give line holds instead, and the film shows it.
-			if float(mem.get("reel", 0.0)) > 0.0:
-				return _bot_centre(_action)
-			return Vector2.INF
+			# The thumb lands on the slide's centre first - the landing point is
+			# the zero - and then moves up or down it by the offset the handler's
+			# own curve needs to produce the amount the policy wants. Inverted
+			# from `_sync_slide`'s arithmetic, so a retuned curve retunes the bot.
+			if not bool(mem.get("bot_on_slide", false)):
+				mem["bot_on_slide"] = true
+				return slide_rest()
+			var amount := float(mem.get("reel", 0.0))
+			return slide_rest() + Vector2(0.0, -slide_offset_for(amount))
 		Policies.STRIKE:
 			return _bot_press_once(_action, mem)
 		Policies.KEEP:
@@ -2671,6 +2902,9 @@ func bot_touch_pixels(policy: String, mem: Dictionary, _size: Vector2) -> Vector
 		Policies.RELEASE:
 			return Vector2.INF
 		_:
+			# Off the slide the moment the fight is over, so the next press is a
+			# new press.
+			mem["bot_on_slide"] = false
 			# Nothing to decide - except that a loaded rod is HELD, and letting
 			# go of it is the throw.
 			if sim.state == Sim.CHARGING:
@@ -2687,6 +2921,25 @@ func bot_can_drive() -> bool:
 
 func _bot_centre(c: Control) -> Vector2:
 	return c.get_global_rect().get_center()
+
+
+## Where the knob rests, in viewport pixels: the Cast button's centre, which is
+## SLIDE_UP plus a knob radius below the slide's top edge.
+func slide_rest() -> Vector2:
+	var r := _slide.get_global_rect()
+	return Vector2(r.get_center().x, r.position.y + SLIDE_UP + ACTION_SIZE * 0.5)
+
+
+## The thumb offset, in pixels UP the slide, that `_sync_slide` turns into
+## `reel` - the handler's own dead zone and curve, inverted. Public so the bot
+## seam and the tests derive the pixel from the same constants the handler
+## reads, rather than from a number typed twice.
+func slide_offset_for(reel: float) -> float:
+	var mag := clampf(absf(reel), 0.0, 1.0)
+	if mag <= 0.0:
+		return 0.0
+	var raw := SLIDE_DEAD + (1.0 - SLIDE_DEAD) * pow(mag, 1.0 / SLIDE_CURVE)
+	return signf(reel) * raw * (SLIDE_UP if reel > 0.0 else SLIDE_DOWN)
 
 
 func _bot_press_once(c: Control, mem: Dictionary) -> Vector2:
@@ -6151,8 +6404,10 @@ func _action_for_state() -> String:
 			# the control the thumb is already on, not only on a wake out on the
 			# water where nobody is looking during a fight. Gideon: "it is also
 			# not obvious that the fish will pull back and add pressure to the bar."
+			# "Ease" rather than "LET GO" since the slide: the thumb does not come
+			# off, it comes DOWN, and the word is the direction.
 			if sim.running or sim.tell > 0.0:
-				return "LET GO"
+				return "Ease"
 			return "Reel"
 	return ""
 
@@ -6229,7 +6484,7 @@ func _hint_for_state() -> String:
 				return "EASE OFF   -   the line is about to go"
 			if sim.running or sim.tell > 0.0:
 				return "it is running   -   hold on if the rod can take it"
-			return "hold to reel   -   ease off if the rod bends too far"
+			return "slide up to reel   -   ease down when it pulls"
 	return ""
 
 

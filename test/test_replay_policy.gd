@@ -37,16 +37,34 @@ func _game():
 func _thumb(main, at: Vector2, held: Dictionary) -> void:
 	var down: bool = at.is_finite()
 	var was: bool = bool(held.get("down", false))
-	if down and was and at.distance_to(held["at"]) > 1.0:
-		# Moved to another control: lift now, press next frame.
-		down = false
+	if down and was:
+		# Moved while down: a drag on the same finger, which is how the slide
+		# is worked. The driver pushes a ScreenDrag; off-tree this hands it to
+		# the slide's handler directly.
+		if at.distance_to(held["at"]) > 0.5:
+			if held.get("on", "") == "slide":
+				var d := InputEventScreenDrag.new()
+				d.index = 1
+				d.position = at
+				d.relative = at - held["at"]
+				main._slide_input(d)
+				held["slid"] = true
+			held["at"] = at
+		return
 	if down == was:
 		return
 	held["down"] = down
 	if down:
 		held["at"] = at
 		held["presses"] = int(held.get("presses", 0)) + 1
-		if main._action.get_global_rect().has_point(at):
+		if main._slide.visible and main._slide.get_global_rect().has_point(at):
+			held["on"] = "slide"
+			var p := InputEventScreenTouch.new()
+			p.index = 1
+			p.position = at
+			p.pressed = true
+			main._slide_input(p)
+		elif main._action.get_global_rect().has_point(at):
 			held["on"] = "action"
 			main._action.button_down.emit()
 		elif main._back.get_global_rect().has_point(at):
@@ -55,7 +73,13 @@ func _thumb(main, at: Vector2, held: Dictionary) -> void:
 			held["on"] = "nowhere"
 			held["misses"] = int(held.get("misses", 0)) + 1
 	else:
-		if held.get("on", "") == "action":
+		if held.get("on", "") == "slide":
+			var r := InputEventScreenTouch.new()
+			r.index = 1
+			r.position = held["at"]
+			r.pressed = false
+			main._slide_input(r)
+		elif held.get("on", "") == "action":
 			main._action.button_up.emit()
 		elif held.get("on", "") == "back":
 			main._back.pressed.emit()
@@ -115,8 +139,13 @@ func test_the_seam_lands_a_fish_through_the_real_buttons(t: TestHarness) -> void
 		"150 s of correct play through the buttons landed nothing (%d casts, %d presses) - the strike or the reel is not reaching the sim through the button" % [main.sim.casts, int(saw.get("presses", 0))])
 	t.eq(int(saw.get("misses", 0)), 0,
 		"%d presses landed on neither button - the point the bot asks for is not on a control" % int(saw.get("misses", 0)))
-	t.gt(float(saw.get("presses", 0)), 3.0,
-		"only %d presses in 150 s - the thumb is not lifting between a strike and the reel" % int(saw.get("presses", 0)))
+	# A cast, a strike and a keep are presses; the reel is a thumb that lands
+	# on the slide and DRAGS. Both halves, because a fish that landed with the
+	# thumb never on the slide would mean the sim was reeled by something else.
+	t.gt(float(saw.get("presses", 0)), 2.0,
+		"only %d presses in 150 s - the thumb is not lifting between the cast, the strike and the keep" % int(saw.get("presses", 0)))
+	t.ok(bool(saw.get("slid", false)),
+		"a fish landed but the thumb never dragged the reel slide - something other than the slide reeled it")
 	# The restore is the whole point of the seam. Asked by acting, the bot would
 	# take the shortcut AND film it.
 	t.eq(int(saw["moved"]), 0, "asking the bot moved the simulation on %d frames - bot_touch_pixels is acting, not reading" % int(saw["moved"]))

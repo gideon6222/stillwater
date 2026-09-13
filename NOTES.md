@@ -807,6 +807,34 @@ risk dial doing its job, not the tell failing.
 the fight state at the sixty-second mark (distance, stamina, tension), the draw count by
 two, and the new `reel` key. The pure suite's floor is unchanged at 10,900 (11,063 live).
 
+## The slide (F2.3, 2026-09-12)
+
+**The Cast button becomes the reel slide for the fight, in the same corner.** A vertical
+slot above and below the button's rect (`SLIDE_UP` 260 px, `SLIDE_DOWN` 150, not the plan's 280
+each way: the knob at rest is 334 px above the bottom edge, and a knob pulled fully down must
+not enter the gesture bar - 150 is the most the geometry allows and the smoke suite asserts the
+inequality; a thumb pulling toward the edge of the glass runs out of room before one pushing
+away from it anyway), a scaled dead zone of 12% and the
+look stick's 1.7 curve, the landing point as the zero so nothing has to be hit exactly, and a
+spring home to HOLD on release through the same `_spring_step` the cast's swing uses - one
+curve for everything that settles. The knob is the Cast button's own face with a reel
+handle on it that turns by `_reel_spin`, the number the rod's crank turns by, so the
+thumb sees the line going the way it is sending it. The caption rides on the knob: Reel, or
+Ease when the fish is about to pull. The R10 cross-fade swaps button and slide over 0.2 s.
+
+**Two things the suite caught before a picture did.** The slide's per-frame sync sent zero
+to the sim whenever no thumb was on it, which overwrote the bots and the harness sixty times
+a second - "two minutes of correct play landed nothing". It speaks only while a thumb is on
+it and once as it lifts. And the intro still said "tap to reel it in. stop tapping when it
+runs", three fights after tapping went; it and the fight hint say the slide's words now.
+
+**Gates.** `test/test_controls.gd`: up cranks and down gives through the real handler, the
+low end is finer than linear, the dead zone is silent, letting go asks for zero and the knob
+comes home in under half a second with no single-frame speed step, and the bot's pixel for
+an amount produces that amount through the handler (the inversion and the curve cannot
+disagree). The seam test drags the slide rather than pressing it; the template driver
+turns a moved thumb into a `ScreenDrag` on the same finger now.
+
 ## Playtest 2026-09-12 (phone, Galaxy S26 Ultra, desk-exported APK)
 
 **Driven from the desk over adb** (`device.ps1 install / launch / perf / record 30 / tap /

@@ -29,7 +29,7 @@ const BEATS := [
 		"hold": 2.6,
 	},
 	{
-		"say": "drag anywhere to look around.",
+		"say": "lean the stick to look around.",
 		"needs": "looked",
 	},
 	{
@@ -47,11 +47,14 @@ const BEATS := [
 		"needs": "taking",
 	},
 	{
-		"say": "now - tap.",
+		"say": "now - strike.",
 		"needs": "hooked",
 	},
 	{
-		"say": "tap to reel it in. stop tapping when it runs.",
+		# The sixth fight's words. It said "tap to reel it in. stop tapping when
+		# it runs" until 2026-09-12, three fights after tapping went - the intro
+		# is the one place the control's wording is written down twice.
+		"say": "slide up to reel it in. ease down when it pulls.",
 		"needs": "landed",
 	},
 	{
