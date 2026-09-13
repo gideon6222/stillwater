@@ -225,6 +225,112 @@ not be lost at all; `probe_rod.gd` measured where the rod sits on screen and fou
 the reel a full viewport width off the left edge, invisible on the phone while
 looking fine in a screenshot taken at the wrong aspect.
 
+### 4.3d The sixth fight: the reel is a stick, and the risk is the pressure
+
+Gideon, after the 2026-09-12 phone test: *"The reeling the fish in doesn't feel
+great. The gauge at the top feels like a gauge, not a distance... make that look
+more like a measurement, and something less important... The indication that the
+line is getting too tight and bending the rod doesn't feel very good and is easy
+to miss initially. I think we need a gauge or something that goes up the side of
+the screen to make it more obvious that the risk is the pressure on the fish...
+turning cast button into a reeling animation with an analog stick... Slide up and
+you reel in fast, hold in the middle and you stop reeling while you fight the
+fish, slide down and you start letting the fish back out. It should be a full
+progressive scale so you can let in or out slowly to match what the fish is
+doing... make sure the buttons and reeling are focused on. If those look or feel
+bad, it will make this mechanic feel cheap even if it's set up well."*
+
+**He named three mechanisms and a standard, and all four are built as named.**
+The fifth fight's model stands - distance is progress, tension is danger, stamina
+is the resource - and what changes is the CONTROL and the PICTURE. The research
+(`C:\dev\plans\stillwater-sixth-fight-research.md`) found no game with exactly
+this control, and every piece of it separately: continuous drag and reel speed
+(Fishing Planet, The Angler), a momentum-based vertical control where overshoot is
+the difficulty (Stardew), tension bars players learn to hold near a mark (Fishing
+Clash, whose own help page says holding the button reads badly - the failure mode
+he just reported), and peripheral-vision HUD guidance that colour is the weakest
+cue and fill, brightness and a pulse are the strong ones.
+
+**The control: one axis, springs home to HOLD.** The Cast button becomes, during
+a fight, a vertical slide in the same corner. The thumb lands on the knob at the
+centre and slides: **up is crank** (reel in, the further the faster), **centre is
+hold** (no line in, no line out, the rod carries the fish), **down is give** (line
+pays out, the further the faster). Fully progressive, so the crank can be turned
+at a quarter speed against a fresh fish and line given a little at a time to
+match a run. On release the knob springs back to centre, because "hold in the
+middle while you fight" only means something if the middle is where the thumb
+rests. It is a track and not a free stick - the fight has one degree of freedom
+and a second axis would only drift. Scaled dead zone of 12% of half-travel round
+the centre (a resting thumb is not an instruction), the same 1.7 response curve
+as the look stick so the low end is fine, ±280 px of travel.
+
+**The model gains one number and one word.** `reel` in [-1, 1] replaces the
+boolean, with a short inertia so the crank has weight (a real reel does not stop
+dead; `REEL_INERTIA` 0.12 s, in the sim, so the golden and the phone agree). Three
+zones, and each is a thing the player did:
+
+| zone | line | tension | distance | during a run |
+|---|---|---|---|---|
+| crank, `reel` > 0 | winds in | rises toward `HOLD_RISE * resist * reel / TAP_DECAY` - the settle point SCALES with the crank, so a fish that cannot be held at full speed can be worked at half | closes at `REEL_RATE * haul * reel` | the run is braked by `RUN_HOLD` and the pull loads the line at `PULL_RISE * power²` |
+| hold, `reel` = 0 | held | decays in calm water; during a run the fish pulls against a held line at `PULL_RISE * power²` | still | braked, loaded: this is "fight the fish" |
+| give, `reel` < 0 | pays out | falls fast: decay plus `GIVE_RELIEF * |reel|` | opens at `GIVE_RATE * |reel|` | not braked, not loaded: the safe answer, and it costs ground |
+
+Pressure tires the fish whenever the line is loaded, not only while cranking, so
+holding a run on a tight line is the greedy line and giving early is the safe one -
+the same dial as the fifth fight, with the whole range between the two ends now
+reachable. Strain and `SNAP_SECONDS` are unchanged. Every existing balance claim is
+re-measured (`balance.gd`, `probe_loss.gd`) and the ladder targets stand: the
+first three waters a reliable win for a careful player, the Quarry unforgiving.
+
+**The bots move onto the dial, and one is added.** ANGLER cranks at the fastest
+speed whose settle point is under the ceiling and gives exactly enough line to
+take a run's jolt under the danger line; HUMAN does the same with its reaction
+lag and a coarse thumb (steps of a fifth); BLIND cranks or holds but never gives;
+MASHER cranks flat out; SLOWPOKE cranks at a fifth; IDLE_HANDS holds; **GIVER** gives
+line at every tell and never snaps - it loses fish to `ESCAPE_MARGIN`, which is
+the failure the down direction has to have or giving line is free.
+
+**The picture, in the order the eye needs it.**
+
+1. **The pressure gauge, up the LEFT side.** A vertical bar from 28% to 68% of the
+   screen height, 44 px wide, 36 px in from the edge: clear of the look stick
+   below it, of the rod and the float in the middle, and of the right-hand thumb.
+   It fills bottom-up with tension, brightens as it climbs, carries the danger
+   line as a fixed mark, and above that line it PULSES in step with the heavy
+   haptic. Colour ramps as well (the line's own calm-to-hot), but the fill, the
+   brightness and the pulse are what a peripheral eye reads while it watches the
+   rod. The rod's bend and the red line stay; they were never wrong, only quiet.
+   The smoke rule "gauges live in the top third" is REPLACED by "readouts are
+   clear of both thumbs' rest zones and of the centre of the frame", because the
+   old rule was the settlement of a note about a thumb covering a needle and this
+   gauge is precisely where no thumb goes.
+2. **The distance readout becomes a measurement.** The brass case at the top goes.
+   In its place a small line counter: the metres of line out in digits, a fine
+   scale with metre ticks and a marker, top-centre, in the HUD's quiet grey, no
+   case, no fill. It is the thing you glance at, not the thing you watch. Asserted
+   as an ORDER: the gauge's on-screen area and contrast both exceed the counter's,
+   so "less important" is a number rather than an intention.
+3. **The slide and the crank are the mechanic's face**, and they get the care the
+   Cast button got. The track is a brass slide with three engraved marks (IN,
+   HOLD, OUT); the knob is a reel handle that TURNS as the thumb moves it, forward
+   when cranking and backward when giving; the rod's own reel crank spins in step
+   with `reel` in both directions, and stalls when the fish is taking line against
+   the crank, as it does now. The morph from Cast button to slide is the R10
+   cross-fade in the same position, so the thumb never has to look for it.
+4. **Sound and touch.** Reel clicks at a rate that follows the crank; the drag
+   sound, already generated, plays while line is GIVEN under load and scales with
+   `|reel| * tension` - the classic sound of a fish taking line, and it is the
+   audio half of "the risk is the pressure". The tell's small pulse stays. The
+   heavy pulse train's gap now shrinks with tension, from 100 ms at the warn line
+   to 50 ms at the top (Android's own guidance: a continuous buzz carries nothing,
+   a rate does), so the phone tells you how close you are without a look.
+
+**What "feel good" is measured as.** The reversal test from F5 applies to the
+knob: no single-frame speed step on the spring return. The crank's spin never
+jumps when `reel` crosses zero. The slide answers a thumb within two frames
+(`_check_every_action_answers_within_two_frames`). And the phone, in his hand,
+before the phase is called done.
+
 ### 4.3 The fight — hold the tension band
 
 Tap to raise tension, it decays on its own, keep it inside the safe band. During
@@ -1208,6 +1314,19 @@ only here. A resuming session works from the first unticked box.
 - [ ] **F6 The fight is smooth.** The needle's overshoot should read as weight rather than lag — this is the one that needs the phone, not the desk. *The needle is gone since the fifth fight; what is left to judge is the rod's bend, the shake and the two buzz levels under a thumb, and only a hand can*
 - [ ] **F7 Judge F1–F6 on the phone.** `/playtest phone`. Nothing in this phase is finished until it has been held. *Machine half done 2026-09-12 (NOTES.md "Playtest 2026-09-12"): the reversal is continuous at 120 Hz, hit boxes agree with captions, 125 fps with no dropped or janky frames and thermal status 0, home/resume and back behave as designed, no errors in the log. Found and fixed: the boot splash was the Godot logo. Found and left for the lighting pass: the port rail's shadowed face reads as a black slab at dawn. Still owed: his hand on the fight and the haptics*
 
+## Phase F2 — the sixth fight (§4.3d). *"The risk is the pressure on the fish"* (2026-09-12)
+
+Researched and planned 2026-09-12; **shown before building.** Each step lands with its test, its gate run, and a screenshot at the device aspect; the phase ends on the phone in his hand.
+
+- [ ] **F2.1 The model takes a dial.** `Sim.set_reel(r)` in [-1, 1] with `REEL_INERTIA`; the three zones of §4.3d. `test_tuning.gd` first: the crank's settle point scales with `reel`; hold during a run loads the line and give does not; give drops tension faster than hold and costs distance; pressure tires the fish whenever the line is loaded. `set_reeling` is deleted, not wrapped
+- [ ] **F2.2 The bots on the dial, and GIVER.** Seven policies, each failing for its own reason; `balance.gd` and `probe_loss.gd` re-measured by band and written into NOTES.md against the fifth fight's numbers; the golden re-recorded and its diff READ - every changed number explained by the model change or the run stops
+- [ ] **F2.3 The slide.** The Cast button becomes the reel slide in FIGHTING: vertical track, spring return to centre, scaled dead zone, the 1.7 curve, ±280 px. A `test_controls.gd`-style assertion through the REAL handler: a drag up sets `reel` positive and a drag down negative, in proportion; release returns to zero over the spring with no single-frame step. The bot seam drives it: `bot_touch_pixels` returns a point up or down the track and the template driver turns a moved point into a `ScreenDrag` on the same finger instead of a lift (template change, forward-ported)
+- [ ] **F2.4 The pressure gauge up the left side**, and the top-third rule replaced. Smoke asserts: visible only in a fight and comes back after hiding; fills with `sim.tension` (same number that parts the line); the danger mark sits at `DANGER`; it pulses above the line; clear of both thumb zones and the frame's centre; `mouse_filter` ignore
+- [ ] **F2.5 The distance readout as a measurement.** Digits and a metre scale, quiet, top-centre; the brass case deleted. Smoke asserts the ORDER: gauge area and contrast above the counter's
+- [ ] **F2.6 The face of it: knob, crank, morph.** The knob turns with the thumb, the rod's crank spins with `reel` both ways and stalls into a run, the Cast-to-slide cross-fade. `shot.gd` grows `fight` (a fish on, the slide up) so the control can be photographed; filmed with the bot at 1/60 s tiles across a give-and-take
+- [ ] **F2.7 Sound and touch.** Reel clicks at the crank's rate; the drag sound under give-and-load; the heavy train's gap from 100 ms to 50 ms with tension. Smoke asserts the gap shrinks monotonically and the drag sound is silent when no line is given
+- [ ] **F2.8 Judged on the phone**, in his hand: the slide under a thumb, the gauge in the corner of the eye, the two haptics. Nothing in this phase is finished until then, and F6 and F7 close with it
+
 ## Phase B — the body. *"So it doesn't look like a person is actually sitting in it"* (2026-09-10)
 
 - [x] **B1 Still water.** Wave amplitude 0.16 m → 0.063 m. A third short wave keeps the surface alive at close range, because cutting amplitude alone gives calm water that also looks dead
@@ -1303,11 +1422,12 @@ inside it rather than reporting that it cannot be captured.
 
 ### The order, and why
 
-**Phases R and W are done. F5–F7 are next, and F7 is the gate.** The fifth fight,
-the foam, the reeling animation and both haptic levels have all been judged on a
-desk by someone who cannot feel a phone vibrate — and `permissions/vibrate` was
-missing from both export presets until 2026-09-11, so the haptics have never once
-fired on hardware. **Then T5**, before any more balance work.
+**Phases R and W are done; F5, B8 and T5 landed 2026-09-12 and the phone half of
+F7 with them. Phase F2, the sixth fight, is next and is the whole of the next
+stretch**: it was his first note after holding the build, it names three
+mechanisms, and it reworks the control the game is played through. F2.1 and F2.2
+are model and bots (sim first, tests first, golden diff read); F2.3 to F2.7 are the
+picture, in the order the eye needs it; F2.8 is his hand.
 
 After that the phases interleave rather than run in order: P3 and P4 are the first
 times the player leaves the boat, T1's landing wants G2's held fish (which it now
