@@ -54,8 +54,6 @@ var _wake: MeshInstance3D
 var _distance_bar: Control
 ## THE PRESSURE GAUGE, up the left side (F2.4). See _build_pressure.
 var _pressure: Control
-var _needle := 0.0
-var _needle_v := 0.0
 var _menus: Menus
 var _world_line: Label
 var _audio: Audio
@@ -200,9 +198,13 @@ var _charging := false
 ## Only the REEL has a gauge. Minigame 1 is the float being pulled under, in the
 ## world, with no HUD at all - which is the third note: "just watching the rod or
 ## bobber pull down... make it look like a fish is nibbling on the bait".
-const BAR_W := 0.78           ## fraction of screen width
-const GAUGE_TOP := 196.0      ## tension gauge, from the top edge
-const GAUGE_H := 96.0
+const COUNTER_W := 0.50       ## fraction of screen width
+## THE LINE COUNTER (F2.5): a measurement, top centre, and quieter than the
+## pressure gauge by rect and by ink. See _draw_line_counter.
+const COUNTER_TOP := 196.0    ## px from the top edge
+const COUNTER_H := 56.0       ## a fraction of the gauge's height, asserted
+const COUNTER_ALPHA := 0.58   ## the scale's ink: fainter than the gauge's case, asserted
+const COUNTER_DIGIT_ALPHA := 0.80 ## the digits: readable, still under the case's 0.82
 
 ## THE PRESSURE GAUGE (F2.4, PLAN.md 4.3d). Gideon: "The indication that the
 ## line is getting too tight and bending the rod doesn't feel very good and is
@@ -227,6 +229,7 @@ const PRESSURE_TOP_PX := 880.0 ## px from the top edge: under the sounder
 const PRESSURE_BOTTOM := 0.68  ## fraction of the height: above the look stick's zone
 const PRESSURE_LEFT := 36.0   ## px in from the left edge
 const PRESSURE_W := 44.0      ## px wide. Read at arm's length in the corner of an eye
+const PRESSURE_CASE_ALPHA := 0.82 ## the case's ink: louder than the counter's, asserted
 
 ## How far the float is pulled under at a full take, in metres. Deep enough that
 ## a tease and a take are obviously different depths at cast range.
@@ -1710,15 +1713,15 @@ func _build_hud() -> void:
 	# that eats a touch is a readout the player cannot tap through.
 	_distance_bar = Control.new()
 	_distance_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_distance_bar.anchor_left = 0.5 - BAR_W * 0.5
-	_distance_bar.anchor_right = 0.5 + BAR_W * 0.5
+	_distance_bar.anchor_left = 0.5 - COUNTER_W * 0.5
+	_distance_bar.anchor_right = 0.5 + COUNTER_W * 0.5
 	_distance_bar.offset_left = 0.0
 	_distance_bar.offset_right = 0.0
-	_distance_bar.offset_top = GAUGE_TOP
-	_distance_bar.offset_bottom = GAUGE_TOP + GAUGE_H
+	_distance_bar.offset_top = COUNTER_TOP
+	_distance_bar.offset_bottom = COUNTER_TOP + COUNTER_H
 	_distance_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_distance_bar.name = "TensionBar"
-	_distance_bar.draw.connect(_draw_distance_bar)
+	_distance_bar.name = "LineCounter"
+	_distance_bar.draw.connect(_draw_line_counter)
 	_ui.add_child(_distance_bar)
 	_build_pressure()
 
@@ -2213,102 +2216,78 @@ const SLIDE_CURVE := STICK_CURVE ## the same fine low end as the look stick
 const SLIDE_RETURN := 0.10       ## seconds for the knob to spring home
 const SLIDE_ACCEL_MAX := 600.0   ## knob units per s². 10 per frame: a return, not a snap
 const SLIDE_FADE := 0.20         ## seconds of cross-fade between the button and the slide
-## HOW FAR THE FISH IS FROM THE BOAT, and nothing else.
+## HOW FAR THE FISH IS FROM THE BOAT, AS A MEASUREMENT (F2.5).
 ##
-## Gideon: "I think we are not showing a different between reeling speed and
-## tension on the line. instead of having bar at the top that increases when you
-## hold the button, can you have have a distance meter at the top, showing how far
-## the fish is from the boat."
+## Gideon, after holding the fifth fight: "The gauge at the top feels like a
+## gauge, not a distance. If you can make that look more like a measurement,
+## and something less important, I think that would help."
 ##
-## He named the fault in the MODEL rather than in the picture, and he is right.
-## The needle that used to live here was three things at once - the throttle
-## (holding the button raised it), the score (progress happened inside a band) and
-## the danger (the fish pulling raised it too) - so none of the three could be
-## read. Splitting them is the whole of the fifth fight:
+## So: a line counter. The metres of line out in digits, over a fine scale
+## with a marker, in the HUD's quiet grey, with no case and no fill. It is the
+## thing you glance at; the pressure gauge up the side is the thing you watch,
+## and `run_smoke.gd` asserts the ORDER - the counter's rect is a fraction of
+## the gauge's height and its ink is fainter than the gauge's case - so "less
+## important" is a number rather than an intention.
 ##
-##   PROGRESS is distance, and it is here.
-##   DANGER is tension, and it is on the ROD - the bend, the shake, the line going
-##   red - which is where this game's own notes have said it belonged since the
-##   third fight, while still drawing a needle.
-##
-## The brass case stays. It is the one instrument read continuously, so it is
-## drawn to match the boat rather than a UI kit.
-func _draw_distance_bar() -> void:
+## The marker no longer shakes during a run. That shake was "the one place the
+## danger touches this instrument"; the danger has its own instrument now, and
+## a measurement that trembles is a measurement you cannot read.
+func _draw_line_counter() -> void:
 	if sim.state != Sim.FIGHTING:
 		return
 	var w := _distance_bar.size.x
 	var h := _distance_bar.size.y
-	var pad := h * 0.09
-	var face := Rect2(pad, pad, w - pad * 2.0, h - pad * 2.0)
-
-	var case := StyleBoxFlat.new()
-	case.bg_color = Color(0.055, 0.070, 0.078, 0.90)
-	case.border_color = Color(0.72, 0.58, 0.32, 0.75)
-	case.set_border_width_all(3)
-	case.set_corner_radius_all(int(h * 0.16))
-	case.shadow_color = Color(0, 0, 0, 0.45)
-	case.shadow_size = 9
-	case.shadow_offset = Vector2(0, 4)
-	_distance_bar.draw_style_box(case, Rect2(Vector2.ZERO, _distance_bar.size))
-
-	# THE BOAT IS ON THE RIGHT, where the player's hands are, and the fish comes
-	# toward it. The full scale is the distance the cast was made at, so the bar
-	# is "how much of my cast have I taken back" rather than an abstract fraction -
-	# a thirty metre fish and a five metre fish both start at the left edge and
-	# the same amount of travel means a different amount of work.
-	var full := maxf(1.0, sim.cast_distance)
-	var t := clampf(1.0 - sim.fish_distance / full, 0.0, 1.0)
-	var x := face.position.x + face.size.x * t
-
-	# The water it still has to be brought through.
-	_distance_bar.draw_rect(Rect2(face.position.x, face.position.y,
-		face.size.x, face.size.y), Color(0.16, 0.22, 0.24, 0.55))
-	# The ground taken, filling from the left as it comes in.
-	_distance_bar.draw_rect(Rect2(face.position.x, face.position.y,
-		face.size.x * t, face.size.y), Color(0.38, 0.56, 0.52, 0.42))
-
-	# The net's reach: the last stretch, where the fish is close enough to land.
-	var netted := face.position.x + face.size.x * (1.0 - Tuning.LAND_DISTANCE / full)
-	_distance_bar.draw_rect(Rect2(netted, face.position.y,
-		face.end.x - netted, face.size.y), Color(0.42, 0.74, 0.40, 0.22))
-
-	# The engraved scale, every fifth mark long, so the travel has a size.
-	for i in 21:
-		var tx := face.position.x + face.size.x * float(i) / 20.0
-		var tall := face.size.y * (0.34 if i % 5 == 0 else 0.19)
-		_distance_bar.draw_rect(Rect2(tx - 1.0, face.position.y, 2.0, tall),
-			Color(0.90, 0.84, 0.68, 0.30 if i % 5 == 0 else 0.16))
-
-	# THE FISH, as a mark on the scale. It SHAKES while the fish is pulling, which
-	# is the one place the danger touches this instrument - not as a number, but
-	# because a fish that is fighting is not coming any closer.
-	var shake := 0.0
-	if sim.running:
-		shake = sin(sim.fight_time * 44.0) * face.size.y * 0.10
-	var mark := Rect2(x - 3.0, face.position.y - 2.0 + shake, 6.0, face.size.y + 4.0)
-	_distance_bar.draw_rect(mark, Color(0.98, 0.92, 0.76, 0.92))
-
-	# THE UI FACE, not the engine's fallback. `draw_string` takes a Font directly
-	# and never consults the theme, so these three call sites are the only places
-	# in the game that can silently keep drawing in the default while everything
-	# around them has changed.
 	var font := _ui_font()
-	_distance_bar.draw_string(font,
-		Vector2(face.position.x + 10, face.end.y - face.size.y * 0.16),
-		"OUT", HORIZONTAL_ALIGNMENT_LEFT, -1, int(h * 0.20),
-		Color(0.86, 0.78, 0.60, 0.42))
-	_distance_bar.draw_string(font,
-		Vector2(face.position.x, face.end.y - face.size.y * 0.16),
-		"%.1f m" % sim.fish_distance, HORIZONTAL_ALIGNMENT_RIGHT,
-		int(face.size.x - 10), int(h * 0.24), Color(0.98, 0.92, 0.76, 0.72))
-func _sync_needle(dt: float) -> void:
-	var want := clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0)
-	# Stiff enough to keep up with a run, loose enough to overshoot a tap by a
-	# few per cent and swing back inside about a fifth of a second.
-	_needle_v += (want - _needle) * 168.0 * dt
-	_needle_v *= exp(-13.0 * dt)
-	_needle += _needle_v * dt
-	_needle = clampf(_needle, -0.04, 1.04)
+	# CREAM INK WITH A DARK SHADOW, like every other line of HUD text, because
+	# the first cut was pale grey with no shadow and vanished into a dawn sky at
+	# the top of the frame - quiet is not the same as invisible. The digits sit
+	# a shade under the gauge's case (asserted), the scale well under that.
+	var ink := Color(0.96, 0.92, 0.80, COUNTER_DIGIT_ALPHA)
+	var scale_ink := Color(0.96, 0.92, 0.80, COUNTER_ALPHA)
+	var faint := Color(0.96, 0.92, 0.80, COUNTER_ALPHA * 0.55)
+	var shadow := Color(0.02, 0.03, 0.04, 0.78)
+
+	# THE SCALE. The boat is at the right, where the hands are, and the cast at
+	# the left; a hairline with a tick every metre and a longer one every five,
+	# so the travel has a size and a thirty-metre fish reads as further than a
+	# five-metre one in the same way a ruler does.
+	var full := maxf(1.0, sim.cast_distance)
+	var base_y := h - 8.0
+	_distance_bar.draw_line(Vector2(0.0, base_y + 1.0), Vector2(w, base_y + 1.0), shadow, 3.5)
+	_distance_bar.draw_line(Vector2(0.0, base_y), Vector2(w, base_y), faint, 1.5)
+	var metres := int(ceil(full))
+	for m in range(0, metres + 1):
+		var tx := w * (1.0 - float(m) / full)
+		if tx < 0.0:
+			continue
+		var five := m % 5 == 0
+		var tall := 10.0 if five else 5.0
+		_distance_bar.draw_line(Vector2(tx + 1.0, base_y + 1.0), Vector2(tx + 1.0, base_y - tall),
+			shadow, 3.0)
+		_distance_bar.draw_line(Vector2(tx, base_y), Vector2(tx, base_y - tall),
+			scale_ink if five else faint, 1.5)
+
+	# The net's reach: a short green bar at the boat end, where a fish is
+	# close enough to land.
+	var netted := w * (1.0 - clampf(Tuning.LAND_DISTANCE / full, 0.0, 1.0))
+	_distance_bar.draw_line(Vector2(netted, base_y + 4.0), Vector2(w, base_y + 4.0),
+		Color(0.42, 0.74, 0.40, COUNTER_ALPHA * 0.8), 3.0)
+
+	# THE MARKER, where the fish is. Still.
+	var x := w * (1.0 - clampf(sim.fish_distance / full, 0.0, 1.0))
+	_distance_bar.draw_line(Vector2(x + 1.0, base_y - 16.0), Vector2(x + 1.0, base_y + 3.0), shadow, 4.5)
+	_distance_bar.draw_line(Vector2(x, base_y - 16.0), Vector2(x, base_y + 2.0), ink, 2.5)
+
+	# THE DIGITS, over the marker, small: a reading, not a headline. The UI
+	# face, because `draw_string` never consults the theme.
+	var label := "%.1f m" % sim.fish_distance
+	var size := int(h * 0.40)
+	var tw: float = font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var lx := clampf(x - tw * 0.5, 0.0, w - tw)
+	_distance_bar.draw_string_outline(font, Vector2(lx, base_y - 24.0), label,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, size, 4, shadow)
+	_distance_bar.draw_string(font, Vector2(lx, base_y - 24.0), label,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, size, ink)
 
 
 func _on_cast_input(event: InputEvent) -> void:
@@ -2533,7 +2512,7 @@ func _draw_pressure() -> void:
 	var heat := line_heat()
 
 	var case := StyleBoxFlat.new()
-	case.bg_color = Color(0.055, 0.070, 0.078, 0.82)
+	case.bg_color = Color(0.055, 0.070, 0.078, PRESSURE_CASE_ALPHA)
 	case.border_color = Color(0.72, 0.58, 0.32, 0.75).lerp(LINE_HOT, pulse * 0.8)
 	case.set_border_width_all(3)
 	case.set_corner_radius_all(int(w * 0.5))
@@ -2702,7 +2681,7 @@ func _draw_slide() -> void:
 	# Three marks: IN at the top, a hairline at HOLD, OUT at the bottom. Words,
 	# because every control in this game is labelled with a word that says what
 	# the moment is (R10, W5), and the marks are the slide's own captions.
-	var font := _slide.get_theme_default_font()
+	var font := _ui_font()
 	var ink := Color(0.93, 0.90, 0.82, 0.62)
 	# INSIDE the slot's ends, not beyond them: the slot's bottom is already as
 	# low as the gesture bar allows, and a word under it sat in the bar.
@@ -2848,7 +2827,6 @@ func _tick(dt: float) -> void:
 	_sync_intro(dt)
 	_sync_stick(dt)
 	_sync_slide(dt)
-	_sync_needle(dt)
 	var lk := 1.0 - exp(-LOOK_FOLLOW * dt)
 	_look_yaw = lerpf(_look_yaw, _look_yaw_want, lk)
 	_look_pitch = lerpf(_look_pitch, _look_pitch_want, lk)

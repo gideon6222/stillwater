@@ -860,6 +860,26 @@ the third argument is the HOUR, "hot" became the time of day, and the run died b
 shutter with no message. It is a mode now (`strain`), as `throw` had to be. The trap is written
 in `shot.gd` twice; it belongs in a sentence at the top of that file's argument handling.
 
+## The line counter (F2.5, 2026-09-12)
+
+**The brass case at the top is gone.** In its place a line counter: a ruler half the width
+and 56 px tall, the boat at the right end and the cast at the left, a tick every metre and a
+longer one every five, the net's reach as a short green bar at the boat end, a still marker
+where the fish is, and the metres in small digits over the marker. It is the thing you
+glance at. **The order he asked for is a number**: the counter's rect is under a quarter of
+the gauge's height on the base screen (56 against 425), its scale ink is 0.58 and its digits
+0.80 against the gauge's case at 0.82, and the smoke suite asserts all three.
+
+**Quiet is not invisible.** The first cut was pale grey with no shadow, and at the top of the
+frame it sat on the dawn sky and disappeared - the old case had carried its own contrast. The
+counter draws the way every other line of HUD text does now: cream ink over a dark outline
+(0.78, the HUD's own), and the hairlines over a dark shadow line.
+
+**The marker no longer shakes during a run.** That shake was "the one place the danger touches
+this instrument"; the danger has its own instrument now, and a measurement that trembles is
+one you cannot read. The fourth fight's needle (`_needle`, `_sync_needle`), written every frame
+and read by nothing since the fifth fight, went with the bar.
+
 ## Playtest 2026-09-12 (phone, Galaxy S26 Ultra, desk-exported APK)
 
 **Driven from the desk over adb** (`device.ps1 install / launch / perf / record 30 / tap /

@@ -57,6 +57,7 @@ func _initialize() -> void:
 	_check_the_cast_is_a_body_movement(main)
 	_check_the_slide_is_the_reel(main)
 	_check_the_pressure_is_up_the_side(main)
+	_check_the_counter_is_quieter_than_the_gauge(main)
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
@@ -1052,6 +1053,40 @@ func _check_the_pressure_is_up_the_side(main) -> void:
 	_t.gt(g.offset_left, 8.0, "the gauge is hard against the edge of the glass, where a case hides it")
 	_t.eq(g.mouse_filter, Control.MOUSE_FILTER_IGNORE, "the gauge eats touches")
 	main.sim.strain = 0.0
+
+
+## F2.5: THE DISTANCE IS A MEASUREMENT, AND IT IS QUIETER THAN THE PRESSURE.
+##
+## Gideon: "The gauge at the top feels like a gauge, not a distance... make that
+## look more like a measurement, and something less important." Two claims a
+## machine can hold: the counter's rect is a fraction of the gauge's height, and
+## its ink is fainter than the gauge's case - so the order of importance he asked
+## for is a number, and a later pass that swells the counter into a gauge again
+## goes red. Both readouts are measured in the same units, pixels from the top
+## on the base height, because the counter is anchored in pixels.
+func _check_the_counter_is_quieter_than_the_gauge(main) -> void:
+	_t.begin("smoke > the distance is a measurement, quieter than the pressure")
+	var base_h := float(ProjectSettings.get_setting("display/window/size/viewport_height"))
+	var counter: Control = main._distance_bar
+	var counter_h: float = counter.offset_bottom - counter.offset_top
+	var gauge_h: float = base_h * float(main.PRESSURE_BOTTOM) - float(main.PRESSURE_TOP_PX)
+	_t.gt(gauge_h, 200.0, "the pressure gauge is only %.0f px tall on the base height" % gauge_h)
+	_t.lt(counter_h, gauge_h * 0.25,
+		"the counter is %.0f px tall against the gauge's %.0f - it is a gauge again, not a measurement" % [
+			counter_h, gauge_h])
+	_t.lt(float(main.COUNTER_ALPHA), float(main.PRESSURE_CASE_ALPHA),
+		"the counter's scale ink (%.2f) is as loud as the gauge's case (%.2f)" % [
+			float(main.COUNTER_ALPHA), float(main.PRESSURE_CASE_ALPHA)])
+	_t.lt(float(main.COUNTER_DIGIT_ALPHA), float(main.PRESSURE_CASE_ALPHA),
+		"the counter's digits (%.2f) are as loud as the gauge's case (%.2f)" % [
+			float(main.COUNTER_DIGIT_ALPHA), float(main.PRESSURE_CASE_ALPHA)])
+	_t.eq(counter.name, "LineCounter", "the top readout is still named as a tension bar")
+	_t.eq(counter.mouse_filter, Control.MOUSE_FILTER_IGNORE, "the counter eats touches")
+	# And it still reads the fish's distance: the sim's number, not a copy.
+	main.freeze(1)
+	_t.ok(_drive_until(main, Sim.FIGHTING, 180.0), "no fish was hooked to read the counter against")
+	_t.gt(main.sim.fish_distance, 0.0, "a hooked fish is at no distance")
+	_t.ok(counter.visible, "the counter is not up during a fight")
 
 
 ## THE THREE THINGS GIDEON ASKED TO SEE AND FEEL.
