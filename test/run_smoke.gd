@@ -56,6 +56,7 @@ func _initialize() -> void:
 	_check_the_cast_is_one_motion(main)
 	_check_the_cast_is_a_body_movement(main)
 	_check_the_slide_is_the_reel(main)
+	_check_the_pressure_is_up_the_side(main)
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
@@ -977,6 +978,80 @@ func _check_the_slide_is_the_reel(main) -> void:
 		"the slide gives more room toward the edge of the glass than away from it")
 	_t.eq(slide.mouse_filter, Control.MOUSE_FILTER_STOP,
 		"the slide does not consume its touches, so a drag on it leaks to the water")
+
+
+## F2.4: THE RISK IS THE PRESSURE, AND IT IS UP THE SIDE OF THE SCREEN.
+##
+## Gideon: "we need a gauge or something that goes up the side of the screen to
+## make it more obvious that the risk is the pressure on the fish." Asserted:
+## it is up in a fight and only then, and comes back after hiding (the latch
+## that once shipped both gauges invisible); it is filled from the number that
+## parts the line; its danger mark sits at DANGER; it pulses above the line in
+## step with the heavy haptic and is still below it; and it lives where the
+## eye can catch it - the left edge, the middle of the height - clear of both
+## thumbs' rest zones and of the centre of the frame. That last rule REPLACES
+## "gauges live in the top third", which was the settlement of a note about a
+## thumb covering a needle, and this gauge is precisely where no thumb goes.
+func _check_the_pressure_is_up_the_side(main) -> void:
+	_t.begin("smoke > the pressure gauge is up the side, and it is the danger")
+	var g: Control = main._pressure
+	_t.ok(g != null, "there is no pressure gauge")
+	if g == null:
+		return
+	main.freeze(1)
+	main.advance(0.1)
+	_t.ok(not g.visible, "the pressure gauge is up before anything is hooked")
+	_t.ok(_drive_until(main, Sim.FIGHTING, 180.0), "no fish was hooked to check the gauge against")
+	_t.ok(g.visible, "the pressure gauge is not up during a fight")
+	main.freeze(1)
+	main.advance(0.1)
+	_t.ok(not g.visible, "the pressure gauge stays up after the fight")
+	_t.ok(_drive_until(main, Sim.FIGHTING, 180.0), "a fish can be hooked again")
+	_t.ok(g.visible, "the pressure gauge never comes back once it has been hidden")
+
+	# Filled from the one number that parts the line, and the mark at DANGER.
+	main.sim.tension = 0.5
+	_t.approx(main.pressure_shown(), 0.5 / Tuning.TENSION_MAX, 1e-6,
+		"the gauge shows %.2f for a tension of 0.50 - it is drawn from a different number than the one that breaks the line" % main.pressure_shown())
+	_t.eq(main.tension_shown(), main.sim.tension, "the rod and the gauge disagree about the tension")
+
+	# Still under the line, pulsing over it, in step with the heavy buzz.
+	main.sim.tension = Tuning.DANGER - 0.1
+	main.sim.strain = 0.0
+	for i in 12:
+		main.advance(1.0 / 60.0)
+		main.sim.tension = Tuning.DANGER - 0.1
+	_t.approx(main.pressure_pulse(), 0.0, 1e-6, "the gauge pulses (%.2f) with the rod under the line" % main.pressure_pulse())
+	var seen: Array[float] = []
+	for i in int(round(main.BUZZ_OVER_EVERY * 60.0 * 2.5)):
+		main.sim.tension = Tuning.DANGER + 0.12
+		main.advance(1.0 / 60.0)
+		seen.append(main.pressure_pulse())
+	var peak := 0.0
+	var trough := 1.0
+	for p in seen:
+		peak = maxf(peak, p)
+		trough = minf(trough, p)
+	_t.gt(peak, 0.8, "over the line the gauge's pulse peaks at %.2f - it does not beat" % peak)
+	_t.lt(trough, 0.3, "over the line the gauge's pulse never falls below %.2f - a glow, not a beat" % trough)
+
+	# WHERE IT LIVES. Anchored by fraction on the left edge, clear of the
+	# bottom 30% (both thumbs' rest zones) and of the frame's centre box.
+	_t.eq(g.anchor_left, 0.0, "the gauge is not anchored to the left edge")
+	_t.eq(g.anchor_right, 0.0, "the gauge stretches with the width")
+	_t.lt(g.anchor_bottom, 0.70 + 1e-6, "the gauge reaches into the bottom 30%%, where the thumbs rest")
+	# Under the sounder, in the sounder's own units: both are pixels from the
+	# top, so this holds on every height. A fractional top cleared the sounder
+	# on the phone and ran into it on a 16:9 screen.
+	_t.eq(g.anchor_top, 0.0, "the gauge's top is a fraction of the height, so it can climb into the sounder on a short screen")
+	_t.gt(g.offset_top, main._sounder.offset_bottom + 8.0,
+		"the gauge starts %.0f px from the top, inside the sounder's column (which ends at %.0f)" % [
+			g.offset_top, main._sounder.offset_bottom])
+	var base_w := float(ProjectSettings.get_setting("display/window/size/viewport_width"))
+	_t.lt(g.offset_right, base_w * 0.25, "the gauge's right edge (%.0f px) is into the middle of the frame" % g.offset_right)
+	_t.gt(g.offset_left, 8.0, "the gauge is hard against the edge of the glass, where a case hides it")
+	_t.eq(g.mouse_filter, Control.MOUSE_FILTER_IGNORE, "the gauge eats touches")
+	main.sim.strain = 0.0
 
 
 ## THE THREE THINGS GIDEON ASKED TO SEE AND FEEL.

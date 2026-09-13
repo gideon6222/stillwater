@@ -52,6 +52,8 @@ var _cast_area: Control
 var _rod: MeshInstance3D
 var _wake: MeshInstance3D
 var _distance_bar: Control
+## THE PRESSURE GAUGE, up the left side (F2.4). See _build_pressure.
+var _pressure: Control
 var _needle := 0.0
 var _needle_v := 0.0
 var _menus: Menus
@@ -201,6 +203,30 @@ var _charging := false
 const BAR_W := 0.78           ## fraction of screen width
 const GAUGE_TOP := 196.0      ## tension gauge, from the top edge
 const GAUGE_H := 96.0
+
+## THE PRESSURE GAUGE (F2.4, PLAN.md 4.3d). Gideon: "The indication that the
+## line is getting too tight and bending the rod doesn't feel very good and is
+## easy to miss initially. I think we need a gauge or something that goes up the
+## side of the screen to make it more obvious that the risk is the pressure on
+## the fish." A vertical bar on the LEFT edge - the right belongs to the thumb
+## and the slide - spanning the middle of the height, clear of the look stick
+## below it, the rod and the float in the middle, and the right-hand thumb. It
+## fills bottom-up with the tension, brightens as it climbs, carries the danger
+## line as a fixed mark, and above that line it PULSES in step with the heavy
+## haptic. Colour ramps too, but the fill, the brightness and the pulse are what
+## a peripheral eye reads while it watches the rod: the research is explicit
+## that colour is the weakest cue outside central vision, which is exactly why
+## the line going red was easy to miss.
+## The TOP is in pixels from the top edge and the BOTTOM is a fraction of the
+## height, on purpose: the sounder's column above it is anchored to the top in
+## pixels (down to 848), so a fractional top cleared it on the phone and ran
+## into it on a shorter screen; the thumb zone below it is a fraction of the
+## height wherever the screen ends. The first cut started at 0.28 of the height
+## and ran up into the sounder.
+const PRESSURE_TOP_PX := 880.0 ## px from the top edge: under the sounder
+const PRESSURE_BOTTOM := 0.68  ## fraction of the height: above the look stick's zone
+const PRESSURE_LEFT := 36.0   ## px in from the left edge
+const PRESSURE_W := 44.0      ## px wide. Read at arm's length in the corner of an eye
 
 ## How far the float is pulled under at a full take, in metres. Deep enough that
 ## a tease and a take are obviously different depths at cast range.
@@ -1694,6 +1720,7 @@ func _build_hud() -> void:
 	_distance_bar.name = "TensionBar"
 	_distance_bar.draw.connect(_draw_distance_bar)
 	_ui.add_child(_distance_bar)
+	_build_pressure()
 
 	_readout = Label.new()
 	_readout.set_anchors_preset(Control.PRESET_TOP_LEFT)
@@ -1998,6 +2025,9 @@ func _sync_bars() -> void:
 	var in_room := _hud_is_down()
 	_distance_bar.visible = sim.state == Sim.FIGHTING and not in_room
 	_distance_bar.queue_redraw()
+	if _pressure != null:
+		_pressure.visible = sim.state == Sim.FIGHTING and not in_room
+		_pressure.queue_redraw()
 	if _world_line != null:
 		_world_line.visible = not in_room
 	if _readout != null:
@@ -2454,6 +2484,105 @@ func _stick_input(event: InputEvent) -> void:
 		_stick_vec = Vector2.ZERO
 	if _stick != null:
 		_stick.queue_redraw()
+
+
+## THE PRESSURE GAUGE. Anchored by FRACTION of the height on the left edge, so
+## it spans the same stretch of the picture on every phone; a readout, so it
+## ignores touches.
+func _build_pressure() -> void:
+	_pressure = Control.new()
+	_pressure.anchor_left = 0.0
+	_pressure.anchor_right = 0.0
+	_pressure.anchor_top = 0.0
+	_pressure.anchor_bottom = PRESSURE_BOTTOM
+	_pressure.offset_left = PRESSURE_LEFT
+	_pressure.offset_right = PRESSURE_LEFT + PRESSURE_W
+	_pressure.offset_top = PRESSURE_TOP_PX
+	_pressure.offset_bottom = 0.0
+	_pressure.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pressure.name = "PressureGauge"
+	_pressure.visible = false
+	_pressure.draw.connect(_draw_pressure)
+	_ui.add_child(_pressure)
+
+
+## How full the gauge is, [0, 1]: the tension that parts the line, straight
+## through, so the picture and the rule cannot disagree.
+func pressure_shown() -> float:
+	return clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0)
+
+
+## The pulse above the danger line, [0, 1]: one for the instant of each heavy
+## haptic pulse, falling to zero before the next. Zero under the line. Read off
+## the haptic's own timer so the eye and the palm beat together.
+func pressure_pulse() -> float:
+	if not _was_over:
+		return 0.0
+	return clampf(1.0 - _buzz_wait / maxf(0.01, BUZZ_OVER_EVERY), 0.0, 1.0)
+
+
+## Fill, brightness, mark, pulse - in that order of what the corner of an eye
+## reads. The case is the distance bar's brass, so the two read as one kit.
+func _draw_pressure() -> void:
+	var w := _pressure.size.x
+	var h := _pressure.size.y
+	if h <= 0.0:
+		return
+	var fill := pressure_shown()
+	var pulse := pressure_pulse()
+	var heat := line_heat()
+
+	var case := StyleBoxFlat.new()
+	case.bg_color = Color(0.055, 0.070, 0.078, 0.82)
+	case.border_color = Color(0.72, 0.58, 0.32, 0.75).lerp(LINE_HOT, pulse * 0.8)
+	case.set_border_width_all(3)
+	case.set_corner_radius_all(int(w * 0.5))
+	case.shadow_color = Color(0, 0, 0, 0.40)
+	case.shadow_size = 8 + int(pulse * 10.0)
+	case.shadow_offset = Vector2(0, 3)
+	_pressure.draw_style_box(case, Rect2(Vector2.ZERO, _pressure.size))
+
+	# THE FILL, from the bottom, and it brightens as it climbs: alpha and
+	# luminance both rise with the tension, so the bar gets louder as well as
+	# taller. Colour is the third cue - calm to hot along the line's own ramp -
+	# and above the danger line the fill is the pulse's own colour.
+	var pad := 5.0
+	var inner := Rect2(pad, pad, w - pad * 2.0, h - pad * 2.0)
+	var top := inner.end.y - inner.size.y * fill
+	var calm := Color(0.36, 0.56, 0.52)
+	var col := calm.lerp(LINE_HOT, heat)
+	col = col.lightened(0.10 + 0.35 * fill)
+	col.a = 0.55 + 0.45 * fill
+	if pulse > 0.0:
+		col = col.lerp(Color(1.0, 0.95, 0.85), pulse * 0.6)
+	_pressure.draw_rect(Rect2(inner.position.x, top, inner.size.x, inner.end.y - top), col)
+
+	# THE DANGER MARK, fixed, where the line starts to part. A bar across the
+	# case and a little beyond it, so it reads even when the fill is nowhere
+	# near - the mark is what makes the fill a MEASUREMENT of risk and not a
+	# meter of effort.
+	var mark_y := inner.end.y - inner.size.y * (Tuning.DANGER / Tuning.TENSION_MAX)
+	var mark_col := Color(0.96, 0.90, 0.76, 0.85).lerp(LINE_HOT, pulse)
+	_pressure.draw_line(Vector2(-8.0, mark_y), Vector2(w + 8.0, mark_y), mark_col, 3.0)
+	# And above it, the headroom the strain lives in, hatched faintly so the
+	# top of the gauge reads as "past the line" rather than "more of the same".
+	var over_h := mark_y - inner.position.y
+	var y := inner.position.y + 6.0
+	while y < mark_y - 4.0:
+		_pressure.draw_line(Vector2(inner.position.x + 4.0, y), Vector2(inner.end.x - 4.0, y),
+			Color(0.96, 0.26, 0.18, 0.22 + 0.5 * pulse), 2.0)
+		y += 10.0
+
+	# THE PULSE: a glow ring round the case, in step with the heavy buzz.
+	if pulse > 0.0:
+		var ring := StyleBoxFlat.new()
+		ring.bg_color = Color(0, 0, 0, 0)
+		ring.border_color = Color(1.0, 0.45, 0.30, 0.75 * pulse)
+		ring.set_border_width_all(int(4.0 + 6.0 * pulse))
+		ring.set_corner_radius_all(int(w * 0.5) + 8)
+		var grow := 6.0 + 10.0 * pulse
+		ring.draw(_pressure.get_canvas_item(),
+			Rect2(-grow, -grow, w + grow * 2.0, h + grow * 2.0))
 
 
 ## THE REEL SLIDE. The same corner and width as the Cast button, extended a

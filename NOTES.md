@@ -835,6 +835,31 @@ an amount produces that amount through the handler (the inversion and the curve 
 disagree). The seam test drags the slide rather than pressing it; the template driver
 turns a moved thumb into a `ScreenDrag` on the same finger now.
 
+## The pressure gauge (F2.4, 2026-09-12)
+
+**Up the LEFT side, because the right belongs to the thumb and the slide.** 44 px wide, 36
+px in from the edge, from 880 px below the top (under the sounder's column, which ends at
+848) to 0.68 of the height (above the look stick's zone). Pixels above and a fraction below
+on purpose: the sounder is anchored in pixels, so a fractional top cleared it on the phone and
+ran into it on a 16:9 screen - the first cut, at 0.28 of the height, did exactly that. The
+smoke suite asserts both relations against the sounder's own offset and the thumb zone.
+
+**Fill, brightness, mark, pulse, in that order of what a peripheral eye reads.** The fill is
+`sim.tension` straight through (`pressure_shown`), brightening and going opaque as it climbs;
+the danger mark is a bar across the case at `DANGER`, fixed, with the headroom above it
+hatched faintly so the top reads as "past the line"; above the line the case, the mark and a
+glow ring pulse on the heavy haptic's own timer (`pressure_pulse` reads `_buzz_wait`), so
+the eye and the palm beat together. Colour ramps along the line's own calm-to-hot, third.
+
+**The rule "gauges live in the top third" is replaced** by "readouts are clear of both thumbs'
+rest zones and of the centre of the frame". The old rule was the settlement of a note about
+a thumb covering a needle; this gauge is precisely where no thumb goes.
+
+**The shot tool trap, a second time in one day.** `-- 0.7 fight hot` photographed nothing new:
+the third argument is the HOUR, "hot" became the time of day, and the run died before the
+shutter with no message. It is a mode now (`strain`), as `throw` had to be. The trap is written
+in `shot.gd` twice; it belongs in a sentence at the top of that file's argument handling.
+
 ## Playtest 2026-09-12 (phone, Galaxy S26 Ultra, desk-exported APK)
 
 **Driven from the desk over adb** (`device.ps1 install / launch / perf / record 30 / tap /

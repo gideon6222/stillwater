@@ -50,9 +50,14 @@ const ROOMS := ["shed", "map", "log", "kit", "boat", "title", "gate", "arrive", 
 ## which was quietly resetting a page turn between setting it up and
 ## photographing it. Three separate real bugs were chased before the tool turned
 ## out to be one of them.
-const MID_ACTION := ["turn", "inshed", "hull", "stow", "chart", "cast", "throw", "fight"]
+const MID_ACTION := ["turn", "inshed", "hull", "stow", "chart", "cast", "throw", "fight", "strain"]
 
 
+## **THE THIRD ARGUMENT IS THE HOUR, THE FOURTH THE WEATHER, THE FIFTH THE DEPTH,
+## THE SIXTH THE SPOT.** A new moment to photograph is a new MODE in `_until`,
+## never a word after the mode: "throw" and "hot" were both tried as tags on the
+## same day, both became the time of day, and both runs died before the shutter
+## without a message - the shot file was simply the previous one.
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
@@ -227,9 +232,13 @@ func _initialize() -> void:
 		print("cast: state %s  charge %.2f  butt at %s  pitch %.1f" % [
 			_main.sim.state, _main.sim.charge, _main._rod.position, _main._rod.rotation_degrees.x])
 		_seconds = 0.0
-	elif _until == "fight":
+	elif _until == "fight" or _until == "strain":
 		# MID-FIGHT, WITH THE SLIDE PUSHED. `-- 0.7 fight` is a fish on and the
-		# thumb 70% of the way up the slide; `-- -0.6 fight` is line being given.
+		# thumb 70% of the way up the slide; `-- -0.6 fight` is line being given;
+		# `-- 0.7 strain` is the same with the rod over the line. A MODE, not a
+		# third argument, because the third argument is the hour - "hot" became
+		# the time of day and the run died before the shutter, silently, exactly
+		# as "throw" had an hour earlier. The trap is in this file twice now.
 		# The number is the SLIDE POSITION here, not seconds, because the thing
 		# worth photographing is the control under the thumb (F2.6).
 		if _main._title != null:
@@ -257,6 +266,13 @@ func _initialize() -> void:
 		_main._slide_input(drag)
 		for i in 20:
 			_main.advance(1.0 / 60.0, 1.0 / 60.0)
+		if _until == "strain":
+			# The rod over the line, the gauge past its mark and pulsing, the
+			# line red - the picture F2.4 exists for.
+			_main.sim.tension = 0.92
+			for i in 3:
+				_main.advance(1.0 / 60.0, 1.0 / 60.0)
+				_main.sim.tension = maxf(_main.sim.tension, 0.90)
 		print("fight: state %s  slide %.2f  reel %.2f  tension %.2f  running %s" % [
 			_main.sim.state, _main._slide_pos, _main.sim.reel, _main.sim.tension, _main.sim.running])
 		_seconds = 0.0
