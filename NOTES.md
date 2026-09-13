@@ -753,6 +753,63 @@ It is now GENERATED from the bot (`-UserArgs policy=angler,record=test/replays/f
 writes the bot's real touches out as a replay), so it cannot be typed against an old layout
 again. Regenerate it the same way whenever the buttons move.
 
+## Playtest 2026-09-12 (phone, Galaxy S26 Ultra, desk-exported APK)
+
+**Driven from the desk over adb** (`device.ps1 install / launch / perf / record 30 / tap /
+swipe / home / resume / back / log -Dump`), one cast by a 0.9 s press on the Cast button's
+drawn centre (904, 2004), then the game's own nibble. The video is 120 fps
+(`build/phone/20260912-170119.mp4`); sheets at one tile per half second, per 1/60 s and per
+1/120 s. What the machine can judge:
+
+1. **The reversal is continuous on the phone.** At 120 Hz the rod reverses over about fifteen
+   frames after the release, with no single-frame jump in any tile; the throw pose is reached
+   as the float leaves the tip (F5 holds at the phone's own rate, since the spring integrates
+   in seconds, not frames). The hands come back with the rod (B8) and the grip fills the
+   bottom-right corner at full charge without covering the Cast button.
+2. **Hit box and caption agree.** The press at the button's drawn centre charged ("Cast 5 m"
+   → "Cast 18 m" under the thumb) and the release threw; the caption became "Reel in" on the
+   release frame and "Strike" when the float dipped nine seconds later.
+3. **Frame time and thermal.** Average 125 fps (the 120 Hz panel), 0 dropped and 0 janky
+   frames in every 20 s, 8 s, 6 s and 3 s window, before play, during the cast, after
+   home-and-resume; thermal status 0 throughout, AP 33-38 °C. **Five minutes in the boat:
+   36,617 frames, 0 dropped, 0 janky, 125.0 fps, thermal status 0, AP 37.7 °C, battery
+   32.2 °C** (from 28.5 at the start). `device.ps1 perf` reports SurfaceFlinger's counts and
+   an average, not percentiles; POLISH.md's p95 rule is answered by "no janky frames in
+   36,617" rather than by a number.
+4. **Home then resume** comes back to the running game at the same state, audio unmuted;
+   the game pauses while away (`paused`) and resumes on `APPLICATION_RESUMED` with no pause
+   face. That is this game's design (there is nothing to pause a lake for), not the template's
+   "returns to a paused game".
+5. **Back from the seat quits**, saving first, as `CLAUDE.md` says it should; from a room it
+   unwinds one layer (asserted in the smoke suite, not re-driven here).
+6. **Safe area.** The HUD text sits either side of the camera hole, the stick is 200 px above
+   the gesture bar, nothing under either. The build stamp reads `unbuilt` because a desk
+   export does not run `stamp.ps1`; CI's APK carries the real stamp.
+7. **No `ERROR` in the log.** Only the engine's boot lines (Vulkan, Forward Mobile, Adreno 840).
+
+**Findings that changed something:**
+
+- **The boot splash was the Godot logo** on a dark plate at every launch, caught when the
+  app relaunched after `back`. T4 fixed the launcher icon and left this default. Now the
+  launcher icon on a dawn-sky plate, and `test_assets.gd` asserts the setting and the file
+  (verified failing with the default reintroduced in memory). Two plates remain on launch:
+  Android's own system splash first, the launcher icon on a DARK plate painted by the export
+  template's theme, then ours. The first one is not a project setting; changing it means a
+  gradle build with a theme override, which is a ship-time job (POLISH.md names it).
+  POLISH.md's `splash_screen/disable_godot_boot_splash` does not exist in the 4.7 Android
+  preset; the boot splash is `application/boot_splash/*` in project.godot.
+- **The black wedge on the near port rail is a shadow, not a hole.** Sampled off the phone
+  screenshot: the pixels are (38-73, 34-70, 36-73), warm-tinted dark grey, where the old
+  hairline was sky-coloured (232,234,235). It is the inner face of the port gunwale in the
+  shade of a low dawn sun, crushed to near-black by too little ambient light. Not fixed here:
+  it wants the lighting pass to lift the shadow floor, and a sample first, since a fix that
+  moves a rail to cure a shadow would be the wrong mechanism.
+
+**What the machine cannot judge and he can:** the two haptic levels (the tell's small pulse,
+the over-bend's heavy train) have still never been felt by anyone; the fight's give and take
+under a thumb (F6); whether the reversal at the release FEELS like weight. `permissions/vibrate`
+is set in both presets. F7 stays open until he has held it.
+
 ## Open
 
 **The list moved to `PLAN.md` section 12**, which is now the milestone checklist the

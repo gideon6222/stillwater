@@ -12,6 +12,17 @@ run/main_scene="res://src/game/main.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon.svg"
 
+; THE FIRST THING ON SCREEN IS THIS GAME, NOT THE ENGINE. The phone playtest
+; on 2026-09-12 caught "GODOT Game engine" on a dark plate at every launch: T4
+; had replaced the launcher icon and left the boot splash at its default. The
+; plate is the dawn sky the game opens on (sampled off the phone at (200,195,191))
+; and the picture is the launcher icon, whose own ground is that same tint.
+; test_assets.gd asserts both are set and that the image exists.
+boot_splash/bg_color=Color(0.784, 0.765, 0.749, 1)
+boot_splash/image="res://assets/icon/stillwater_512.png"
+boot_splash/fullsize=false
+boot_splash/use_filter=true
+
 ; The Android back button is handled by the game, never a silent quit. It unwinds
 ; one layer at a time - the book, a room, a menu, the title - and only quits from
 ; the seat with nothing open. See `_notification` in main.gd, which is where the

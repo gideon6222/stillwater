@@ -99,6 +99,24 @@ func test_the_version_agrees_everywhere_it_is_written(t: TestHarness) -> void:
 		"the newest changelog entry is not the version being built")
 
 
+## THE BOOT SPLASH IS THIS GAME, NOT THE ENGINE.
+##
+## The phone playtest on 2026-09-12 caught "GODOT Game engine" on a dark plate
+## at every launch. T4 had replaced the launcher icon and asserted nothing about
+## the splash, which is the same class of default: it ships unless something
+## looks. The plate must be set to the game's own colour (Godot's default is a
+## near-black grey) and the picture must be a file that exists, because a path
+## to a missing image falls back to the logo without a word.
+func test_the_boot_splash_is_the_games_own(t: TestHarness) -> void:
+	var image := String(ProjectSettings.get_setting("application/boot_splash/image", ""))
+	t.ok(image != "", "application/boot_splash/image is unset, so the engine logo ships as the splash")
+	t.ok(image != "" and FileAccess.file_exists(image),
+		"the boot splash image %s does not exist, so the engine logo ships as the splash" % image)
+	var plate: Color = ProjectSettings.get_setting("application/boot_splash/bg_color", Color(0.14, 0.14, 0.14))
+	t.gt(plate.get_luminance(), 0.3,
+		"the boot splash plate is %s - Godot's dark default, not this game's dawn" % plate)
+
+
 ## AND version/code, WHICH IS THE ONE THE STORE ACTUALLY READS.
 ##
 ## The test above collected only `version/name=`, so the CODE was asserted
