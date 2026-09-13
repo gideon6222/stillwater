@@ -72,6 +72,7 @@ var _beds: Array[AudioStreamPlayer] = []
 var _amb: Array[AudioStreamPlayer] = []
 var _sfx: Array[AudioStreamPlayer] = []
 var _next_voice := 0
+var _clicks := 0
 var _drag: AudioStreamPlayer
 var _cache: Dictionary = {}
 
@@ -116,7 +117,6 @@ func _connect(sim: Sim) -> void:
 	sim.nibble.connect(func() -> void: play("nibble", -3.0))
 	sim.hooked.connect(func(_id: String, perfect: bool) -> void:
 		play("hook", 0.0 if perfect else -4.0))
-	sim.tapped.connect(_on_tapped)
 	sim.run_started.connect(func() -> void: play("tug", 2.0))
 	sim.landed.connect(func(_id: String, _w: float) -> void: play("land"))
 	sim.object_found.connect(func(_id: String) -> void: play("clunk"))
@@ -231,12 +231,13 @@ func play(id: String, db: float = 0.0) -> void:
 	p.play()
 
 
-func _on_tapped() -> void:
-	# The reel click is pitched by how hard the rod is loaded, which costs one
-	# line and is most of what makes the fight feel like a mechanism. Tapping
-	# into the red is audibly straining before the gauge says so.
-	if sim.state != Sim.FIGHTING:
-		return
+## ONE CLICK OF THE REEL, pitched by how hard the rod is loaded, which costs one
+## line and is most of what makes the fight feel like a mechanism: cranking into
+## the red is audibly straining before the gauge says so. The sixth fight calls
+## this from the crank's own angle (`Main._sync_reel`), so the click RATE is the
+## crank's rate - it used to fire per tap, and there is no tap in a fight now.
+func click(tension: float) -> void:
+	_clicks += 1
 	if _muted:
 		return
 	var s := _stream("reel", false)
@@ -245,9 +246,29 @@ func _on_tapped() -> void:
 	var p := _sfx[_next_voice]
 	_next_voice = (_next_voice + 1) % _sfx.size()
 	p.stream = s
-	p.pitch_scale = 0.86 + 0.5 * clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0)
+	p.pitch_scale = 0.86 + 0.5 * clampf(tension / Tuning.TENSION_MAX, 0.0, 1.0)
 	p.volume_db = -13.0
 	p.play()
+
+
+## How many reel clicks have been asked for, muted or not. The test reads this
+## rather than listening, which it cannot.
+func clicks() -> int:
+	return _clicks
+
+
+## HOW LOUD THE DRAG IS, [0, 1], from the rules: a running fish pulls line off
+## the spool and the drag sings whatever the thumb does; giving line under load
+## sings in proportion to how much is given and how hard the rod was loaded.
+## Giving slack line makes no sound, because nothing is being pulled against.
+## Pure, so the test can ask for the shape without listening.
+func drag_level() -> float:
+	if sim == null or sim.state != Sim.FIGHTING:
+		return 0.0
+	var give := maxf(0.0, -sim.reel)
+	var loaded := clampf(sim.tension / Tuning.DANGER, 0.0, 1.0)
+	var given := give * loaded
+	return maxf(1.0 if sim.running else 0.0, given)
 
 
 func _on_lost(reason: String) -> void:
@@ -307,10 +328,12 @@ func tick(dt: float, in_room: bool) -> void:
 		hour_birds * (1.0 - _dread) * (1.0 - 0.9 * _in_room))
 
 	# The drag is the only sound tied to a single instant of the rules, so it is
-	# set rather than followed - a run that has started must be audible NOW.
-	var running := sim.state == Sim.FIGHTING and sim.running and not in_room
-	_drag.volume_db = master + (-14.0 if running else -80.0)
-	if running:
+	# set rather than followed - a run that has started must be audible NOW, and
+	# so must line given off the spool under load (F2.7). `drag_level` is the
+	# one place that decides how much.
+	var level := 0.0 if in_room else drag_level()
+	_drag.volume_db = master - 14.0 + _db(level)
+	if level > 0.0:
 		_drag.pitch_scale = 0.80 + 0.55 * clampf(sim.tension / Tuning.TENSION_MAX, 0.0, 1.0)
 
 

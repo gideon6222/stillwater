@@ -880,6 +880,30 @@ this instrument"; the danger has its own instrument now, and a measurement that 
 one you cannot read. The fourth fight's needle (`_needle`, `_sync_needle`), written every frame
 and read by nothing since the fifth fight, went with the bar.
 
+## Sound and touch follow the dial (F2.7, 2026-09-12)
+
+- **The reel clicks at the crank's own rate.** `_sync_reel` counts quarter-turn crossings of
+  `_reel_spin` and asks the mixer for one pitched click per crossing (`Audio.click`, pitched
+  by tension as before): at the full 25 rad/s that is sixteen a second and reads as a whirr,
+  at a fifth of a crank three a second and reads as ticks. Giving line has the drag's ratchet
+  instead. The click that used to fire on `sim.tapped` went with its signal: there is no tap in
+  a fight now. A held reel coasts across at most one click as the inertia settles - the smoke
+  check allows that one, because the model's inertia is the point.
+- **The drag sings for line pulled off the spool under load**, whoever is pulling. `Audio.
+  drag_level` is 1 for a running fish, `give * tension / DANGER` for line given by the thumb,
+  and 0 for slack line given in calm water, because nothing is being pulled against. The mixer
+  sets the loop's volume from it rather than from `running` alone.
+- **The heavy train starts at the warn line and closes up.** `buzz_gap(tension)` runs from
+  170 ms at `DANGER - LINE_WARN_FROM` (discrete pulses - Android reads 100 ms and over as
+  separate) to 50 ms at the top (one buzz), straight between; its weight climbs the same way.
+  The gauge's pulse reads the same timer, so the eye and the palm start together at the warn
+  line, which is the answer to "easy to miss initially": the warning now arrives on three
+  channels before the danger line, not at it.
+
+Tolerances that had to be measured rather than typed: the drag's "silent" is under 0.01, not
+under a millionth, because the crank's exponential tail sits at a quarter of a percent two
+thirds of a second after the thumb lifts and no ear hears that.
+
 ## Playtest 2026-09-12 (phone, Galaxy S26 Ultra, desk-exported APK)
 
 **Driven from the desk over adb** (`device.ps1 install / launch / perf / record 30 / tap /

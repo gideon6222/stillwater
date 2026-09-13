@@ -58,6 +58,7 @@ func _initialize() -> void:
 	_check_the_slide_is_the_reel(main)
 	_check_the_pressure_is_up_the_side(main)
 	_check_the_counter_is_quieter_than_the_gauge(main)
+	_check_the_reel_clicks_and_the_drag_sings(main)
 	_check_the_fight_is_visible_and_felt(main)
 	_check_the_catch_is_in_the_livewell(main)
 	_check_the_pages_really_turn(main)
@@ -1016,15 +1017,17 @@ func _check_the_pressure_is_up_the_side(main) -> void:
 		"the gauge shows %.2f for a tension of 0.50 - it is drawn from a different number than the one that breaks the line" % main.pressure_shown())
 	_t.eq(main.tension_shown(), main.sim.tension, "the rod and the gauge disagree about the tension")
 
-	# Still under the line, pulsing over it, in step with the heavy buzz.
-	main.sim.tension = Tuning.DANGER - 0.1
+	# Still under the WARN line, pulsing over the danger line, in step with the
+	# heavy buzz (the train starts at the warn line since F2.7, so "under" is
+	# under that).
+	main.sim.tension = Tuning.DANGER - main.LINE_WARN_FROM - 0.05
 	main.sim.strain = 0.0
 	for i in 12:
 		main.advance(1.0 / 60.0)
-		main.sim.tension = Tuning.DANGER - 0.1
-	_t.approx(main.pressure_pulse(), 0.0, 1e-6, "the gauge pulses (%.2f) with the rod under the line" % main.pressure_pulse())
+		main.sim.tension = Tuning.DANGER - main.LINE_WARN_FROM - 0.05
+	_t.approx(main.pressure_pulse(), 0.0, 1e-6, "the gauge pulses (%.2f) with the rod under the warn line" % main.pressure_pulse())
 	var seen: Array[float] = []
-	for i in int(round(main.BUZZ_OVER_EVERY * 60.0 * 2.5)):
+	for i in int(round(main.BUZZ_GAP_WARN * 60.0 * 2.5)):
 		main.sim.tension = Tuning.DANGER + 0.12
 		main.advance(1.0 / 60.0)
 		seen.append(main.pressure_pulse())
@@ -1087,6 +1090,90 @@ func _check_the_counter_is_quieter_than_the_gauge(main) -> void:
 	_t.ok(_drive_until(main, Sim.FIGHTING, 180.0), "no fish was hooked to read the counter against")
 	_t.gt(main.sim.fish_distance, 0.0, "a hooked fish is at no distance")
 	_t.ok(counter.visible, "the counter is not up during a fight")
+
+
+## F2.7: SOUND AND TOUCH FOLLOW THE DIAL.
+##
+## Three readouts of the reel and the pressure that are not pictures: the reel
+## clicks at the crank's own rate, the drag sings when line is GIVEN under load
+## and is silent when slack line is given, and the heavy buzz's gap shrinks
+## with the pressure from the warn line to the top. Each is asserted as a shape
+## - a rate, a level, a monotone - off the game's own accessors, because none of
+## the three can be heard or felt in a headless run.
+func _check_the_reel_clicks_and_the_drag_sings(main) -> void:
+	_t.begin("smoke > the reel clicks, the drag sings, the buzz closes up")
+	main.freeze(1)
+	_t.ok(_drive_until(main, Sim.FIGHTING, 180.0), "no fish was hooked to reel against")
+	if main.sim.state != Sim.FIGHTING:
+		return
+	var step := 1.0 / 60.0
+
+	# 1. CLICKS AT THE CRANK'S RATE. Flat out, a fifth, held, giving.
+	var counts := {}
+	for amount in [1.0, 0.2, 0.0, -1.0]:
+		var before: int = main.reel_clicks()
+		for i in 60:
+			main.sim.running = false
+			main.sim.tell = 0.0
+			main.sim.set_reel(amount)
+			main.advance(step)
+		counts[amount] = main.reel_clicks() - before
+	_t.gt(float(counts[1.0]), 8.0, "a full crank clicked %d times in a second - the reel is silent" % int(counts[1.0]))
+	_t.gt(float(counts[1.0]), float(counts[0.2]) * 2.0,
+		"a full crank (%d clicks) is no faster than a fifth of one (%d) - the rate is not the thumb's" % [
+			int(counts[1.0]), int(counts[0.2])])
+	_t.gt(float(counts[0.2]), 0.0, "a slow crank never clicks at all")
+	# At most the one click the crank coasts across as it comes to rest from a
+	# fifth of a turn - the inertia is the model's, on purpose - and no more.
+	_t.lt(float(counts[0.0]), 2.0, "a held reel clicked %d times" % int(counts[0.0]))
+	_t.eq(int(counts[-1.0]), 0, "giving line clicked %d times - that is the drag's sound, not the crank's" % int(counts[-1.0]))
+	_t.lt(float(counts[1.0]), 60.0, "a full crank clicked every frame - a tone, not a ratchet")
+
+	# 2. THE DRAG: loud giving under load, silent giving slack, silent held.
+	var audio = main._audio
+	_t.ok(audio != null, "there is no mixer to ask")
+	if audio == null:
+		return
+	# Let the crank come to rest first: one frame after the thumb comes off it
+	# is still most of the way to where it was, and that is the inertia, not
+	# the drag.
+	main.sim.set_reel(0.0)
+	for i in 40:
+		main.sim.running = false
+		main.sim.tension = 0.5
+		main.advance(step)
+	# A hundredth, not a millionth: the crank's exponential tail is still a
+	# quarter of a percent of "give" here, and the ear cannot hear that.
+	_t.approx(audio.drag_level(), 0.0, 0.01, "the drag sings (%.3f) with the line held and the fish calm" % audio.drag_level())
+	main.sim.set_reel(-1.0)
+	for i in 20:
+		main.sim.running = false
+		main.sim.tension = 0.7
+		main.advance(step)
+	_t.gt(audio.drag_level(), 0.5, "giving line under load sings at only %.2f" % audio.drag_level())
+	for i in 20:
+		main.sim.running = false
+		main.sim.tension = 0.02
+		main.advance(step)
+	_t.lt(audio.drag_level(), 0.15, "giving SLACK line sings at %.2f - nothing is pulling against it" % audio.drag_level())
+	main.sim.set_reel(0.0)
+	main.sim.running = true
+	main.advance(step)
+	_t.gt(audio.drag_level(), 0.9, "a running fish does not sing the drag (%.2f)" % audio.drag_level())
+	main.sim.running = false
+
+	# 3. THE GAP CLOSES WITH THE PRESSURE, monotonically, warn line to top.
+	var warn: float = Tuning.DANGER - main.LINE_WARN_FROM
+	_t.approx(main.buzz_gap(warn), main.BUZZ_GAP_WARN, 1e-6, "the gap at the warn line is not BUZZ_GAP_WARN")
+	_t.approx(main.buzz_gap(Tuning.TENSION_MAX), main.BUZZ_GAP_TOP, 1e-6, "the gap at the top is not BUZZ_GAP_TOP")
+	_t.gt(main.BUZZ_GAP_WARN, main.BUZZ_GAP_TOP, "the train does not close up with the pressure")
+	_t.gt(main.BUZZ_GAP_TOP, 0.045, "the top gap is under 50 ms, which the hand reads as one buzz")
+	var last: float = main.buzz_gap(warn)
+	for i in range(1, 11):
+		var t2: float = lerpf(warn, Tuning.TENSION_MAX, float(i) / 10.0)
+		var g: float = main.buzz_gap(t2)
+		_t.lt(g, last + 1e-9, "the gap grew from %.3f to %.3f between steps - not monotone" % [last, g])
+		last = g
 
 
 ## THE THREE THINGS GIDEON ASKED TO SEE AND FEEL.
@@ -1153,11 +1240,14 @@ func _check_the_fight_is_visible_and_felt(main) -> void:
 		"the rod is drawn from a different tension than the one that breaks the line")
 
 	# 3. TWO LEVELS OF BUZZ, AND THE HEAVY ONE REPEATS WITHOUT BEING CONTINUOUS.
-	main.sim.tension = Tuning.DANGER - 0.2
+	# Under the WARN line, where the train starts since F2.7, not the danger line.
+	main.sim.tension = Tuning.DANGER - main.LINE_WARN_FROM - 0.05
 	main.advance(1.0 / 60.0)
 	var quiet: int = main.buzzes
-	main.advance(0.5)
-	_t.eq(main.buzzes, quiet, "the rod buzzes while it is nowhere near over-bent")
+	for i in 30:
+		main.sim.tension = Tuning.DANGER - main.LINE_WARN_FROM - 0.05
+		main.advance(1.0 / 60.0)
+	_t.eq(main.buzzes, quiet, "the rod buzzes while it is under the warn line")
 
 	main.sim.tension = Tuning.TENSION_MAX
 	main.advance(1.0 / 60.0)
@@ -1174,7 +1264,7 @@ func _check_the_fight_is_visible_and_felt(main) -> void:
 		main.advance(1.0 / 60.0)
 	var fired: int = main.buzzes - at_start
 	_t.gt(float(fired), 1.0, "the heavy buzz fires once and never repeats, so it is an event rather than a state")
-	_t.lt(float(fired), seconds / main.BUZZ_OVER_EVERY + 2.0,
+	_t.lt(float(fired), seconds / main.BUZZ_GAP_TOP + 2.0,
 		"the heavy buzz fired %d times in a second - that is a continuous hum, not a pulse" % fired)
 
 ## EVERY FISH YOU CATCH IS IN THE BUCKET, AND IN IT RATHER THAN ON IT.

@@ -286,7 +286,17 @@ const BUZZ_PULL_MS := 22          ## the fish goes. A tap on the palm
 const BUZZ_PULL_AMP := 0.35
 const BUZZ_OVER_MS := 55          ## the rod is over-bent. Unmistakable
 const BUZZ_OVER_AMP := 0.9
-const BUZZ_OVER_EVERY := 0.17     ## seconds between heavy pulses
+## THE HEAVY TRAIN'S GAP SHRINKS WITH THE PRESSURE (F2.7). It starts at the warn
+## line, where the line begins to redden, as discrete pulses 170 ms apart, and
+## closes to 50 ms at the top of the scale - Android's own guidance: a gap of
+## 100 ms or more reads as separate pulses, 50 ms as one buzz, and a continuous
+## buzz carries no information while a rate does. So the phone says how close
+## the line is to going without a look. `buzz_gap` is the one function.
+const BUZZ_GAP_WARN := 0.17       ## seconds between heavy pulses at the warn line
+const BUZZ_GAP_TOP := 0.05        ## ...and at full tension
+## Clicks per turn of the crank. Four: a slow crank ticks, a fast one whirrs,
+## and at the full 25 rad/s that is sixteen a second, not a tone.
+const REEL_CLICKS_PER_TURN := 4
 
 ## The cast, which is a ROTATION and not a bend.
 ##
@@ -1052,6 +1062,8 @@ var _reel_spin := 0.0
 ## How long the rod has been over-bent without a heavy buzz. See `_sync_haptics`.
 var _buzz_wait := 0.0
 var _was_over := false
+var _buzz_gap := 0.17    ## the current gap of the heavy train, from buzz_gap()
+var _reel_clicks := 0    ## crank clicks asked for, for the test
 ## Haptics, counted so they can be asserted on. See `_buzz`.
 var buzzes := 0
 var last_buzz_ms := 0
@@ -2497,7 +2509,21 @@ func pressure_shown() -> float:
 func pressure_pulse() -> float:
 	if not _was_over:
 		return 0.0
-	return clampf(1.0 - _buzz_wait / maxf(0.01, BUZZ_OVER_EVERY), 0.0, 1.0)
+	return clampf(1.0 - _buzz_wait / maxf(0.01, _buzz_gap), 0.0, 1.0)
+
+
+## The gap between heavy pulses at a given tension: BUZZ_GAP_WARN at the warn
+## line, BUZZ_GAP_TOP at the top of the scale, straight between. Pure, so the
+## test can assert the shape - it shrinks, monotonically - without a phone.
+func buzz_gap(tension: float) -> float:
+	var warn := Tuning.DANGER - LINE_WARN_FROM
+	var k := clampf((tension - warn) / maxf(0.001, Tuning.TENSION_MAX - warn), 0.0, 1.0)
+	return lerpf(BUZZ_GAP_WARN, BUZZ_GAP_TOP, k)
+
+
+## How many reel clicks the crank has asked for. The test reads this.
+func reel_clicks() -> int:
+	return _reel_clicks
 
 
 ## Fill, brightness, mark, pulse - in that order of what the corner of an eye
@@ -3217,7 +3243,18 @@ func _sync_reel(dt: float) -> void:
 		var rate := REEL_SPIN_RATE * sim.reel
 		if sim.running and sim.reel > 0.0:
 			rate *= REEL_SPIN_STALL
+		var before := _reel_spin
 		_reel_spin += rate * dt
+		# THE CLICKS ARE THE CRANK'S OWN ANGLE (F2.7): one per quarter turn
+		# forward, so a slow crank ticks and a fast one whirrs and the rate is
+		# the thumb's. Giving line has the drag's ratchet instead of clicks.
+		if rate > 0.0:
+			var step := TAU / float(REEL_CLICKS_PER_TURN)
+			var crossed := int(floor(_reel_spin / step)) - int(floor(before / step))
+			if crossed > 0:
+				_reel_clicks += crossed
+				if _audio != null:
+					_audio.click(sim.tension)
 	_reel_crank.rotation.x = _reel_spin
 
 
@@ -3280,20 +3317,30 @@ func _sync_line_colour() -> void:
 ## problem; a pulse train also has a rhythm, and the rhythm is what carries "this
 ## is getting worse" in a way a flat hum cannot.
 func _sync_haptics(dt: float) -> void:
-	var over := sim.state == Sim.FIGHTING and sim.tension > Tuning.DANGER
+	# FROM THE WARN LINE, not the danger line (F2.7): the train starts where the
+	# line starts to redden, slow and discrete, and closes up as the pressure
+	# climbs - so the rate is the reading. The gauge's pulse reads the same
+	# timer, so the eye and the palm beat together from the same moment.
+	var warn := Tuning.DANGER - LINE_WARN_FROM
+	var over := sim.state == Sim.FIGHTING and sim.tension > warn
 	if not over:
 		_was_over = false
 		_buzz_wait = 0.0
 		return
+	_buzz_gap = buzz_gap(sim.tension)
+	# The pulse's weight climbs with the gap closing: a tap at the warn line, the
+	# full heavy pulse at the top.
+	var k := clampf((sim.tension - warn) / maxf(0.001, Tuning.TENSION_MAX - warn), 0.0, 1.0)
+	var amp := lerpf(BUZZ_OVER_AMP * 0.55, BUZZ_OVER_AMP, k)
 	if not _was_over:
 		_was_over = true
 		_buzz_wait = 0.0
-		_buzz(BUZZ_OVER_MS, BUZZ_OVER_AMP)
+		_buzz(BUZZ_OVER_MS, amp)
 		return
 	_buzz_wait += dt
-	if _buzz_wait >= BUZZ_OVER_EVERY:
+	if _buzz_wait >= _buzz_gap:
 		_buzz_wait = 0.0
-		_buzz(BUZZ_OVER_MS, BUZZ_OVER_AMP)
+		_buzz(BUZZ_OVER_MS, amp)
 
 
 
